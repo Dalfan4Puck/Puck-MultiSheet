@@ -1,0 +1,163 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Match PuckLargeLevel / workshop CustomLevelPlugin (Mono-safe). -->
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <OutputType>Library</OutputType>
+    <AssemblyName>MultiSheet</AssemblyName>
+    <RootNamespace>PHLPracticeModPack</RootNamespace>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <GameDir>C:\Program Files (x86)\Steam\steamapps\common\Puck</GameDir>
+    <GameManaged>$(GameDir)\Puck_Data\Managed</GameManaged>
+    <DeployDir>$(MSBuildProjectDirectory)\dist</DeployDir>
+    <PuckLargeLevelDir>$(MSBuildProjectDirectory)\_vendor\PuckLargeLevel</PuckLargeLevelDir>
+    <IncludePuckLargeLevel>true</IncludePuckLargeLevel>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="PHLPracticeModPackPlugin.cs" />
+    <Compile Include="PracticeLog.cs" />
+    <Compile Include="PHLPracticeModPackRuntime.cs" />
+    <Compile Include="MultiRinkConfig.cs" />
+    <Compile Include="MultiSheetClientSettings.cs" />
+    <Compile Include="RinkRenderFocus.cs" />
+    <Compile Include="PracticePresentation.cs" />
+    <Compile Include="MultiRinkService.cs" />
+    <Compile Include="RinkCommands.cs" />
+    <Compile Include="VanillaRinkCloner.cs" />
+    <Compile Include="ArenaLighting.cs" />
+    <Compile Include="ArenaGlare.cs" />
+    <Compile Include="CptThinSkaterOverride.cs" />
+    <Compile Include="TrlPracticeSmoothnessOverride.cs" />
+    <Compile Include="LocalBodyShadowFix.cs" />
+    <Compile Include="CptSpawnCompat.cs" />
+    <Compile Include="ArenaRenderCatalog.cs" />
+    <Compile Include="CloneDiagnostics.cs" />
+    <Compile Include="CloneVisualProxy.cs" />
+    <Compile Include="MultiRinkPuckSpawner.cs" />
+    <Compile Include="StockPuckHider.cs" />
+    <Compile Include="EmptyPucksCommand.cs" />
+    <Compile Include="MultiRinkSyncThrottle.cs" />
+    <Compile Include="StaticBatchMeshHelper.cs" />
+    <Compile Include="TrlReskinBridge.cs" />
+    <Compile Include="MultiRinkCloneMeta.cs" />
+    <Compile Include="MinimapRinkView.cs" />
+    <Compile Include="RinkMotdShared.cs" />
+    <Compile Include="RinkMotdService.cs" />
+    <Compile Include="RinkMotdUI.cs" />
+    <Compile Include="RinkPanelBuilder.cs" />
+    <Compile Include="PracticeMotdAssets.cs" />
+    <Compile Include="RinkPreview.cs" />
+    <Compile Include="RinkScoreboardTab.cs" />
+    <Compile Include="PracticeFlow.cs" />
+    <Compile Include="PracticeGoalieSpawn.cs" />
+    <Compile Include="CustomLevelBridge.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- PHL brand art baked into the DLL (header wordmark + community footer icons). -->
+    <EmbeddedResource Include="Icons\PHLLogoBlack.png" />
+    <EmbeddedResource Include="Icons\phlstatlogo4x.png" />
+    <EmbeddedResource Include="Icons\discord4x.png" />
+    <EmbeddedResource Include="Icons\youtube4x.png" />
+    <EmbeddedResource Include="Icons\twitch4x.png" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(IncludePuckLargeLevel)' == 'true'">
+    <Compile Include="$(PuckLargeLevelDir)\ChunkCoord.cs" Link="LargeLevel\ChunkCoord.cs" />
+    <Compile Include="$(PuckLargeLevelDir)\CL_ChunkRegistry.cs" Link="LargeLevel\CL_ChunkRegistry.cs" />
+    <Compile Include="$(PuckLargeLevelDir)\CL_ChunkSyncClient.cs" Link="LargeLevel\CL_ChunkSyncClient.cs" />
+    <Compile Include="$(PuckLargeLevelDir)\CL_ChunkSyncServer.cs" Link="LargeLevel\CL_ChunkSyncServer.cs" />
+    <Compile Include="$(PuckLargeLevelDir)\CL_NetworkBoundsPatch.cs" Link="LargeLevel\CL_NetworkBoundsPatch.cs" />
+    <Compile Include="$(PuckLargeLevelDir)\CL_LevelEnvironment.cs" Link="LargeLevel\CL_LevelEnvironment.cs" />
+    <Compile Include="$(PuckLargeLevelDir)\PuckSpawnSync.cs" Link="LargeLevel\PuckSpawnSync.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Puck">
+      <HintPath>..\libs\Puck.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(GameManaged)\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>$(GameManaged)\Newtonsoft.Json.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(GameManaged)\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.AssetBundleModule">
+      <HintPath>$(GameManaged)\UnityEngine.AssetBundleModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.PhysicsModule">
+      <HintPath>$(GameManaged)\UnityEngine.PhysicsModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.TerrainModule">
+      <HintPath>$(GameManaged)\UnityEngine.TerrainModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UIElementsModule">
+      <HintPath>$(GameManaged)\UnityEngine.UIElementsModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.TextRenderingModule">
+      <HintPath>$(GameManaged)\UnityEngine.TextRenderingModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.IMGUIModule">
+      <HintPath>$(GameManaged)\UnityEngine.IMGUIModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.Netcode.Runtime">
+      <HintPath>$(GameManaged)\Unity.Netcode.Runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.InputSystem">
+      <HintPath>$(GameManaged)\Unity.InputSystem.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.Collections">
+      <HintPath>$(GameManaged)\Unity.Collections.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.RenderPipelines.Universal.Runtime">
+      <HintPath>$(GameManaged)\Unity.RenderPipelines.Universal.Runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.RenderPipelines.Core.Runtime">
+      <HintPath>$(GameManaged)\Unity.RenderPipelines.Core.Runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="EnsureVendorPresent" BeforeTargets="CoreCompile"
+            Condition="'$(IncludePuckLargeLevel)' == 'true'">
+    <Error Condition="!Exists('$(PuckLargeLevelDir)\CL_ChunkRegistry.cs')"
+           Text="Missing $(PuckLargeLevelDir). Run: PHLPracticeModPack\setup-vendor.ps1" />
+  </Target>
+
+  <Target Name="CopyDeployOutputs" AfterTargets="Build">
+    <MakeDir Directories="$(DeployDir)" />
+    <MakeDir Directories="$(DeployDir)\config" />
+    <MakeDir Directories="$(DeployDir)\assets" />
+    <Copy SourceFiles="$(OutputPath)$(AssemblyName).dll"
+          DestinationFolder="$(DeployDir)"
+          OverwriteReadOnlyFiles="true" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\config\multi_rink.example.json"
+          DestinationFiles="$(DeployDir)\config\multi_rink.example.json"
+          SkipUnchangedFiles="true"
+          Condition="Exists('$(MSBuildProjectDirectory)\config\multi_rink.example.json')" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\assets\README.md"
+          DestinationFiles="$(DeployDir)\assets\README.md"
+          SkipUnchangedFiles="true"
+          Condition="Exists('$(MSBuildProjectDirectory)\assets\README.md')" />
+    <Message Importance="high" Text="Copied $(AssemblyName).dll → $(DeployDir)" />
+  </Target>
+</Project>

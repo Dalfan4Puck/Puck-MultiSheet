@@ -1,0 +1,20 @@
+bin/
+obj/
+assets/puckobjects
+*.user
+*.suo
+
+# Keep vendored source; ignore the nested git clone metadata only.
+_vendor/**/.git/
+
+# Never commit infrastructure details or operator guides — those live in the private
+# guides folder outside this repo.
+multisheet-deploy.json
+*.local.json
+Access VPS*.md
+Pushing to*.md
+config/multi_rink.vps.json
+oldversion.dll
+dist/MultiSheet-ROLLBACK.dll
+tools/ReflectHider.cs
+tools/add_workshop_mod.py

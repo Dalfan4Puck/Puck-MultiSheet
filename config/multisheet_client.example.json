@@ -1,0 +1,13 @@
+{
+  "dayNightEnabled": true,
+  "manualHour": -1.0,
+  "renderAllRinks": true,
+  "allowRinkChanges": true,
+  "skipChunkClient": false,
+  "skipArenaLighting": false,
+  "skipClientBuild": false,
+  "skipPracticeHud": false,
+  "hideStockPucks": false,
+  "skipScoreboardUi": true,
+  "skipMotdUi": true
+}

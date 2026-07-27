@@ -1,0 +1,87 @@
+{
+  "ConfigVersion": 6,
+  "EnableMultiRink": true,
+  "UseAssetBundle": false,
+  "HideHangar": true,
+  "CloneTemplates": [
+    "Rink",
+    "Goal Blue",
+    "Goal Red",
+    "Lights/Goal Blue",
+    "Lights/Goal Red"
+  ],
+  "AssetBundleFile": "assets/puckobjects",
+  "LevelPrefabName": "TestLevel",
+  "RinkSpacingZ": 128.0,
+  "RinkSpacingX": 64.0,
+  "RinkCapacity": 5,
+  "OffRinkSyncHz": 10,
+  "VerboseLogging": false,
+  "MotdTitle": "Welcome to PHL MultiSheet Practice",
+  "MotdSubtitle": "Nine sheets, one server. Pick a rink below — press R for a puck.",
+  "Rinks": [
+    {
+      "Id": "rink1",
+      "Command": "/rink1",
+      "Label": "Rink 1",
+      "WorldOrigin": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "Spawn": { "x": 0.0, "y": 0.0, "z": 0.0 }
+    },
+    {
+      "Id": "rink2",
+      "Command": "/rink2",
+      "Label": "Rink 2",
+      "WorldOrigin": { "x": 64.0, "y": 0.0, "z": 0.0 },
+      "Spawn": { "x": 64.0, "y": 0.0, "z": 0.0 }
+    },
+    {
+      "Id": "rink3",
+      "Command": "/rink3",
+      "Label": "Rink 3",
+      "WorldOrigin": { "x": 128.0, "y": 0.0, "z": 0.0 },
+      "Spawn": { "x": 128.0, "y": 0.0, "z": 0.0 }
+    },
+    {
+      "Id": "rink4",
+      "Command": "/rink4",
+      "Label": "Rink 4",
+      "WorldOrigin": { "x": 0.0, "y": 0.0, "z": 128.0 },
+      "Spawn": { "x": 0.0, "y": 0.0, "z": 128.0 }
+    },
+    {
+      "Id": "rink5",
+      "Command": "/rink5",
+      "Label": "Rink 5",
+      "WorldOrigin": { "x": 64.0, "y": 0.0, "z": 128.0 },
+      "Spawn": { "x": 64.0, "y": 0.0, "z": 128.0 }
+    },
+    {
+      "Id": "rink6",
+      "Command": "/rink6",
+      "Label": "Rink 6",
+      "WorldOrigin": { "x": 128.0, "y": 0.0, "z": 128.0 },
+      "Spawn": { "x": 128.0, "y": 0.0, "z": 128.0 }
+    },
+    {
+      "Id": "rink7",
+      "Command": "/rink7",
+      "Label": "Rink 7",
+      "WorldOrigin": { "x": 0.0, "y": 0.0, "z": 256.0 },
+      "Spawn": { "x": 0.0, "y": 0.0, "z": 256.0 }
+    },
+    {
+      "Id": "rink8",
+      "Command": "/rink8",
+      "Label": "Rink 8",
+      "WorldOrigin": { "x": 64.0, "y": 0.0, "z": 256.0 },
+      "Spawn": { "x": 64.0, "y": 0.0, "z": 256.0 }
+    },
+    {
+      "Id": "rink9",
+      "Command": "/rink9",
+      "Label": "Rink 9",
+      "WorldOrigin": { "x": 128.0, "y": 0.0, "z": 256.0 },
+      "Spawn": { "x": 128.0, "y": 0.0, "z": 256.0 }
+    }
+  ]
+}
