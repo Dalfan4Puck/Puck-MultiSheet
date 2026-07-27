@@ -168,26 +168,7 @@ namespace PHLPracticeModPack
         /// <summary>Harmony postfix target for every TRL apply point above.</summary>
         public static void OnTrlWroteArena()
         {
-            try
-            {
-                if (!MultiSheetClientSettings.AllowRinkChanges) return;
-
-                // Only re-layer while MultiSheet's practice environment is active.
-                if (ArenaGlare.IsActive)
-                    ArenaGlare.ReapplyAfterTrl();
-
-                ArenaLighting.SyncReflectionBaselineFromScene();
-
-                if (ArenaLighting.IsActive)
-                    ArenaLighting.ApplyEnvironment();
-
-                TrlPracticeSmoothnessOverride.Apply();
-                CloneVisualProxy.RefreshMaterials();
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning("[PHLPractice] TRL compatibility re-layer failed: " + ex.Message);
-            }
+            PresentationPipeline.ApplyAfterTrl();
         }
 
         private static Type FindType(string fullName)

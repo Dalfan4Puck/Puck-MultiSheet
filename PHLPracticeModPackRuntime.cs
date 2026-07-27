@@ -9,14 +9,14 @@ namespace PHLPracticeModPack
         {
             RinkMotdService.Tick();
             ChatOutbound.Tick();
-            // Settings flush used to live on ArenaLightingEnforcer; lean lighting may
-            // not spawn that object (fixed indoor / pinned hour).
-            MultiSheetClientSettings.Flush();
+            if (ModRuntimeContext.ShouldInstallClientPresentation())
+                MultiSheetClientSettings.Flush();
         }
 
         private void LateUpdate()
         {
-            // After every other mod's Update so the practice clock wins the frame.
+            if (!ModRuntimeContext.ShouldInstallClientPresentation()) return;
+
             PracticeFlowClient.LateTick();
             RinkPreview.LateTick();
         }

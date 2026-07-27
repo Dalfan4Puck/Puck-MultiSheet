@@ -17,6 +17,9 @@
 
   <ItemGroup>
     <Compile Include="PHLPracticeModPackPlugin.cs" />
+    <Compile Include="ModRuntimeContext.cs" />
+    <Compile Include="ModPatchInstaller.cs" />
+    <Compile Include="PresentationPipeline.cs" />
     <Compile Include="PracticeLog.cs" />
     <Compile Include="PHLPracticeModPackRuntime.cs" />
     <Compile Include="MultiRinkConfig.cs" />

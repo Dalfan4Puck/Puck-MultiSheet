@@ -104,7 +104,7 @@ namespace PHLPracticeModPack
         internal static void Install(UIScoreboard scoreboard)
         {
             if (!enabled || MultiSheetClientSettings.SkipScoreboardUi ||
-                scoreboard == null || IsDedicatedServer()) return;
+                scoreboard == null || ModRuntimeContext.IsDedicatedGameServer) return;
 
             // No Rinks tab on servers that don't run MultiSheet — Install is re-run on
             // every scoreboard Show, so the tab appears once the payload arrives.
@@ -629,11 +629,6 @@ namespace PHLPracticeModPack
                 if (el == null) break;
                 try { el.RemoveFromHierarchy(); } catch { break; }
             }
-        }
-
-        private static bool IsDedicatedServer()
-        {
-            return SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null;
         }
     }
 

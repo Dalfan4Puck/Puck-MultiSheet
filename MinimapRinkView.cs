@@ -44,6 +44,8 @@ namespace PHLPracticeModPack
         internal static void InstallPatch(Harmony harmony)
         {
             if (_installed || harmony == null) return;
+            if (ModRuntimeContext.IsDedicatedGameServer) return;
+            if (MultiSheetClientSettings.SkipMinimap) return;
 
             MethodInfo target = typeof(UIMinimap).GetMethod("ApplyMinimapTranslate",
                 BindingFlags.Instance | BindingFlags.NonPublic);
@@ -68,15 +70,13 @@ namespace PHLPracticeModPack
 
         public static bool TranslatePrefix(UIMinimap __instance, VisualElement element, ref Vector3 worldPosition)
         {
+            if (MultiSheetClientSettings.SkipMinimap) return true;
+
             MultiRinkConfig cfg = MultiRinkConfig.Current;
             if (!cfg.EnableMultiRink || cfg.Rinks == null || cfg.Rinks.Count < 2)
                 return true;
 
-            // The patch stays installed for the whole app run; stand down on servers
-            // that never confirmed MultiSheet (vanilla servers keep a vanilla minimap).
-            bool serverish = Unity.Netcode.NetworkManager.Singleton != null
-                && Unity.Netcode.NetworkManager.Singleton.IsServer;
-            if (!serverish && !PracticeFlowClient.IsOnPracticeServer)
+            if (!PracticeFlowClient.IsOnPracticeServer)
                 return true;
 
             // The controller copies the expanded Level.Bounds onto the minimap at level

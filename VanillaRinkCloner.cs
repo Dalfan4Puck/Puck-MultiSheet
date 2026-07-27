@@ -210,6 +210,8 @@ namespace PHLPracticeModPack
             {
                 if (addIceCollider)
                     AddIceSurfaceCollider(parent, name, offset, iceLayer);
+                if (ModRuntimeContext.IsDedicatedGameServer)
+                    StripDedicatedServerVisuals(clone);
                 PrepareServerClone(clone, iceLayer);
             }
             else
@@ -368,10 +370,26 @@ namespace PHLPracticeModPack
             {
                 if (col == null) continue;
                 col.enabled = true;
-                // Keep the vanilla layer (Instantiate already copied it). Flattening
-                // everything onto the Ice layer made the puck collide with player-only
-                // colliders (Goal Player Collider), wedging it inside the net. The
-                // skate-ground Ice layer is provided by AddIceSurfaceCollider's box.
+            }
+        }
+
+        /// <summary>Dedicated Linux: destroy render meshes after colliders are wired — host keeps visuals.</summary>
+        private static void StripDedicatedServerVisuals(GameObject clone)
+        {
+            Renderer[] renderers = clone.GetComponentsInChildren<Renderer>(true);
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                if (renderers[i] != null)
+                    UnityEngine.Object.Destroy(renderers[i]);
+            }
+
+            MeshFilter[] filters = clone.GetComponentsInChildren<MeshFilter>(true);
+            for (int i = 0; i < filters.Length; i++)
+            {
+                MeshFilter mf = filters[i];
+                if (mf == null) continue;
+                if (mf.GetComponent<MeshCollider>() != null) continue;
+                UnityEngine.Object.Destroy(mf);
             }
         }
 

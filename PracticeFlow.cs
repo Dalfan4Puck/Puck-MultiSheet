@@ -341,7 +341,7 @@ namespace PHLPracticeModPack
         {
             get
             {
-                if (IsDedicatedServer()) return false;
+                if (ModRuntimeContext.IsDedicatedGameServer) return false;
                 RinkMotdPayload payload;
                 return RinkMotdUI.TryGetLastPayload(out payload);
             }
@@ -401,7 +401,7 @@ namespace PHLPracticeModPack
         /// </summary>
         internal static void LateTick()
         {
-            if (IsDedicatedServer()) return;
+            if (ModRuntimeContext.IsDedicatedGameServer) return;
             if (MultiSheetClientSettings.SkipPracticeHud) return;
 
             float seconds;
@@ -470,7 +470,7 @@ namespace PHLPracticeModPack
         /// <summary>Client frame tick: overhead camera while awaiting a rink pick.</summary>
         internal static void Tick()
         {
-            if (IsDedicatedServer()) return;
+            if (ModRuntimeContext.IsDedicatedGameServer) return;
 
             bool wantOverhead = false;
             try
@@ -597,10 +597,6 @@ namespace PHLPracticeModPack
             grabbedCamera = null;
         }
 
-        private static bool IsDedicatedServer()
-        {
-            return SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null;
-        }
     }
 
     /// <summary>

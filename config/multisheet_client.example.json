@@ -9,5 +9,6 @@
   "skipPracticeHud": false,
   "hideStockPucks": false,
   "skipScoreboardUi": true,
-  "skipMotdUi": true
+  "skipMotdUi": true,
+  "skipMinimap": false
 }

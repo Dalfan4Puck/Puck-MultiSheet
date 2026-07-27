@@ -63,11 +63,11 @@ namespace PHLPracticeModPack
         /// </summary>
         public bool skipScoreboardUi = false;
 
-        /// <summary>
-        /// Skip join/F9 MOTD overlay and the multi-rink preview camera rig (FPS A/B).
-        /// Preview RTs are shared with the scoreboard Rinks tab — this kills those too.
-        /// </summary>
+        /// <summary>Skip join/F9 MOTD overlay and the multi-rink preview camera rig (FPS A/B).</summary>
         public bool skipMotdUi = false;
+
+        /// <summary>Skip minimap rink-local translate patch (FPS A/B).</summary>
+        public bool skipMinimap = false;
 
         private static MultiSheetClientSettings current;
         private static bool loaded;
@@ -111,6 +111,7 @@ namespace PHLPracticeModPack
         internal static bool HideStockPucks => Load().hideStockPucks;
         internal static bool SkipScoreboardUi => Load().skipScoreboardUi;
         internal static bool SkipMotdUi => Load().skipMotdUi;
+        internal static bool SkipMinimap => Load().skipMinimap;
 
         internal static string LoadedFromPath => Load() != null ? (loadedFromPath ?? ResolvePath()) : ResolvePath();
 

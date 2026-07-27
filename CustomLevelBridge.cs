@@ -145,6 +145,8 @@ public static class CustomLevelPlugin
         if (spawnPucks != null)
             harmony.Patch(spawnPucks, prefix: new HarmonyMethod(typeof(CustomLevelPlugin), nameof(PreventPuckSpawn)));
 
+        if (ModRuntimeContext.IsDedicatedGameServer) return;
+
         MethodInfo chatStart = typeof(UIChat).GetMethod("StartInput", BindingFlags.Instance | BindingFlags.Public);
         if (chatStart != null)
             harmony.Patch(chatStart, postfix: new HarmonyMethod(typeof(CustomLevelPlugin), nameof(OnChatStartInput)));
@@ -507,7 +509,6 @@ public static class CustomLevelPlugin
         ArenaLighting.Apply();
         // Honour Limit Rink Changes (unpatch TRL + stock look) after Apply.
         PracticePresentation.ApplyAfterClientBuild();
-        MinimapRinkView.InstallPatch(harmony);
         SpawnGroundPlane(cfg.Rinks, spawnedClientRoot);
         HideVanillaScoreboards();
         RinkPreview.NotifyClientBuildComplete();

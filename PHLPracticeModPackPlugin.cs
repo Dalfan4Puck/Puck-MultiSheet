@@ -15,25 +15,22 @@ namespace PHLPracticeModPack
             try
             {
                 harmony = new Harmony(HarmonyId);
-                TrlReskinBridge.SetHarmony(harmony);
                 RinkScoreboardTab.ResetForEnable();
-                harmony.PatchAll(typeof(PHLPracticeModPackPlugin).Assembly);
-                PracticeFlowServer.InstallSpawnPatch(harmony);
+                ModPatchInstaller.InstallAll(harmony);
 
                 MultiRinkConfig.LoadServerConfig();
                 PracticeLog.Verbose = MultiRinkConfig.Current.VerboseLogging;
-                // Force client JSON load + one-line skip dump into Player.log immediately.
                 MultiSheetClientSettings.Load();
                 LargeLevelHost.TryEnable(harmony);
                 RinkMotdService.Initialize();
 
-                // CPT loads with ThinSkaterBodies=true and does not sync it from the server.
-                // Force it off in memory (+ persist client JSON) so joiners get normal bodies.
-                CptThinSkaterOverride.Apply();
-
                 runtimeObject = new GameObject("PHLPracticeModPackRuntime");
                 runtimeObject.AddComponent<PHLPracticeModPackRuntime>();
-                runtimeObject.AddComponent<StockPuckHider>();
+                if (ModRuntimeContext.ShouldInstallClientPresentation())
+                {
+                    runtimeObject.AddComponent<StockPuckHider>();
+                    CptThinSkaterOverride.Apply();
+                }
                 UnityEngine.Object.DontDestroyOnLoad(runtimeObject);
 
                 string buildStamp = System.IO.File.GetLastWriteTime(
@@ -43,7 +40,8 @@ namespace PHLPracticeModPack
                 {
                     if (slot != null && !string.IsNullOrEmpty(slot.Command)) commandList.Add(slot.Command);
                 }
-                Debug.Log($"[PHLPractice] Enabled (build {buildStamp}, {commandList.Count} rinks). Commands: " +
+                Debug.Log($"[PHLPractice] Enabled role={ModRuntimeContext.RoleLabel} patches={ModPatchInstaller.InstalledCount} " +
+                          $"(build {buildStamp}, {commandList.Count} rinks). Commands: " +
                           string.Join(" ", commandList) + " /rinks /ep /multirink-dump");
                 return true;
             }
@@ -66,6 +64,8 @@ namespace PHLPracticeModPack
                 TrlReskinBridge.Clear();
                 ChatOutbound.Clear();
                 PracticeMotdAssets.Teardown();
+                ModRuntimeContext.Reset();
+                MinimapRinkView.Reset();
 
                 try { harmony?.UnpatchSelf(); }
                 catch (Exception ex) { Debug.LogWarning("[PHLPractice] UnpatchSelf failed: " + ex.Message); }

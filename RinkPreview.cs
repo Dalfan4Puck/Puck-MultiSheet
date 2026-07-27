@@ -62,7 +62,7 @@ namespace PHLPracticeModPack
         internal static void EnsureRig(RinkMotdPayload payload)
         {
             if (MultiSheetClientSettings.SkipMotdUi) return;
-            if (IsDedicatedServer() || payload?.Rinks == null || payload.Rinks.Count == 0) return;
+            if (ModRuntimeContext.IsDedicatedGameServer || payload?.Rinks == null || payload.Rinks.Count == 0) return;
             if (rigRoot != null && cameras.Count == 1 && textures.Count == 1) return;
 
             Teardown();
@@ -421,11 +421,6 @@ namespace PHLPracticeModPack
             {
                 if (cameras[i] != null) cameras[i].enabled = value;
             }
-        }
-
-        private static bool IsDedicatedServer()
-        {
-            return SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null;
         }
     }
 }

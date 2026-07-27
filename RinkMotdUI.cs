@@ -42,7 +42,7 @@ namespace PHLPracticeModPack
         /// <summary>Status packet from the server (show: 0 update, 1 forced, 2 welcome).</summary>
         internal static void OnStatusReceived(RinkMotdPayload payload, byte show)
         {
-            if (IsDedicatedServer() || payload == null) return;
+            if (ModRuntimeContext.IsDedicatedGameServer || payload == null) return;
             lastPayload = payload;
 
             if (MultiSheetClientSettings.SkipMotdUi)
@@ -390,11 +390,6 @@ namespace PHLPracticeModPack
                 ApplicationManager.SetMouseVisibility(GlobalStateManager.UIState.IsMouseRequired);
             }
             catch { }
-        }
-
-        private static bool IsDedicatedServer()
-        {
-            return SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null;
         }
     }
 
