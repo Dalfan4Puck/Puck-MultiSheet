@@ -7,6 +7,9 @@ assets/puckobjects
 # Keep vendored source; ignore the nested git clone metadata only.
 _vendor/**/.git/
 
+# FlamiePrac / PHL training vendor tree — local only, not for this repo.
+_vendor/phltrainingcode-main/
+
 # Never commit infrastructure details or operator guides — those live in the private
 # guides folder outside this repo.
 multisheet-deploy.json
