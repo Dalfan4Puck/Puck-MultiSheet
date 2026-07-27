@@ -1,0 +1,27 @@
+{
+  "AutoStart": true,
+  "Spawns": [
+    {
+      "Type": "prefab",
+      "Name": "trainingprefab",
+      "Position": { "x": 0.8, "y": 0.0, "z": 21.0 },
+      "RotationY": 0.0
+    },
+    {
+      "Type": "passer",
+      "Name": "passer",
+      "Position": { "x": 6.0, "y": 0.0, "z": 38.46 },
+      "RotationY": 45.0,
+      "Speed": 14.0,
+      "Scale": { "x": 5.0, "y": 0.55, "z": 0.5 }
+    },
+    {
+      "Type": "passer",
+      "Name": "passer",
+      "Position": { "x": -6.0, "y": 0.0, "z": 38.46 },
+      "RotationY": -45.0,
+      "Speed": 14.0,
+      "Scale": { "x": 5.0, "y": 0.55, "z": 0.5 }
+    }
+  ]
+}

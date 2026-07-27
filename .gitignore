@@ -7,8 +7,15 @@ assets/puckobjects
 # Keep vendored source; ignore the nested git clone metadata only.
 _vendor/**/.git/
 
-# FlamiePrac / PHL training vendor tree — local only, not for this repo.
-_vendor/phltrainingcode-main/
+# FlamiePrac build outputs / huge local archives (source + prefab bundle are tracked).
+_vendor/phltrainingcode-main/bin/
+_vendor/phltrainingcode-main/obj/
+_vendor/phltrainingcode-main/**/bin/
+_vendor/phltrainingcode-main/**/obj/
+_vendor/phltrainingcode-main/dist/*.dll
+_vendor/phltrainingcode-main/dist/*.pdb
+_vendor/phltrainingcode-main/*.zip
+_vendor/phltrainingcode-main/FlamieTraining-*.zip
 
 # Never commit infrastructure details or operator guides — those live in the private
 # guides folder outside this repo.

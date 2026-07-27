@@ -1,0 +1,89 @@
+{
+  "Renames": [
+    {
+      "OldName": "Untitl234ed",
+      "NewName": "Train_CenterPushBeam",
+      "Description": "Long dark pushable panel, center ice (~x0 z24)"
+    },
+    {
+      "OldName": "Untitled 1",
+      "NewName": "Train_ShooterSideRail",
+      "Description": "Segmented static board rail, +x shooter-tutor side (~x17 z31)"
+    },
+    {
+      "OldName": "Untitled 1 (1)",
+      "NewName": "Train_FarEndRail",
+      "Description": "Segmented static board rail, far -x end (~x-16 z-21)"
+    },
+    {
+      "OldName": "Speaker",
+      "NewName": "Train_RadioSpeaker",
+      "Description": "Dual radio speaker cabinet (+x boards)"
+    },
+    {
+      "OldName": "GoaltarpV1",
+      "NewName": "Train_ShooterTutor",
+      "Description": "Shooter tutor net tarp at goal line"
+    },
+    {
+      "OldName": "GoalieModel",
+      "NewName": "Train_GoalieDecor",
+      "Description": "Decorative goalie mesh (hidden — AI goalie replaces)"
+    },
+    {
+      "OldName": "GoalieModelStick",
+      "NewName": "Train_GoalieDecorStick",
+      "Description": "Decorative goalie stick mesh"
+    },
+    {
+      "OldName": "PlayerWithStick",
+      "NewName": "Train_PracticePlayer",
+      "Description": "Static practice player prop"
+    },
+    {
+      "OldName": "RotatingStick",
+      "NewName": "Train_RotatingStickRight",
+      "Description": "Spinning stick trainer (+x side)"
+    },
+    {
+      "OldName": "RotatingStick2",
+      "NewName": "Train_RotatingStickLeft",
+      "Description": "Spinning stick trainer (-x side)"
+    },
+    {
+      "OldName": "Cone (6)",
+      "NewName": "Train_Cone_01",
+      "Description": "Orange training cone — separate object, -x board line (nearest center ice)"
+    },
+    {
+      "OldName": "Cone (5)",
+      "NewName": "Train_Cone_02",
+      "Description": "Orange training cone — separate object, -x board line"
+    },
+    {
+      "OldName": "Cone (4)",
+      "NewName": "Train_Cone_03",
+      "Description": "Orange training cone — separate object, -x board line"
+    },
+    {
+      "OldName": "Cone (3)",
+      "NewName": "Train_Cone_04",
+      "Description": "Orange training cone — separate object, -x board line"
+    },
+    {
+      "OldName": "Cone (2)",
+      "NewName": "Train_Cone_05",
+      "Description": "Orange training cone — separate object, -x board line"
+    },
+    {
+      "OldName": "Cone (1)",
+      "NewName": "Train_Cone_06",
+      "Description": "Orange training cone — separate object, -x board line"
+    },
+    {
+      "OldName": "Cone",
+      "NewName": "Train_Cone_07",
+      "Description": "Orange training cone — separate object, -x board line (nearest goal end)"
+    }
+  ]
+}
