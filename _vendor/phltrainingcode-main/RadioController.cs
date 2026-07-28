@@ -42,7 +42,7 @@ public class RadioController : MonoBehaviour
     public ushort SyncVoteNeed { get; private set; }
     public bool IsSyncedPlayback { get; private set; }
 
-    /// <summary>Client-only listen switch. Server clock keeps advancing; turning on re-seeks to sync.</summary>
+    /// <summary>Client tune in/out (true radio). Server clock keeps advancing; tune-in re-seeks. Use volume for mute.</summary>
     public bool ListeningEnabled
     {
         get => listeningEnabled;
@@ -169,7 +169,7 @@ public class RadioController : MonoBehaviour
         if (playback == null)
             return;
 
-        // Off = silent client output; keep decode stopped via ApplyListeningState, not Pause.
+        // Volume slider mutes output; tune On/Off stops streaming via ApplyListeningState.
         playback.volume = listeningEnabled ? storedVolume * lastDistanceAttenuation : 0f;
     }
 
@@ -792,11 +792,11 @@ public class RadioController : MonoBehaviour
         if (primary.clip != null && primary.clip.length > 0.05f)
             seek = Mathf.Min(seek, Mathf.Max(0f, primary.clip.length - EndOfTrackEpsilonSeconds));
 
-        // Past end of clip: do NOT Play() again (that restarts the tail and sounds like a loop).
+        // Past end of clip: pause locally; server auto-advance owns the playlist clock.
         if (seek >= len - EndOfTrackEpsilonSeconds)
         {
             if (primary.isPlaying)
-                primary.Stop();
+                primary.Pause();
 
             ReportTrackEndedIfNeeded(forceRetry: true);
             return;
@@ -805,11 +805,12 @@ public class RadioController : MonoBehaviour
         if (!force && primary.isPlaying && Mathf.Abs(primary.time - seek) <= SyncSeekToleranceSeconds)
             return;
 
+        // Set seek before Play — Unity resets time to 0 on Play() otherwise.
+        primary.time = seek;
         if (!primary.isPlaying)
             primary.Play();
-
-        // Set time after Play — Unity can reset time on Play().
-        primary.time = seek;
+        if (Mathf.Abs(primary.time - seek) > SyncSeekToleranceSeconds)
+            primary.time = seek;
     }
 
     private void ApplyListeningState(bool seekIfOn)
@@ -823,37 +824,53 @@ public class RadioController : MonoBehaviour
         if (!listeningEnabled)
         {
             if (playback.isPlaying)
-                playback.Stop();
+                playback.Pause();
+            return;
+        }
+
+        if (IsSyncedPlayback)
+        {
+            if (playback.clip == null || !IsPlaybackClipForSyncedTrack())
+            {
+                if (!string.IsNullOrEmpty(syncedTrackId))
+                {
+                    int index = FindTrackIndex(syncedTrackId);
+                    if (index >= 0)
+                        RequestPlay(index, recordHistory: false);
+                }
+                return;
+            }
+
+            float seek = ComputeServerSeekSeconds();
+            float len = GetEffectivePlaybackLength();
+            if (len > 0.05f && seek >= len - EndOfTrackEpsilonSeconds)
+            {
+                playback.Pause();
+                return;
+            }
+
+            if (seekIfOn)
+                TrySyncSeek(force: true);
+            else if (!playback.isPlaying)
+                TrySyncSeek(force: true);
             return;
         }
 
         if (playback.clip == null)
             return;
 
-        if (IsSyncedPlayback)
-        {
-            float seek = ComputeServerSeekSeconds();
-            float len = GetEffectivePlaybackLength();
-            if (len > 0.05f && seek >= len - EndOfTrackEpsilonSeconds)
-            {
-                playback.Stop();
-                ReportTrackEndedIfNeeded(forceRetry: true);
-                return;
-            }
-
-            if (!playback.isPlaying)
-                playback.Play();
-            if (seekIfOn)
-                TrySyncSeek(force: true);
-            return;
-        }
-
         if (!playback.isPlaying)
+        {
+            playback.time = 0f;
             playback.Play();
+        }
     }
 
     private void ReportTrackEndedIfNeeded(bool forceRetry)
     {
+        if (!listeningEnabled)
+            return;
+
         if (!IsSyncedPlayback || string.IsNullOrEmpty(syncedTrackId))
             return;
 
@@ -870,6 +887,9 @@ public class RadioController : MonoBehaviour
 
     private void MaybeReportEndFromServerClock()
     {
+        if (!listeningEnabled)
+            return;
+
         if (!IsSyncedPlayback || string.IsNullOrEmpty(syncedTrackId))
             return;
 
@@ -883,13 +903,16 @@ public class RadioController : MonoBehaviour
             return;
 
         if (playback != null && playback.isPlaying)
-            playback.Stop();
+            playback.Pause();
 
         ReportTrackEndedIfNeeded(forceRetry: true);
     }
 
     private void MaybeReportVerifiedClipDuration()
     {
+        if (!listeningEnabled)
+            return;
+
         if (!IsSyncedPlayback || string.IsNullOrEmpty(syncedTrackId))
             return;
 
@@ -928,7 +951,7 @@ public class RadioController : MonoBehaviour
             syncedDuration = actualLen;
             reportedDurationForCurrent = true;
             RadioSync.ClientReportDuration(syncedTrackId, actualLen);
-            playback.Stop();
+            playback.Pause();
             ReportTrackEndedIfNeeded(forceRetry: true);
             lastPlaybackSampleTime = -1f;
             lastObservedPlaybackTime = -1f;
@@ -1232,7 +1255,7 @@ public class RadioController : MonoBehaviour
             if (listeningEnabled)
                 TrySyncSeek(force: false);
             else if (playback.isPlaying)
-                playback.Stop();
+                playback.Pause();
 
             trackWasPlaying = listeningEnabled && IsAnyOutputPlaying();
         }
@@ -1289,7 +1312,8 @@ public class RadioController : MonoBehaviour
     }
 
     /// <summary>
-    /// Client listen on/off. Does not pause the server clock — turning on re-seeks to the shared position.
+    /// Tune in/out (true radio). Does not affect the server clock — tune-in re-seeks to the live position.
+    /// Use the volume slider to mute while staying tuned in.
     /// </summary>
     public void TogglePlayPause()
     {
@@ -1665,7 +1689,7 @@ public class RadioController : MonoBehaviour
 
         float actualLen = Mathf.Max(t, lastObservedPlaybackTime);
         ReportCorrectedDuration(actualLen);
-        playback.Stop();
+        playback.Pause();
         ReportTrackEndedIfNeeded(forceRetry: true);
         lastObservedPlaybackTime = -1f;
     }
@@ -1719,8 +1743,8 @@ public class RadioController : MonoBehaviour
             if (IsSyncedPlayback && seek >= clip.length - EndOfTrackEpsilonSeconds)
             {
                 playback.clip = clip;
-                playback.Stop();
-                ReportTrackEndedIfNeeded(forceRetry: true);
+                playback.time = seek;
+                playback.Pause();
                 NotifyStateChanged();
                 return;
             }
@@ -1734,12 +1758,13 @@ public class RadioController : MonoBehaviour
 
         if (listeningEnabled)
         {
-            playback.Play();
             playback.time = seek;
+            playback.Play();
         }
         else
         {
-            playback.Stop();
+            playback.time = seek;
+            playback.Pause();
         }
 
         if (IsSyncedPlayback)

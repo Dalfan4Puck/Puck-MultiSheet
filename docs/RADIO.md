@@ -20,7 +20,7 @@ Late joiners get a snapshot on connect and hear the current song mid-track. Drif
 
 ### Skip vote
 
-HUD **Skip** casts a vote. Need `⌊n/2⌋ + 1` of connected clients (2/2, 2/3, 3/4, …). **Restart** resets the current track to t=0 for everyone. Personal ⏯ is local mute/pause only; unpause re-seeks to the server clock.
+HUD **Skip** casts a vote. Need `⌊n/2⌋ + 1` of connected clients (2/2, 2/3, 3/4, …). **Restart** resets the current track to t=0 for everyone. **On/Off** tunes streaming in/out (server clock keeps running; tune-in seeks to live position). **Volume** mutes locally while staying tuned in.
 
 ### Messaging
 
