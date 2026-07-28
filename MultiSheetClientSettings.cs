@@ -69,6 +69,21 @@ namespace PHLPracticeModPack
         /// <summary>Skip minimap rink-local translate patch (FPS A/B).</summary>
         public bool skipMinimap = false;
 
+        /// <summary>Key bound to spawn test puck (default R).</summary>
+        public string spawnPuckKey = "R";
+
+        /// <summary>Remember Keybinds collapsible open state in the rink panel.</summary>
+        public bool keybindsSectionOpen = false;
+
+        /// <summary>Remember Radio info collapsible open state in the rink panel.</summary>
+        public bool radioInfoSectionOpen = false;
+
+        /// <summary>When true, radio plays at full volume everywhere (intercom). When false, only near speakers.</summary>
+        public bool radioPlayEverywhere = false;
+
+        /// <summary>Max hear distance in meters for speaker-proximity radio (5–100).</summary>
+        public float radioSpeakerRange = 72f;
+
         private static MultiSheetClientSettings current;
         private static bool loaded;
         private static bool dirty;
@@ -112,6 +127,48 @@ namespace PHLPracticeModPack
         internal static bool SkipScoreboardUi => Load().skipScoreboardUi;
         internal static bool SkipMotdUi => Load().skipMotdUi;
         internal static bool SkipMinimap => Load().skipMinimap;
+
+        internal static string SpawnPuckKey
+        {
+            get
+            {
+                string key = Load().spawnPuckKey;
+                return string.IsNullOrWhiteSpace(key) ? "R" : key.Trim();
+            }
+            set
+            {
+                Load().spawnPuckKey = string.IsNullOrWhiteSpace(value) ? "R" : value.Trim();
+            }
+        }
+
+        internal static bool KeybindsSectionOpen
+        {
+            get { return Load().keybindsSectionOpen; }
+            set { Load().keybindsSectionOpen = value; }
+        }
+
+        internal static bool RadioInfoSectionOpen
+        {
+            get { return Load().radioInfoSectionOpen; }
+            set { Load().radioInfoSectionOpen = value; }
+        }
+
+        internal static bool RadioPlayEverywhere
+        {
+            get { return Load().radioPlayEverywhere; }
+            set { Load().radioPlayEverywhere = value; }
+        }
+
+        internal static float RadioSpeakerRange
+        {
+            get
+            {
+                float v = Load().radioSpeakerRange;
+                if (v < 5f) return 72f;
+                return Mathf.Clamp(v, 5f, 100f);
+            }
+            set { Load().radioSpeakerRange = Mathf.Clamp(value, 5f, 100f); }
+        }
 
         internal static string LoadedFromPath => Load() != null ? (loadedFromPath ?? ResolvePath()) : ResolvePath();
 

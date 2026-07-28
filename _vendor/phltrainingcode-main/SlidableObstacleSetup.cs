@@ -306,6 +306,8 @@ public static class SlidableObstacleSetup
             relativePathOverride ?? GetRelativePath(trainingRoot, target));
         obstacle.Initialize(trainingRoot, syncId, relativePath);
 
+        SlidableStickCollision.RegisterSlidable(target.gameObject);
+
         // Only the slidable root leaves the kinematic hive tree — children (decals) follow via hierarchy.
         if (target.parent == trainingRoot || target.IsChildOf(trainingRoot))
             target.SetParent(null, true);
@@ -1026,6 +1028,7 @@ public static class SlidableObstacleSetup
             target.SetParent(null, true);
 
         CollisionHelper.SetSlidablePhysicsLayer(target.gameObject);
+        SlidableStickCollision.RegisterSlidable(target.gameObject);
         SlidableObstacleSync.RegisterVisual(visual);
         SlidableObstacleSync.RegisterVisualAlias(visual, syncId, target.name);
         SlidableObstacleSync.RegisterVisualAlias(visual, syncId, CanonicalSlidablePath(target.name));

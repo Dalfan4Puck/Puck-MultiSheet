@@ -28,6 +28,8 @@ namespace PHLPracticeModPack
         internal readonly List<RinkStripMode> StripModes = new List<RinkStripMode>();
         /// <summary>Live strip vote for MOTD badges (server → client).</summary>
         internal RinkStripVoteProgress StripVoteProgress;
+        /// <summary>Server-authoritative slidable physics flag (synced on status v4+).</summary>
+        internal bool SlidablePhysicsEnabled;
 
         /// <summary>
         /// True when occupancy, capacity, role, or the local player's rink highlight

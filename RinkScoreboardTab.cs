@@ -373,6 +373,13 @@ namespace PHLPracticeModPack
             }
         }
 
+        /// <summary>Re-measure scoreboard height when Keybinds/Radio collapsibles toggle.</summary>
+        internal static void RefreshBoardLayout()
+        {
+            if (!enabled || !menuPaneActive) return;
+            ApplyMenuBoardHeight();
+        }
+
         internal static void InvalidateCardCache()
         {
             RadioHudUI.DetachEmbedded();
@@ -616,6 +623,10 @@ namespace PHLPracticeModPack
                 // Size to content only — growing toward the screen height just opens a
                 // blank gap between the position row and the community footer.
                 float target = dense ? MenuMinBoardHeight + 50f : MenuMinBoardHeight;
+                if (MultiSheetClientSettings.KeybindsSectionOpen)
+                    target += 168f;
+                if (MultiSheetClientSettings.RadioInfoSectionOpen)
+                    target += 112f;
                 try { target = Mathf.Min(target, Screen.height * 0.92f); }
                 catch { }
 

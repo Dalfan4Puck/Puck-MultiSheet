@@ -342,6 +342,7 @@ namespace MyMod
                 // Never PatchAll the whole assembly — when compiled into MultiSheet.dll that
                 // would double-apply PHLPractice Harmony patches already installed separately.
                 PatchFlamieHarmonyOnly();
+                StickIcePassThrough.InstallHarmonyPatches(harmony);
 
                 harmonyPatched = true;
 

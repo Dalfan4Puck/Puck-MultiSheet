@@ -598,6 +598,7 @@ public class SlidableObstacle : MonoBehaviour
         }
 
         RefreshBodyColliders();
+        SlidableStickCollision.RegisterSlidable(gameObject);
         AlignMassToColliders();
         // Flat beams: collider face after FitBox. Speakers: mesh/visual support.
         PlaceOnIceSurface(preferColliderHull: settleFlatOnIce || freezePitchRoll);

@@ -20,6 +20,7 @@ public static class FlamiePracFeatures
             SlidablePhysicsEnabled = enabled;
             SlidableObstacle.ApplyPhysicsEnabled(enabled);
             SlidableBoardCollision.Ensure();
+            StickIcePassThrough.ScanSceneFloorIce(logResult: true);
             if (enabled)
             {
                 SlidableObstacleSync.ForceBroadcastAll();

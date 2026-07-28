@@ -26,12 +26,13 @@ public class RadioController : MonoBehaviour
     private const float UrlRefreshSkewSeconds = 90f;
     /// <summary>Playlist poll interval — well under ~90 req/min/IP; never fetch every frame.</summary>
     private const float PlaylistRefreshSeconds = 300f;
-    private const float SyncSeekToleranceSeconds = 1.25f;
-    private const float SyncReseekIntervalSeconds = 4.0f;
+    private const float SyncSeekToleranceSeconds = 0.35f;
+    private const float SyncReseekIntervalSeconds = 2.0f;
+    private const float SyncSeekVerifySeconds = 0.05f;
     private const float EndOfTrackEpsilonSeconds = 0.2f;
     /// <summary>Match former 3D speaker rolloff for fake near-speaker volume.</summary>
     private const float VolumeMinDistance = 4f;
-    private const float VolumeMaxDistance = 36f;
+    private const float DefaultSpeakerMaxDistance = 15f;
 
     public static RadioController Instance { get; private set; }
 
@@ -70,7 +71,7 @@ public class RadioController : MonoBehaviour
     private float nextPlaybackRecoveryTime;
     private float nextDistanceVolumeTime;
     private float lastDistanceAttenuation = 1f;
-    private bool listeningEnabled = true;
+    private bool listeningEnabled = false;
     private float nextEndReportRetryTime;
     private static Camera cachedListenerCamera;
 
@@ -129,7 +130,7 @@ public class RadioController : MonoBehaviour
     private bool advancingTrack;
     private bool trackWasPlaying;
     private bool libraryReady;
-    private float storedVolume = 0.2f;
+    private float storedVolume = 0.1f;
     private float lastPrevPressTime;
     private float currentTrackStartedAt;
     private Coroutine delayedRestartCoroutine;
@@ -198,8 +199,16 @@ public class RadioController : MonoBehaviour
 
     private float ComputeNearestSpeakerAttenuation()
     {
-        if (speakerAnchors.Count == 0)
+        if (TryGetPlayEverywhere(out bool everywhere) && everywhere)
             return 1f;
+
+        PruneDeadSpeakerAnchors();
+        if (speakerAnchors.Count == 0)
+            return 0f;
+
+        float maxDistance = TryGetSpeakerMaxDistance(out float maxDist)
+            ? maxDist
+            : DefaultSpeakerMaxDistance;
 
         Vector3 listener = GetListenerWorldPosition();
         float best = float.MaxValue;
@@ -215,15 +224,43 @@ public class RadioController : MonoBehaviour
         }
 
         if (best == float.MaxValue)
-            return 1f;
+            return 0f;
         if (best <= VolumeMinDistance)
             return 1f;
-        if (best >= VolumeMaxDistance)
+        if (best >= maxDistance)
             return 0f;
 
-        // Smooth falloff approximating former log rolloff 4–36 m.
-        float t = (best - VolumeMinDistance) / (VolumeMaxDistance - VolumeMinDistance);
+        // Smooth falloff approximating former log rolloff inside the configured range.
+        float t = (best - VolumeMinDistance) / (maxDistance - VolumeMinDistance);
         return Mathf.Clamp01(1f - Mathf.Log10(1f + 9f * t));
+    }
+
+    private static bool TryGetPlayEverywhere(out bool everywhere)
+    {
+        everywhere = false;
+        try
+        {
+            everywhere = PHLPracticeModPack.MultiSheetClientSettings.RadioPlayEverywhere;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool TryGetSpeakerMaxDistance(out float maxDistance)
+    {
+        maxDistance = DefaultSpeakerMaxDistance;
+        try
+        {
+            maxDistance = PHLPracticeModPack.MultiSheetClientSettings.RadioSpeakerRange;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static Vector3 GetListenerWorldPosition()
@@ -404,8 +441,8 @@ public class RadioController : MonoBehaviour
         }
 
         Instance = this;
-        storedVolume = PlayerPrefs.GetFloat(PrefVolume, 0.2f);
-        listeningEnabled = PlayerPrefs.GetInt(PrefListening, 1) != 0;
+        storedVolume = PlayerPrefs.GetFloat(PrefVolume, 0.1f);
+        listeningEnabled = PlayerPrefs.GetInt(PrefListening, 0) != 0;
     }
 
     private void OnDestroy()
@@ -664,6 +701,14 @@ public class RadioController : MonoBehaviour
             syncedDuration = ResolveDurationForTrack(trackId, duration);
             currentSong = index;
             pendingStartIndex = -1;
+            // Detach stale clip immediately so Update() cannot Play() the ending track
+            // with the next track's near-zero server seek while the new clip loads.
+            EnsurePlaybackSource();
+            if (playback != null)
+            {
+                playback.Pause();
+                playback.clip = null;
+            }
             RequestPlay(index, recordHistory: false);
         }
         else if (restartClock)
@@ -783,6 +828,13 @@ public class RadioController : MonoBehaviour
         if (primary == null || primary.clip == null)
             return;
 
+        // While the next track is streaming in, never touch the previous clip.
+        if (playRoutine != null)
+            return;
+
+        if (!IsPlaybackClipForSyncedTrack())
+            return;
+
         float seek = ComputeServerSeekSeconds();
         float len = GetEffectivePlaybackLength();
         if (len <= 0.05f)
@@ -805,11 +857,15 @@ public class RadioController : MonoBehaviour
         if (!force && primary.isPlaying && Mathf.Abs(primary.time - seek) <= SyncSeekToleranceSeconds)
             return;
 
-        // Set seek before Play — Unity resets time to 0 on Play() otherwise.
+        // Tune-in / forced snap: Pause first so Unity does not resume from the local pause point.
+        if (force)
+            primary.Pause();
+
         primary.time = seek;
         if (!primary.isPlaying)
             primary.Play();
-        if (Mathf.Abs(primary.time - seek) > SyncSeekToleranceSeconds)
+
+        if (Mathf.Abs(primary.time - seek) > SyncSeekVerifySeconds)
             primary.time = seek;
     }
 
@@ -832,6 +888,9 @@ public class RadioController : MonoBehaviour
         {
             if (playback.clip == null || !IsPlaybackClipForSyncedTrack())
             {
+                if (playback.isPlaying)
+                    playback.Pause();
+
                 if (!string.IsNullOrEmpty(syncedTrackId))
                 {
                     int index = FindTrackIndex(syncedTrackId);
@@ -850,9 +909,15 @@ public class RadioController : MonoBehaviour
             }
 
             if (seekIfOn)
+            {
+                nextSyncSeekTime = 0f;
                 TrySyncSeek(force: true);
+            }
             else if (!playback.isPlaying)
+            {
+                nextSyncSeekTime = 0f;
                 TrySyncSeek(force: true);
+            }
             return;
         }
 
@@ -887,9 +952,6 @@ public class RadioController : MonoBehaviour
 
     private void MaybeReportEndFromServerClock()
     {
-        if (!listeningEnabled)
-            return;
-
         if (!IsSyncedPlayback || string.IsNullOrEmpty(syncedTrackId))
             return;
 
@@ -905,7 +967,9 @@ public class RadioController : MonoBehaviour
         if (playback != null && playback.isPlaying)
             playback.Pause();
 
-        ReportTrackEndedIfNeeded(forceRetry: true);
+        // Report even while tuned out so the server playlist keeps advancing.
+        if (listeningEnabled)
+            ReportTrackEndedIfNeeded(forceRetry: true);
     }
 
     private void MaybeReportVerifiedClipDuration()

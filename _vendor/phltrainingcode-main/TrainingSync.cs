@@ -273,6 +273,9 @@ public sealed class TrainingSync : MonoBehaviour
         if (shutDown)
             return;
 
+        StickIcePassThrough.ScanSceneFloorIce(logResult: true);
+        SlidableBoardCollision.SyncStickIceLayerPolicy();
+
         RefreshNetworkRoles();
 
         // Use live Netcode flags — stale isClient misses LevelSpawned before WaitForNetwork finishes.

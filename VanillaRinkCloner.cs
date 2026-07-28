@@ -160,6 +160,8 @@ namespace PHLPracticeModPack
                 }
             }
 
+            StickIcePassThrough.ScanSceneFloorIce(logResult: true);
+            SlidableBoardCollision.SyncStickIceLayerPolicy();
             return root;
         }
 
@@ -690,6 +692,7 @@ namespace PHLPracticeModPack
             // IceSurfaceY put the surface 10 cm above rink 1's, floating pucks/skaters.
             box.center = new Vector3(0f, -box.size.y * 0.5f, 0f);
             if (iceLayer >= 0) iceObj.layer = iceLayer;
+            StickIcePassThrough.RegisterFloorIce(box);
         }
 
         internal static Vector3 ResolveSpawnPoint(RinkSlot slot)

@@ -7,12 +7,11 @@ using UnityEngine;
 /// </summary>
 public static class CollisionHelper
 {
-    // Movables (speakers/beam) stay on Ice for stick skate raycasts.
-    // Static hive hitboxes use an unused user layer (not Default/Ice):
-    // - Ice↔Ice is off → static must not share Ice with slidables
-    // - Stick must not collide with cones/decor/spinners (Default would break Stick↔world)
+    // Static hive hitboxes use an unused user layer (not Default/Ice).
+    // Slidables use a second unused layer so Stick↔Ice stays vanilla while Stick↔slidable pushes.
     private static int? _iceLayerIndex;
     private static int? _staticTrainingLayerIndex;
+    private static int? _slidablePropLayerIndex;
 
     private static int IceLayer
     {
@@ -34,9 +33,38 @@ public static class CollisionHelper
                     Debug.LogWarning("[FlamiePrac] No suitable layer found, using Default layer");
                 }
                 _iceLayerIndex = layer;
-                Debug.Log($"[FlamiePrac] Slidable Ice layer index: {layer} ({LayerMask.LayerToName(layer)})");
+                Debug.Log($"[FlamiePrac] Rink Ice layer index: {layer} ({LayerMask.LayerToName(layer)})");
             }
             return _iceLayerIndex.Value;
+        }
+    }
+
+    private static int SlidablePropLayer
+    {
+        get
+        {
+            if (!_slidablePropLayerIndex.HasValue)
+            {
+                int exclude = StaticTrainingLayer;
+                int layer = FindUnusedUserLayer(exclude);
+                if (layer < 0)
+                {
+                    layer = LayerMask.NameToLayer("Post Processing");
+                    if (layer < 0 || layer == exclude)
+                        layer = 0;
+                    Debug.LogWarning("[FlamiePrac] No empty user layer for slidables; using " +
+                                     LayerMask.LayerToName(layer) + " (" + layer + ")");
+                }
+                else
+                {
+                    Debug.Log("[FlamiePrac] Slidable prop layer index: " + layer +
+                              " (Stick/Body collide; Puck ignored; Stick↔Ice unchanged).");
+                }
+
+                _slidablePropLayerIndex = layer;
+            }
+
+            return _slidablePropLayerIndex.Value;
         }
     }
 
@@ -70,13 +98,17 @@ public static class CollisionHelper
     }
 
     /// <summary>First empty TagManager slot (Puck leaves 21–31 blank).</summary>
-    private static int FindUnusedUserLayer()
+    private static int FindUnusedUserLayer(int excludeLayer = -1)
     {
         for (int i = 21; i < 32; i++)
         {
+            if (i == excludeLayer)
+                continue;
+
             if (string.IsNullOrEmpty(LayerMask.LayerToName(i)))
                 return i;
         }
+
         return -1;
     }
 
@@ -460,19 +492,18 @@ public static class CollisionHelper
     }
 
     /// <summary>
-    /// Slidables must use Ice so stick raycasts / player skating treat them as standable ground
-    /// (StickPositioner.raycastLayerMask is Ice-based). Ice↔Ice simulation is usually disabled,
-    /// so SlidableObstacle constrains height against the rink surface instead of relying on Ice↔Ice contact.
+    /// Dedicated mod layer — not Ice — so vanilla Stick↔Ice dip is untouched.
+    /// StickPositioner raycasts include this layer via SlidableGroundRaycastPatch.
     /// </summary>
     public static void SetSlidablePhysicsLayer(GameObject obj)
     {
         if (obj == null)
             return;
 
-        SetLayerRecursive(obj, IceLayer);
+        SetLayerRecursive(obj, SlidablePropLayer);
     }
 
-    public static int GetSlidablePropLayerIndex() => IceLayer;
+    public static int GetSlidablePropLayerIndex() => SlidablePropLayer;
 
     public static int GetStaticTrainingPropLayerIndex() => StaticTrainingLayer;
 

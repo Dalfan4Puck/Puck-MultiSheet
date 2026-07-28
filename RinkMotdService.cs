@@ -15,10 +15,11 @@ namespace PHLPracticeModPack
     {
         private const string StatusChannel = "multisheet-motd-v1";
         private const string RequestChannel = "multisheet-motd-req-v1";
-        private const byte ProtocolVersion = 3;
+        private const byte ProtocolVersion = 4;
         private const byte OpRequestShow = 0;
         private const byte OpTeleport = 1;
         private const byte OpSetRole = 2;
+        private const byte OpSetSlidable = 3;
         private const int MaxPayloadBytes = 4096;
         private const float OccupancyPollSeconds = 0.5f;
 
@@ -146,6 +147,39 @@ namespace PHLPracticeModPack
             return counts;
         }
 
+        /// <summary>Human players standing on a specific rink (nearest-rink body position).</summary>
+        internal static int CountHumanPlayersOnRink(MultiRinkConfig cfg, int rinkIndex)
+        {
+            if (cfg?.Rinks == null || rinkIndex < 0 || rinkIndex >= cfg.Rinks.Count)
+                return 0;
+
+            int count = 0;
+            try
+            {
+                PlayerManager pm = MonoBehaviourSingleton<PlayerManager>.Instance;
+                if (pm == null) return 0;
+                foreach (Player player in pm.GetPlayers())
+                {
+                    if (player == null || player.PlayerBody == null) continue;
+                    if (FakePlayerDetector.IsAnyFakePlayer(player)) continue;
+                    try
+                    {
+                        if (FakePlayerDetector.IsAnyFakeClientId(player.OwnerClientId)) continue;
+                    }
+                    catch { }
+                    try { if (player.IsReplay != null && player.IsReplay.Value) continue; } catch { }
+
+                    int rink = RinkLocator.NearestRink(cfg, player.PlayerBody.transform.position);
+                    if (rink == rinkIndex) count++;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[PHLPractice] Human rink count failed: " + ex.Message);
+            }
+            return count;
+        }
+
         /// <summary>Capacity gate used by chat commands and MOTD teleports alike.</summary>
         internal static bool IsRinkFullFor(ulong clientId, RinkSlot slot, out string message)
         {
@@ -262,6 +296,8 @@ namespace PHLPracticeModPack
                         writer.WriteValueSafe((byte)mode);
                     }
 
+                    writer.WriteValueSafe((byte)(FlamiePracFeatures.SlidablePhysicsEnabled ? 1 : 0));
+
                     manager.CustomMessagingManager.SendNamedMessage(
                         StatusChannel, clientId, writer, NetworkDelivery.ReliableSequenced);
                 }
@@ -288,7 +324,7 @@ namespace PHLPracticeModPack
                     return;
                 }
 
-                if (op != OpTeleport && op != OpSetRole) return;
+                if (op != OpTeleport && op != OpSetRole && op != OpSetSlidable) return;
 
                 if (op == OpSetRole)
                 {
@@ -300,6 +336,26 @@ namespace PHLPracticeModPack
                     BroadcastStatus();
                     return;
                 }
+
+                if (op == OpSetSlidable)
+                {
+                    reader.ReadValueSafe(out byte enabledByte);
+                    if (!TryAuthorizeSlidable(senderClientId, out string denyMessage))
+                    {
+                        QueuePrivateChat(senderClientId, denyMessage ?? "Admin only.");
+                        return;
+                    }
+
+                    bool enabled = enabledByte != 0;
+                    FlamiePracFeatures.SetSlidablePhysicsEnabled(enabled);
+                    PracticeLog.Info("[PHLPractice] Slidable physics " + (enabled ? "enabled" : "disabled") +
+                                     " by client " + senderClientId);
+                    QueuePrivateChat(senderClientId, "Slidable physics " + (enabled ? "enabled" : "disabled") + ".");
+                    BroadcastStatus();
+                    return;
+                }
+
+                if (op != OpTeleport) return;
 
                 reader.ReadValueSafe(out byte rinkIndex);
 
@@ -370,6 +426,16 @@ namespace PHLPracticeModPack
             {
                 writer.WriteValueSafe(OpSetRole);
                 writer.WriteValueSafe(role > 0 ? (byte)1 : (byte)0);
+            }, 2);
+        }
+
+        /// <summary>Ask the server to enable or disable slidable physics (admin/host).</summary>
+        internal static void ClientRequestSetSlidable(bool enabled)
+        {
+            SendRequest(writer =>
+            {
+                writer.WriteValueSafe(OpSetSlidable);
+                writer.WriteValueSafe(enabled ? (byte)1 : (byte)0);
             }, 2);
         }
 
@@ -446,6 +512,12 @@ namespace PHLPracticeModPack
                         payload.StripModes.Add(RinkStripModeUtil.Parse(modeByte));
                     }
                     payload.StripVoteProgress = RinkStripVote.CurrentProgress;
+                }
+
+                if (version >= 4)
+                {
+                    reader.ReadValueSafe(out byte slidableByte);
+                    payload.SlidablePhysicsEnabled = slidableByte != 0;
                 }
 
                 // Build deferred client-side rink visuals before the MOTD/preview rig
@@ -534,6 +606,7 @@ namespace PHLPracticeModPack
         {
             localConnected = false;
             PracticeFlowClient.OnLocalDisconnected();
+            MinimapSessionOverride.RestoreOnDisconnect();
             RinkMotdUI.OnDisconnected();
             RinkScoreboardTab.OnDisconnected();
             RinkPreview.Teardown();
@@ -572,6 +645,49 @@ namespace PHLPracticeModPack
             byte[] bytes = new byte[length];
             reader.ReadBytesSafe(ref bytes, length);
             return Encoding.UTF8.GetString(bytes);
+        }
+
+        private static bool TryAuthorizeSlidable(ulong clientId, out string message)
+        {
+            message = null;
+            NetworkManager nm = NetworkManager.Singleton;
+            if (nm != null && nm.IsServer && clientId == nm.LocalClientId)
+                return true;
+
+            PlayerManager pm = MonoBehaviourSingleton<PlayerManager>.Instance;
+            Player player = pm != null ? pm.GetPlayerByClientId(clientId) : null;
+            if (player == null)
+            {
+                message = "Player not found.";
+                return false;
+            }
+
+            if (IsAdminPlayer(player))
+                return true;
+
+            message = "Admin only: slidable toggle requires host or admin.";
+            return false;
+        }
+
+        private static bool IsAdminPlayer(Player player)
+        {
+            if (player == null) return false;
+            if (player.AdminLevel != null && player.AdminLevel.Value > 0)
+                return true;
+
+            try
+            {
+                ServerManager instance = NetworkBehaviourSingleton<ServerManager>.Instance;
+                if (instance?.AdminManager == null)
+                    return false;
+                AdminManager adminManager = instance.AdminManager;
+                FixedString32Bytes value = player.SteamId.Value;
+                return adminManager.IsSteamIdAdmin(value.ToString());
+            }
+            catch
+            {
+                return false;
+            }
         }
     }
 }

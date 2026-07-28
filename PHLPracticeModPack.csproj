@@ -48,6 +48,7 @@
     <Compile Include="TrlReskinBridge.cs" />
     <Compile Include="MultiRinkCloneMeta.cs" />
     <Compile Include="MinimapRinkView.cs" />
+    <Compile Include="MinimapSessionOverride.cs" />
     <Compile Include="RinkStripMode.cs" />
     <Compile Include="RinkStripVoteProgress.cs" />
     <Compile Include="RinkStripVote.cs" />
@@ -55,6 +56,7 @@
     <Compile Include="RinkMotdService.cs" />
     <Compile Include="RinkMotdUI.cs" />
     <Compile Include="RinkPanelBuilder.cs" />
+    <Compile Include="RinkPanelCollapsible.cs" />
     <Compile Include="PracticeMotdAssets.cs" />
     <Compile Include="RinkPreview.cs" />
     <Compile Include="RinkScoreboardTab.cs" />
@@ -113,10 +115,13 @@
     <Compile Include="$(FlamieDir)\RadioSync.cs" Link="Flamie\RadioSync.cs" />
     <Compile Include="$(FlamieDir)\ReactiveTarget.cs" Link="Flamie\ReactiveTarget.cs" />
     <Compile Include="$(FlamieDir)\RinkOrigin.cs" Link="Flamie\RinkOrigin.cs" />
+    <Compile Include="$(FlamieDir)\StickIcePassThrough.cs" Link="Flamie\StickIcePassThrough.cs" />
     <Compile Include="$(FlamieDir)\SlidableBoardCollision.cs" Link="Flamie\SlidableBoardCollision.cs" />
+    <Compile Include="$(FlamieDir)\SlidableGroundRaycastPatch.cs" Link="Flamie\SlidableGroundRaycastPatch.cs" />
     <Compile Include="$(FlamieDir)\SlidableObstacle.cs" Link="Flamie\SlidableObstacle.cs" />
     <Compile Include="$(FlamieDir)\SlidableObstacleSetup.cs" Link="Flamie\SlidableObstacleSetup.cs" />
     <Compile Include="$(FlamieDir)\SlidableObstacleSync.cs" Link="Flamie\SlidableObstacleSync.cs" />
+    <Compile Include="$(FlamieDir)\SlidableStickCollision.cs" Link="Flamie\SlidableStickCollision.cs" />
     <Compile Include="$(FlamieDir)\SlidablePuckFilter.cs" Link="Flamie\SlidablePuckFilter.cs" />
     <Compile Include="$(FlamieDir)\TrainingClientChat.cs" Link="Flamie\TrainingClientChat.cs" />
     <Compile Include="$(FlamieDir)\TrainingLayoutConfig.cs" Link="Flamie\TrainingLayoutConfig.cs" />
