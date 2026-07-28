@@ -308,7 +308,8 @@ namespace PHLPracticeModPack
                 if (m.Clone == null) continue;
                 bool on = renderAll
                     || (focused && ArenaLighting.SameRink(m.OriginX, m.OriginZ, fx, fz))
-                    || (live && ArenaLighting.SameRink(m.OriginX, m.OriginZ, lx, lz));
+                    || (live && ArenaLighting.SameRink(m.OriginX, m.OriginZ, lx, lz))
+                    || RinkPreview.IsOriginInCapture(m.OriginX, m.OriginZ);
                 // No focus yet: leave mirrors off in just-my-rink (MOTD capture uses preview cams).
                 if (!renderAll && !focused && !live) on = false;
                 if (m.WantEnabled != on || m.Clone.enabled != on)

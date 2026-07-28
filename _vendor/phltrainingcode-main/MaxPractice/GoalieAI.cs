@@ -511,7 +511,7 @@ namespace MaxPractice
                     }
                     else
                     {
-                        Vector3 goalCenter = new Vector3(0f, 0f, goalPos.z);
+                        Vector3 goalCenter = new Vector3(goalPos.x, 0f, goalPos.z);
                         Vector3 puckToGoal = goalCenter - puckPos;
                         puckToGoal.y = 0;
                         float puckToGoalDist = puckToGoal.magnitude;
@@ -524,7 +524,7 @@ namespace MaxPractice
                         interceptPos = new Vector3(interceptOnLine.x, 0, comeOutZ);
                     }
 
-                    interceptPos.x = Mathf.Clamp(interceptPos.x, -goalWidth, goalWidth);
+                    interceptPos.x = Mathf.Clamp(interceptPos.x, goalPos.x - goalWidth, goalPos.x + goalWidth);
 
                     // Stay in front of the goal line — never on/inside the cage.
                     float minZ, maxZ;
@@ -971,13 +971,14 @@ namespace MaxPractice
         }
 
         /// <summary>
-        /// Compute a lateral bias toward the puck behind the net. 40% of the puck's X position,
-        /// clamped to ±1.0m so the goalie still stays inside the goal width (~1.5m half-width)
-        /// without exposing the far post.
+        /// Lateral bias toward the puck behind the net, relative to the goal X (sheet origin safe).
         /// </summary>
         private float ComputeBehindNetCheat(Vector3 puckPos)
         {
-            return Mathf.Clamp(puckPos.x * 0.4f, -1.0f, 1.0f);
+            float goalX = 0f;
+            if (FlamiePracGoaliePlacement.TryGetGoalPos(team, out Vector3 goal))
+                goalX = goal.x;
+            return Mathf.Clamp((puckPos.x - goalX) * 0.4f, -1.0f, 1.0f);
         }
 
         private void TeleportToCrease()
@@ -999,13 +1000,8 @@ namespace MaxPractice
                     resetRot = Quaternion.LookRotation(isRedTeam ? Vector3.forward : Vector3.back);
                 }
 
-                if (body.Server_Teleport != null)
-                    body.Server_Teleport(resetPos, resetRot);
-                else
-                {
-                    body.transform.position = resetPos;
-                    body.transform.rotation = resetRot;
-                }
+                // Server_Teleport is a method (not a nullable delegate) — call directly.
+                body.Server_Teleport(resetPos, resetRot);
 
                 if (rb != null)
                 {
@@ -1029,7 +1025,8 @@ namespace MaxPractice
                 else
                     targetCenter.z += redTeam ? 1.85f : -1.85f;
 
-                targetCenter.x = xBias; // 0 = centered, ±ish = cheat toward a side
+                // Bias is relative to crease/goal X (sheet-local), not world zero.
+                targetCenter.x = targetCenter.x + xBias;
 
                 Vector3 toCenter = targetCenter - currentPos;
                 toCenter.y = 0;
@@ -1351,67 +1348,40 @@ namespace MaxPractice
 
             if (idleBehaviorTimer >= idleBehaviorDuration)
             {
-                idleBehavior = UnityEngine.Random.Range(0, 6);
+                // Look-only fidgets — no stick tapping / waving (was cases 0-5 moving the blade).
+                idleBehavior = UnityEngine.Random.Range(0, 3);
                 idleBehaviorDuration = UnityEngine.Random.Range(2.0f, 5.0f);
                 idleBehaviorTimer = 0f;
             }
 
             try
             {
-                float stickV = 30f, stickH = 0f, lookV = 30f, lookH = 0f;
-                bool doLook = true;
+                // Keep the stick parked; idle motion is head/look only.
+                ResetStickToCenter();
 
+                float lookV = 30f, lookH = 0f;
                 switch (idleBehavior)
                 {
                     case 0:
-                        stickV = 30f + Mathf.Sin(idlePhase * 1.2f) * 8f;
-                        stickH = Mathf.Sin(idlePhase * 0.7f) * 35f;
                         lookH = Mathf.Sin(idlePhase * 0.3f) * 15f;
                         lookV = 32f;
                         break;
                     case 1:
-                        stickV = 25f + Mathf.Sin(idlePhase * 2.0f) * 15f;
-                        stickH = Mathf.Cos(idlePhase * 2.0f) * 30f;
                         lookV = 35f + Mathf.Sin(idlePhase * 0.4f) * 5f;
                         lookH = Mathf.Sin(idlePhase * 0.5f) * 10f;
                         break;
-                    case 2:
-                        stickV = 30f + Mathf.Sin(idlePhase * 0.6f) * 3f;
-                        stickH = Mathf.Sin(idlePhase * 0.8f) * 5f;
-                        lookH = Mathf.Sin(idlePhase * 1.5f) * 40f + Mathf.Sin(idlePhase * 3.2f) * 10f;
-                        lookV = 28f + Mathf.Sin(idlePhase * 0.9f) * 12f;
-                        break;
-                    case 3:
-                        stickV = 28f + Mathf.Sin(idlePhase * 1.5f) * 12f;
-                        stickH = Mathf.Sin(idlePhase * 0.75f) * 35f;
-                        lookH = -stickH * 0.3f;
-                        lookV = 30f;
-                        break;
-                    case 4:
-                        stickV = 30f + Mathf.Abs(Mathf.Sin(idlePhase * 3.0f)) * 10f;
-                        stickH = Mathf.Sin(idlePhase * 0.4f) * 8f;
-                        lookV = 30f + Mathf.Abs(Mathf.Sin(idlePhase * 3.0f)) * 5f;
-                        lookH = Mathf.Sin(idlePhase * 0.6f) * 8f;
-                        break;
-                    case 5:
-                        stickV = 30f + Mathf.Abs(Mathf.Sin(idlePhase * 8.0f)) * 18f;
-                        stickH = Mathf.Sin(idlePhase * 0.3f) * 4f;
-                        lookV = 40f;
-                        lookH = Mathf.Sin(idlePhase * 0.5f) * 5f;
+                    default:
+                        lookH = Mathf.Sin(idlePhase * 1.5f) * 25f;
+                        lookV = 28f + Mathf.Sin(idlePhase * 0.9f) * 8f;
                         break;
                 }
 
-                playerInput.StickRaycastOriginAngleInput.ServerValue = new Vector2(stickV, stickH);
-
-                if (doLook)
-                {
-                    playerInput.LookInput.ServerValue = true;
-                    playerInput.LookAngleInput.ServerValue = new Vector2(lookV, lookH);
-                    playerInput.Server_LookInputRpc(true, playerInput.RpcTarget.Everyone);
-                    short compX = NetworkingUtils.CompressFloatToShort(lookV, playerInput.MinimumLookAngle.x, playerInput.MaximumLookAngle.x);
-                    short compY = NetworkingUtils.CompressFloatToShort(lookH, playerInput.MinimumLookAngle.y, playerInput.MaximumLookAngle.y);
-                    playerInput.Server_LookAngleInputRpc(compX, compY, playerInput.RpcTarget.Everyone);
-                }
+                playerInput.LookInput.ServerValue = true;
+                playerInput.LookAngleInput.ServerValue = new Vector2(lookV, lookH);
+                playerInput.Server_LookInputRpc(true, playerInput.RpcTarget.Everyone);
+                short compX = NetworkingUtils.CompressFloatToShort(lookV, playerInput.MinimumLookAngle.x, playerInput.MaximumLookAngle.x);
+                short compY = NetworkingUtils.CompressFloatToShort(lookH, playerInput.MinimumLookAngle.y, playerInput.MaximumLookAngle.y);
+                playerInput.Server_LookAngleInputRpc(compX, compY, playerInput.RpcTarget.Everyone);
             }
             catch { }
         }

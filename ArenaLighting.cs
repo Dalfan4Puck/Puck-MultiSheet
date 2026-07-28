@@ -556,9 +556,8 @@ namespace PHLPracticeModPack
                 // Chunk-local lighting: only the client's current sheet (plus live preview).
                 bool on = lightAll
                     || (haveFocus && SameRink(rinkLights[i].OriginX, rinkLights[i].OriginZ, focusX, focusZ))
-                    || (haveLive && SameRink(rinkLights[i].OriginX, rinkLights[i].OriginZ, liveX, liveZ));
-                // No focus: leave offset lights off. MOTD capture forces lightAll via
-                // NeedsAllSheetLighting for those few frames only.
+                    || (haveLive && SameRink(rinkLights[i].OriginX, rinkLights[i].OriginZ, liveX, liveZ))
+                    || RinkPreview.IsOriginInCapture(rinkLights[i].OriginX, rinkLights[i].OriginZ);
                 if (light.enabled != on) light.enabled = on;
             }
         }

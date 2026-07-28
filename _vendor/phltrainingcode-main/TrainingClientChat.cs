@@ -31,6 +31,9 @@ public static class TrainingClientChat
             string[] parts = content.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
             command = parts[0].ToLowerInvariant();
 
+            if (!FlamiePracFeatures.EnableRadio)
+                return true;
+
             byte radioCmd = 0;
             switch (command)
             {
@@ -51,12 +54,12 @@ public static class TrainingClientChat
                 return true;
 
             TrainingSync.Instance?.RequestRadioCommand(radioCmd);
-            Debug.Log("[FlamiePrac] Client requested radio command: " + command);
+            FlamieLog.Info("[FlamiePrac] Client requested radio command: " + command);
             return false;
         }
         catch (Exception ex)
         {
-            Debug.LogWarning("[FlamiePrac] TrainingClientChat failed: " + ex.Message);
+            FlamieLog.Warn("[FlamiePrac] TrainingClientChat failed: " + ex.Message);
             return true;
         }
     }

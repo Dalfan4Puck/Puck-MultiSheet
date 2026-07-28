@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UIElements;
 
@@ -41,6 +42,7 @@ namespace PHLPracticeModPack
             public Action OnContinue;
             public Action<int> OnSelectRink;
             public Action<int> OnSelectRole;
+            public Action<int, RinkStripMode> OnVoteStrip;
         }
 
         internal sealed class Result
@@ -49,7 +51,12 @@ namespace PHLPracticeModPack
             public VisualElement Card;
             public VisualElement RoleSectionHost;
             public VisualElement RinkSectionHost;
+            public VisualElement StripSectionHost;
+            public VisualElement RadioSectionHost;
         }
+
+        /// <summary>Which rink the strip dropdown targets (0-based). Persists across repaints.</summary>
+        internal static int SelectedStripRinkIndex = 0;
 
         /// <summary>Fullscreen dimmed overlay + card (join welcome / F9).</summary>
         internal static Result Build(RinkMotdPayload payload, Callbacks callbacks)
@@ -74,7 +81,9 @@ namespace PHLPracticeModPack
                 Overlay = overlay,
                 Card = cardResult.Card,
                 RoleSectionHost = cardResult.RoleSectionHost,
-                RinkSectionHost = cardResult.RinkSectionHost
+                RinkSectionHost = cardResult.RinkSectionHost,
+                StripSectionHost = cardResult.StripSectionHost,
+                RadioSectionHost = cardResult.RadioSectionHost
             };
         }
 
@@ -286,6 +295,16 @@ namespace PHLPracticeModPack
             body.Add(perfSectionHost);
             FillPerfSection(perfSectionHost, lightingSectionHost, embedded);
 
+            VisualElement stripSectionHost = new VisualElement();
+            stripSectionHost.style.flexShrink = 0;
+            body.Add(stripSectionHost);
+            FillStripSection(stripSectionHost, payload, callbacks, embedded);
+
+            VisualElement radioSectionHost = new VisualElement();
+            radioSectionHost.style.flexShrink = 0;
+            body.Add(radioSectionHost);
+            FillRadioSection(radioSectionHost, embedded);
+
             // Sticky footer — community icons; Continue only on the fullscreen welcome.
             VisualElement footer = new VisualElement();
             footer.style.flexShrink = 0;
@@ -352,8 +371,193 @@ namespace PHLPracticeModPack
                 Overlay = null,
                 Card = card,
                 RoleSectionHost = roleSectionHost,
-                RinkSectionHost = rinkSectionHost
+                RinkSectionHost = rinkSectionHost,
+                StripSectionHost = stripSectionHost,
+                RadioSectionHost = radioSectionHost
             };
+        }
+
+        /// <summary>phlstats training radio — compact ♪ chip in Rinks tab / MOTD, expands on click.</summary>
+        internal static void FillRadioSection(VisualElement host, bool embedded)
+        {
+            if (host == null || !FlamiePracFeatures.EnableRadio)
+                return;
+
+            host.Clear();
+            RadioHudUI.DetachEmbedded();
+            RadioHudUI.AttachEmbedded(host);
+        }
+
+        /// <summary>
+        /// Per-rink tools strip: rink picker + PHL Tools / Empty vote buttons
+        /// (same orange vote badge pattern as PHL Public game-mode UI).
+        /// </summary>
+        internal static void FillStripSection(
+            VisualElement host,
+            RinkMotdPayload payload,
+            Callbacks callbacks,
+            bool embedded)
+        {
+            if (host == null || payload == null) return;
+            if (callbacks == null) callbacks = new Callbacks();
+            host.Clear();
+
+            int rinkCount = payload.Rinks != null ? payload.Rinks.Count : 0;
+            if (rinkCount <= 0) return;
+
+            int localRink = GetLocalRinkIndex(payload);
+            if (localRink >= 0 && localRink < rinkCount)
+                SelectedStripRinkIndex = localRink;
+            SelectedStripRinkIndex = Mathf.Clamp(SelectedStripRinkIndex, 0, rinkCount - 1);
+
+            VisualElement sep = new VisualElement();
+            sep.style.height = 1;
+            sep.style.backgroundColor = ColumnRule;
+            sep.style.marginTop = embedded ? 4 : 6;
+            sep.style.marginBottom = embedded ? 6 : 8;
+            host.Add(sep);
+
+            Label heading = MakeLabel("Tools Strip", embedded ? 13 : 14, MutedText, FontStyle.Bold);
+            heading.style.unityTextAlign = TextAnchor.MiddleCenter;
+            heading.style.marginBottom = 6;
+            host.Add(heading);
+
+            VisualElement pickerRow = new VisualElement();
+            pickerRow.style.flexDirection = FlexDirection.Row;
+            pickerRow.style.justifyContent = Justify.Center;
+            pickerRow.style.alignItems = Align.Center;
+            pickerRow.style.flexWrap = Wrap.Wrap;
+            pickerRow.style.marginBottom = 6;
+            host.Add(pickerRow);
+
+            Label pickerLabel = MakeLabel("Rink:", embedded ? 11 : 12, MutedText, FontStyle.Normal);
+            pickerLabel.style.marginRight = 6;
+            pickerRow.Add(pickerLabel);
+
+            var choices = new List<string>();
+            for (int i = 0; i < rinkCount; i++)
+            {
+                RinkStatusEntry entry = payload.Rinks[i];
+                choices.Add(entry?.Label ?? ("Rink " + (i + 1)));
+            }
+
+            int selectedIndex = SelectedStripRinkIndex;
+            DropdownField dropdown = new DropdownField(choices, selectedIndex);
+            dropdown.style.minWidth = embedded ? 120 : 160;
+            dropdown.style.maxWidth = embedded ? 200 : 260;
+            dropdown.style.fontSize = embedded ? 11 : 12;
+            dropdown.style.color = TextColor;
+            dropdown.RegisterValueChangedCallback(evt =>
+            {
+                int idx = choices.IndexOf(evt.newValue);
+                if (idx >= 0) SelectedStripRinkIndex = idx;
+                FillStripSection(host, payload, callbacks, embedded);
+            });
+            pickerRow.Add(dropdown);
+
+            RinkStripMode current = GetStripMode(payload, SelectedStripRinkIndex);
+            RinkStripVoteProgress voteProgress = payload.StripVoteProgress;
+
+            VisualElement modeRow = new VisualElement();
+            modeRow.style.flexDirection = FlexDirection.Row;
+            modeRow.style.justifyContent = Justify.Center;
+            modeRow.style.alignItems = Align.Stretch;
+            modeRow.style.width = new Length(100, LengthUnit.Percent);
+            host.Add(modeRow);
+
+            AddStripModeButton(
+                modeRow,
+                RinkStripMode.PhlTools,
+                current,
+                callbacks,
+                voteProgress,
+                embedded,
+                isLast: false);
+            AddStripModeButton(
+                modeRow,
+                RinkStripMode.Empty,
+                current,
+                callbacks,
+                voteProgress,
+                embedded,
+                isLast: true);
+        }
+
+        private static RinkStripMode GetStripMode(RinkMotdPayload payload, int rinkIndex)
+        {
+            if (payload?.StripModes != null && rinkIndex >= 0 && rinkIndex < payload.StripModes.Count)
+                return payload.StripModes[rinkIndex];
+            return rinkIndex == 0 ? RinkStripMode.PhlTools : RinkStripMode.Empty;
+        }
+
+        private static void AddStripModeButton(
+            VisualElement parent,
+            RinkStripMode mode,
+            RinkStripMode current,
+            Callbacks callbacks,
+            RinkStripVoteProgress voteProgress,
+            bool embedded,
+            bool isLast)
+        {
+            bool active = mode == current;
+            bool votingHere = voteProgress.Active
+                && voteProgress.Mode == mode
+                && voteProgress.RinkIndex == SelectedStripRinkIndex;
+
+            Color normal = ButtonBg;
+            Color hover = ButtonHover;
+            if (votingHere && !active)
+            {
+                normal = new Color(0.90f, 0.49f, 0.13f, 0.28f);
+                hover = new Color(0.90f, 0.49f, 0.13f, 0.42f);
+            }
+
+            VisualElement wrap = new VisualElement();
+            wrap.style.flexGrow = 1;
+            wrap.style.flexShrink = 1;
+            wrap.style.flexBasis = 0;
+            wrap.style.minWidth = embedded ? 100 : 120;
+            wrap.style.marginRight = isLast ? 0 : 6;
+            wrap.style.height = embedded ? 38 : 44;
+            wrap.style.position = Position.Relative;
+            parent.Add(wrap);
+
+            string label = RinkStripModeUtil.DisplayName(mode) + (active ? "  ✓" : "");
+            int rinkIndex = SelectedStripRinkIndex;
+            RinkStripMode voteMode = mode;
+            Button button = MakeButton(label, normal, hover, delegate
+            {
+                callbacks.OnVoteStrip?.Invoke(rinkIndex, voteMode);
+            });
+            button.style.flexGrow = 1;
+            button.style.width = new Length(100, LengthUnit.Percent);
+            button.style.height = embedded ? 38 : 44;
+            button.style.fontSize = embedded ? 11 : 12;
+            button.style.whiteSpace = WhiteSpace.Normal;
+            if (votingHere) SetBorder(button, 2, new Color(0.90f, 0.49f, 0.13f, 1f));
+            else if (active) SetBorder(button, 2, CtaBg);
+            else SetBorder(button, 1, BorderStrong);
+            wrap.Add(button);
+
+            if (votingHere && !string.IsNullOrEmpty(voteProgress.BadgeText))
+            {
+                Label badge = MakeLabel(voteProgress.BadgeText, 10, CtaText, FontStyle.Bold);
+                badge.pickingMode = PickingMode.Ignore;
+                badge.style.position = Position.Absolute;
+                badge.style.top = 3;
+                badge.style.right = 3;
+                badge.style.backgroundColor = new Color(0.90f, 0.49f, 0.13f, 1f);
+                badge.style.paddingLeft = 5;
+                badge.style.paddingRight = 5;
+                badge.style.paddingTop = 1;
+                badge.style.paddingBottom = 1;
+                badge.style.unityTextAlign = TextAnchor.MiddleCenter;
+                badge.style.borderTopLeftRadius = 8;
+                badge.style.borderTopRightRadius = 8;
+                badge.style.borderBottomLeftRadius = 8;
+                badge.style.borderBottomRightRadius = 8;
+                wrap.Add(badge);
+            }
         }
 
         /// <summary>Skater / goalie toggle row — repainted when status arrives.</summary>

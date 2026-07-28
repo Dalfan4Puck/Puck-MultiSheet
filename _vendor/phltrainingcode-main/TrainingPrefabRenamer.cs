@@ -35,7 +35,7 @@ public static class TrainingPrefabRenamer
 
         if (renamed > 0 || organized > 0)
         {
-            Debug.Log("[FlamiePrac] Prefab catalog: " + renamed + " json rename(s), " +
+            FlamieLog.Info("[FlamiePrac] Prefab catalog: " + renamed + " json rename(s), " +
                       organized + " organized label(s).");
         }
     }
@@ -251,7 +251,7 @@ public static class TrainingPrefabRenamer
 
             RenameFile file = JsonUtility.FromJson<RenameFile>(json);
             int count = file?.Renames?.Length ?? 0;
-            Debug.Log("[FlamiePrac] Loaded training_prefab_names.json (" + count + " rename(s)).");
+            FlamieLog.Info("[FlamiePrac] Loaded training_prefab_names.json (" + count + " rename(s)).");
             // Empty/failed deserialize must not cache forever and skip BuiltInDefaults.
             if (count == 0)
                 return null;
@@ -259,7 +259,7 @@ public static class TrainingPrefabRenamer
         }
         catch (Exception ex)
         {
-            Debug.LogWarning("[FlamiePrac] Failed to load training_prefab_names.json: " + ex.Message);
+            FlamieLog.Warn("[FlamiePrac] Failed to load training_prefab_names.json: " + ex.Message);
             return null;
         }
     }

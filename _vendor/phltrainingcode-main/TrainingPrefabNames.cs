@@ -1,4 +1,5 @@
 using System;
+using UnityEngine;
 
 /// <summary>
 /// Canonical names for trainingprefab objects (applied at spawn via TrainingPrefabRenamer).
@@ -133,4 +134,35 @@ public static class TrainingPrefabNames
     /// Kept only so old call sites compile; always returns false.
     /// </summary>
     public static bool IsNonPhysicsDecor(string name) => false;
+
+    /// <summary>Shooter tutor tarp (five-hole must stay open — mesh hitboxes, not boxes).</summary>
+    public static bool IsShooterTutorName(string name)
+    {
+        if (string.IsNullOrEmpty(name))
+            return false;
+
+        if (name == ShooterTutor ||
+            name == "GoaltarpV1" ||
+            name == "Goaltarp" ||
+            name == "goaltarp")
+            return true;
+
+        string lower = name.ToLowerInvariant();
+        return lower.Contains("shootertutor") ||
+               lower.Contains("goal_tarp") ||
+               lower.Contains("goaltarp");
+    }
+
+    public static bool IsUnderShooterTutor(Transform transform)
+    {
+        Transform current = transform;
+        while (current != null)
+        {
+            if (IsShooterTutorName(current.name))
+                return true;
+            current = current.parent;
+        }
+
+        return false;
+    }
 }

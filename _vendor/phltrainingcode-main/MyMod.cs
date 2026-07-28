@@ -1,4 +1,5 @@
-﻿using UnityEngine;
+using UnityEngine;
+using Object = UnityEngine.Object;
 
 using Unity.Netcode;
 
@@ -10,6 +11,8 @@ using System.Collections.Generic;
 
 using System.Linq;
 
+using System.Reflection;
+
 using HarmonyLib;
 
 
@@ -18,8 +21,14 @@ namespace MyMod
 
 {
 
+    /// <summary>
+    /// FlamiePrac core. Standalone builds expose IPuckPlugin; MultiSheet hosts this type.
+    /// </summary>
+#if FLAMIE_STANDALONE
     public class Class1 : IPuckPlugin
-
+#else
+    public class Class1
+#endif
     {
 
         private static readonly Harmony harmony =
@@ -130,7 +139,7 @@ namespace MyMod
 
                 {
 
-                    Debug.LogError("[FlamiePrac] No bundle files found. Expected at least: " + primaryBundlePath);
+                    FlamieLog.Error("[FlamiePrac] No bundle files found. Expected at least: " + primaryBundlePath);
 
                     RollbackEnable();
 
@@ -154,7 +163,7 @@ namespace MyMod
 
                         {
 
-                            Debug.LogWarning("[FlamiePrac] Failed to load bundle candidate: " + bundlePath);
+                            FlamieLog.Warn("[FlamiePrac] Failed to load bundle candidate: " + bundlePath);
 
                             continue;
 
@@ -166,11 +175,11 @@ namespace MyMod
 
                         string[] assetNames = loadedBundle.GetAllAssetNames();
 
-                        Debug.Log($"[FlamiePrac] Loaded bundle '{Path.GetFileName(bundlePath)}' with {assetNames.Length} asset(s)");
+                        FlamieLog.Info($"[FlamiePrac] Loaded bundle '{Path.GetFileName(bundlePath)}' with {assetNames.Length} asset(s)");
 
                         foreach (string assetName in assetNames)
 
-                            Debug.Log($"[FlamiePrac]   Asset: {assetName}");
+                            FlamieLog.Info($"[FlamiePrac]   Asset: {assetName}");
 
                     }
 
@@ -178,7 +187,7 @@ namespace MyMod
 
                     {
 
-                        Debug.LogWarning($"[FlamiePrac] Error loading bundle candidate '{bundlePath}': {ex.Message}");
+                        FlamieLog.Warn($"[FlamiePrac] Error loading bundle candidate '{bundlePath}': {ex.Message}");
 
                     }
 
@@ -190,7 +199,7 @@ namespace MyMod
 
                 {
 
-                    Debug.LogError("[FlamiePrac] No valid AssetBundles could be loaded.");
+                    FlamieLog.Error("[FlamiePrac] No valid AssetBundles could be loaded.");
 
                     RollbackEnable();
 
@@ -226,7 +235,7 @@ namespace MyMod
 
                         {
 
-                            Debug.LogWarning($"[FlamiePrac] Could not load prefab '{prefabName}': {ex.Message}");
+                            FlamieLog.Warn($"[FlamiePrac] Could not load prefab '{prefabName}': {ex.Message}");
 
                         }
 
@@ -256,7 +265,7 @@ namespace MyMod
 
                     {
 
-                        Debug.LogWarning($"[FlamiePrac] Failed to LoadAllAssets<GameObject>: {ex.Message}");
+                        FlamieLog.Warn($"[FlamiePrac] Failed to LoadAllAssets<GameObject>: {ex.Message}");
 
                     }
 
@@ -298,7 +307,7 @@ namespace MyMod
 
                 {
 
-                    Debug.LogError("[FlamiePrac] No prefabs found in AssetBundle!");
+                    FlamieLog.Error("[FlamiePrac] No prefabs found in AssetBundle!");
 
                     RollbackEnable();
 
@@ -315,25 +324,29 @@ namespace MyMod
                 managerObject = new GameObject("FlamiePrac_Bootstrap");
 
                 managerObject.AddComponent<TrainingSync>();
-                managerObject.AddComponent<RadioController>();
+                if (FlamiePracFeatures.EnableRadio)
+                    managerObject.AddComponent<RadioController>();
                 managerObject.AddComponent<FlamiePracGoalieBootstrap>();
-                // R-key QA spawn is client-only — skip on dedicated headless.
-                if (!Application.isBatchMode)
+                // MultiSheet already owns R-key puck spawn (PuckSpawnSync). Only wire
+                // Flamie's duplicate when running as a standalone MyMod.dll.
+                if (!Application.isBatchMode && !IsHostedInsideMultiSheet())
                     managerObject.AddComponent<FlamiePracTestPuckSpawn>();
 
                 UnityEngine.Object.DontDestroyOnLoad(managerObject);
 
-                Debug.Log("[FlamiePrac] TrainingSync bootstrap created. " + FlamiePracVersion.Banner);
+                FlamieLog.InfoOnce("bootstrap", "[FlamiePrac] TrainingSync bootstrap created. " + FlamiePracVersion.Banner);
 
 
 
-                harmony.PatchAll(typeof(Class1).Assembly);
+                // Never PatchAll the whole assembly — when compiled into MultiSheet.dll that
+                // would double-apply PHLPractice Harmony patches already installed separately.
+                PatchFlamieHarmonyOnly();
 
                 harmonyPatched = true;
 
 
 
-                Debug.Log($"[FlamiePrac] Enabled with {loadedPrefabs.Count} prefab(s) across {bundles.Count} bundle(s). " +
+                FlamieLog.InfoOnce("flamie-enabled", $"[FlamiePrac] Enabled with {loadedPrefabs.Count} prefab(s) across {bundles.Count} bundle(s). " +
 
                     $"Dedicated={Application.isBatchMode} " + FlamiePracVersion.Banner);
 
@@ -345,7 +358,7 @@ namespace MyMod
 
             {
 
-                Debug.LogError("[FlamiePrac] Failed to enable: " + ex);
+                FlamieLog.Error("[FlamiePrac] Failed to enable: " + ex);
 
                 RollbackEnable();
 
@@ -401,7 +414,7 @@ namespace MyMod
 
 
 
-                Debug.Log("[FlamiePrac] Disabled — patches removed, scene and UI cleaned up");
+                FlamieLog.Info("[FlamiePrac] Disabled — patches removed, scene and UI cleaned up");
 
                 return true;
 
@@ -411,9 +424,99 @@ namespace MyMod
 
             {
 
-                Debug.LogError("[FlamiePrac] Failed to disable: " + ex);
+                FlamieLog.Error("[FlamiePrac] Failed to disable: " + ex);
 
                 return false;
+
+            }
+
+        }
+
+
+
+        /// <summary>
+        /// True when Class1 is compiled into / loaded from MultiSheet.dll (same assembly as the PHL plugin).
+        /// </summary>
+        private static bool IsHostedInsideMultiSheet()
+        {
+            return typeof(Class1).Assembly.GetType("PHLPracticeModPack.PHLPracticeModPackPlugin") != null;
+        }
+
+        private static void PatchFlamieHarmonyOnly()
+
+        {
+
+            Type[] types;
+
+            try
+
+            {
+
+                types = typeof(Class1).Assembly.GetTypes();
+
+            }
+
+            catch (ReflectionTypeLoadException ex)
+
+            {
+
+                types = ex.Types;
+
+            }
+
+
+
+            if (types == null)
+
+                return;
+
+
+
+            for (int i = 0; i < types.Length; i++)
+
+            {
+
+                Type type = types[i];
+
+                if (type == null || type.IsInterface)
+
+                    continue;
+
+
+
+                string ns = type.Namespace ?? string.Empty;
+
+                if (ns.StartsWith("PHLPracticeModPack", StringComparison.Ordinal) ||
+
+                    ns.StartsWith("CustomLevel", StringComparison.Ordinal) ||
+
+                    ns.StartsWith("CL_", StringComparison.Ordinal))
+
+                    continue;
+
+
+
+                if (type.GetCustomAttributes(typeof(HarmonyPatch), inherit: true).Length == 0)
+
+                    continue;
+
+
+
+                try
+
+                {
+
+                    harmony.CreateClassProcessor(type).Patch();
+
+                }
+
+                catch (Exception ex)
+
+                {
+
+                    FlamieLog.Warn("[FlamiePrac] Harmony patch skipped for " + type.Name + ": " + ex.Message);
+
+                }
 
             }
 
@@ -543,7 +646,7 @@ namespace MyMod
 
                 loadedPrefabs[normalizedKey] = prefab;
 
-                Debug.Log($"[FlamiePrac] Loaded prefab: {normalizedKey} (source='{prefab.name}')");
+                FlamieLog.Info($"[FlamiePrac] Loaded prefab: {normalizedKey} (source='{prefab.name}')");
 
             }
 

@@ -3,12 +3,15 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.Networking;
 
 /// <summary>
-/// 3D speaker audio only — no screen UI. Visual controls live in <see cref="RadioHudUI"/> (UITK).
-/// One global instance on the mod bootstrap; hive speakers register as spatial outputs.
+/// Single streamed 2D radio output — sync via CustomMessaging clock.
+/// Speaker transforms only attenuate volume by distance (no per-speaker AudioSources).
+/// Playlist + signed MP3 URLs come from phlstats <c>/radio/api</c> (private S3) only.
+/// Dedicated server never loads audio.
 /// </summary>
 public class RadioController : MonoBehaviour
 {
@@ -16,56 +19,136 @@ public class RadioController : MonoBehaviour
     public const byte CmdPrev = 2;
 
     private const string PrefVolume = "FlamiePrac_RadioVolume";
+    private const string PrefListening = "FlamiePrac_RadioListening";
     private const string PrefLastTrack = "FlamiePrac_RadioLastTrack";
     private const float DoublePrevWindowSeconds = 0.4f;
     private const float MinAutoAdvanceSeconds = 3f;
+    private const float UrlRefreshSkewSeconds = 90f;
+    /// <summary>Playlist poll interval — well under ~90 req/min/IP; never fetch every frame.</summary>
+    private const float PlaylistRefreshSeconds = 300f;
+    private const float SyncSeekToleranceSeconds = 1.25f;
+    private const float SyncReseekIntervalSeconds = 4.0f;
+    private const float EndOfTrackEpsilonSeconds = 0.2f;
+    /// <summary>Match former 3D speaker rolloff for fake near-speaker volume.</summary>
+    private const float VolumeMinDistance = 4f;
+    private const float VolumeMaxDistance = 36f;
 
     public static RadioController Instance { get; private set; }
 
     public event Action StateChanged;
 
-    private readonly List<SpeakerOutput> outputs = new List<SpeakerOutput>();
-    private readonly List<int> playHistory = new List<int>();
-    private readonly List<int> shuffleOrder = new List<int>();
+    public ushort SyncVoteCount { get; private set; }
+    public ushort SyncRestartVoteCount { get; private set; }
+    public ushort SyncVoteNeed { get; private set; }
+    public bool IsSyncedPlayback { get; private set; }
 
-    private float nextSpeakerRefreshTime;
-    private float nextPlaybackRecoveryTime;
-
-    private sealed class SpeakerOutput
+    /// <summary>Client-only listen switch. Server clock keeps advancing; turning on re-seeks to sync.</summary>
+    public bool ListeningEnabled
     {
-        public Transform Target;
-        public AudioSource Audio;
+        get => listeningEnabled;
+        set
+        {
+            if (listeningEnabled == value)
+                return;
+            listeningEnabled = value;
+            PlayerPrefs.SetInt(PrefListening, listeningEnabled ? 1 : 0);
+            PlayerPrefs.Save();
+            ApplyListeningState(seekIfOn: true);
+            NotifyStateChanged();
+        }
     }
 
+    /// <summary>Speaker mesh transforms — used only for distance volume, not AudioSources.</summary>
+    private readonly List<Transform> speakerAnchors = new List<Transform>();
+    private readonly List<int> playHistory = new List<int>();
+    private readonly List<int> shuffleOrder = new List<int>();
+    private readonly Dictionary<string, float> verifiedDurations =
+        new Dictionary<string, float>(StringComparer.Ordinal);
+
+    private AudioSource playback;
+    private float nextSpeakerRefreshTime;
+    private float nextPlaybackRecoveryTime;
+    private float nextDistanceVolumeTime;
+    private float lastDistanceAttenuation = 1f;
+    private bool listeningEnabled = true;
+    private float nextEndReportRetryTime;
+    private static Camera cachedListenerCamera;
+
+    private sealed class TrackEntry
+    {
+        public string Id;
+        public string Title;
+        public string LocalPath;
+        public string SignedUrl;
+        public float UrlExpiresAtRealtime = -1f;
+    }
+
+    [Serializable]
+    private sealed class ClientConfigFile
+    {
+        public string ApiBase = RadioApiUtil.DefaultApiBase;
+    }
+
+    [Serializable]
+    private sealed class PlaylistResponse
+    {
+        public TrackDto[] tracks;
+    }
+
+    [Serializable]
+    private sealed class TrackDto
+    {
+        public string id;
+        public string title;
+        public string url;
+        public int expiresIn;
+    }
+
+    private TrackEntry[] tracks;
     private AudioClip[] clips;
-    private string[] songs;
+    private string apiBase = RadioApiUtil.DefaultApiBase;
+    private Coroutine playRoutine;
+    private Coroutine playlistRefreshRoutine;
+    private int playRequestGeneration;
+    private bool usingRemoteApi;
+    private float lastPlaylistFetchRealtime = -999f;
+    private string syncedTrackId = string.Empty;
+    private double syncedStartServerTime;
+    private float syncedDuration;
+    private float nextSyncSeekTime;
+    private bool reportedDurationForCurrent;
+    private bool reportedEndForCurrent;
+    private float lastObservedPlaybackTime = -1f;
+    private float lastPlaybackTimeChangeAt;
+    private float lastPlaybackSampleTime = -1f;
+    private const float PlaybackStallSeconds = 0.4f;
 
     private int currentSong;
     private int shuffleIndex;
     private int historyIndex;
-    private bool userPaused;
     private bool advancingTrack;
     private bool trackWasPlaying;
     private bool libraryReady;
-    private float storedVolume = 0.75f;
+    private float storedVolume = 0.2f;
     private float lastPrevPressTime;
     private float currentTrackStartedAt;
     private Coroutine delayedRestartCoroutine;
     private Coroutine trackEndCoroutine;
     private int trackPlayGeneration;
+    private int pendingStartIndex = -1;
 
     private AudioSource PrimarySource
     {
         get
         {
-            PruneDeadOutputs();
-            return outputs.Count > 0 ? outputs[0].Audio : null;
+            EnsurePlaybackSource();
+            return playback;
         }
     }
 
-    public bool IsReady => libraryReady && songs != null && songs.Length > 0 && clips != null;
+    public bool IsReady => libraryReady && tracks != null && tracks.Length > 0;
 
-    public bool IsPlaying => PrimarySource != null && PrimarySource.isPlaying;
+    public bool IsPlaying => listeningEnabled && PrimarySource != null && PrimarySource.isPlaying;
 
     public float Volume
     {
@@ -82,48 +165,95 @@ public class RadioController : MonoBehaviour
 
     private void ApplyVolumeToOutputs()
     {
-        PruneDeadOutputs();
-        foreach (SpeakerOutput output in outputs)
-        {
-            if (output?.Audio != null)
-                output.Audio.volume = storedVolume;
-        }
+        EnsurePlaybackSource();
+        if (playback == null)
+            return;
+
+        // Off = silent client output; keep decode stopped via ApplyListeningState, not Pause.
+        playback.volume = listeningEnabled ? storedVolume * lastDistanceAttenuation : 0f;
     }
 
     private void LateUpdate()
     {
-        SyncOutputTransforms();
-        TryRefreshSpeakerOutputs();
+        // 10 Hz is enough for distance volume — avoid Camera.main + distance every render frame.
+        if (Time.unscaledTime >= nextDistanceVolumeTime)
+        {
+            nextDistanceVolumeTime = Time.unscaledTime + 0.1f;
+            UpdateDistanceVolume();
+        }
+
+        TryRefreshSpeakerAnchors();
         TryRecoverPlayback();
     }
 
-    private void SyncOutputTransforms()
+    private void UpdateDistanceVolume()
     {
-        foreach (SpeakerOutput output in outputs)
-        {
-            if (output?.Audio == null || output.Target == null)
-                continue;
+        if (playback == null)
+            return;
 
-            output.Audio.transform.SetPositionAndRotation(output.Target.position, output.Target.rotation);
-        }
+        PruneDeadSpeakerAnchors();
+        lastDistanceAttenuation = ComputeNearestSpeakerAttenuation();
+        ApplyVolumeToOutputs();
     }
 
-    private void TryRefreshSpeakerOutputs()
+    private float ComputeNearestSpeakerAttenuation()
+    {
+        if (speakerAnchors.Count == 0)
+            return 1f;
+
+        Vector3 listener = GetListenerWorldPosition();
+        float best = float.MaxValue;
+        for (int i = 0; i < speakerAnchors.Count; i++)
+        {
+            Transform anchor = speakerAnchors[i];
+            if (anchor == null)
+                continue;
+
+            float d = Vector3.Distance(listener, anchor.position);
+            if (d < best)
+                best = d;
+        }
+
+        if (best == float.MaxValue)
+            return 1f;
+        if (best <= VolumeMinDistance)
+            return 1f;
+        if (best >= VolumeMaxDistance)
+            return 0f;
+
+        // Smooth falloff approximating former log rolloff 4–36 m.
+        float t = (best - VolumeMinDistance) / (VolumeMaxDistance - VolumeMinDistance);
+        return Mathf.Clamp01(1f - Mathf.Log10(1f + 9f * t));
+    }
+
+    private static Vector3 GetListenerWorldPosition()
+    {
+        if (cachedListenerCamera == null || !cachedListenerCamera.isActiveAndEnabled)
+            cachedListenerCamera = Camera.main;
+
+        if (cachedListenerCamera != null)
+            return cachedListenerCamera.transform.position;
+
+        return Vector3.zero;
+    }
+
+    private void TryRefreshSpeakerAnchors()
     {
         if (Time.unscaledTime < nextSpeakerRefreshTime)
             return;
 
-        nextSpeakerRefreshTime = Time.unscaledTime + 2f;
+        nextSpeakerRefreshTime = Time.unscaledTime + 5f;
 
-        if (outputs.Count > 0)
+        if (speakerAnchors.Count > 0)
             return;
 
-        RefreshSpeakerOutputsFromScene();
+        RefreshSpeakerAnchorsFromScene();
     }
 
     private void TryRecoverPlayback()
     {
-        if (!libraryReady || userPaused || songs == null || songs.Length == 0)
+        // Synced playback is server-authored — never locally auto-advance (causes loops/desync).
+        if (IsSyncedPlayback || !libraryReady || !listeningEnabled || tracks == null || tracks.Length == 0)
             return;
 
         if (Time.unscaledTime < nextPlaybackRecoveryTime)
@@ -140,32 +270,52 @@ public class RadioController : MonoBehaviour
             return;
 
         nextPlaybackRecoveryTime = Time.unscaledTime + 1f;
-
-        if (outputs.Count == 0)
-            RefreshSpeakerOutputsFromScene();
-
-        if (outputs.Count == 0)
-            return;
+        EnsurePlaybackSource();
 
         if (AllOutputsIdle())
             AutoAdvanceToNextTrack();
     }
 
-    private void RefreshSpeakerOutputsFromScene()
+    /// <summary>
+    /// Re-scan speaker anchors under known Flamie roots only (never full-scene FindObjects).
+    /// </summary>
+    private void RefreshSpeakerAnchorsFromScene()
     {
-        Transform[] all = FindObjectsByType<Transform>(FindObjectsSortMode.None);
-        foreach (Transform transform in all)
+        PruneDeadSpeakerAnchors();
+
+        if (speakerAnchors.Count > 0)
+            return;
+
+        Transform clientRoot = TrainingSync.Instance != null ? TrainingSync.Instance.ClientVisualRoot : null;
+        if (clientRoot != null)
+            RegisterSpeakersUnder(clientRoot);
+
+        TrainingObjectManager tom = TrainingObjectManager.Instance;
+        if (tom != null)
         {
-            if (transform == null)
+            var roots = new System.Collections.Generic.List<Transform>(16);
+            tom.CollectCullRoots(roots);
+            for (int i = 0; i < roots.Count; i++)
+                RegisterSpeakersUnder(roots[i]);
+        }
+    }
+
+    private void RegisterSpeakersUnder(Transform root)
+    {
+        if (root == null)
+            return;
+
+        Transform[] transforms = root.GetComponentsInChildren<Transform>(true);
+        for (int i = 0; i < transforms.Length; i++)
+        {
+            Transform t = transforms[i];
+            if (t == null || !TrainingPrefabNames.IsSpeakerName(t.name))
                 continue;
 
-            if (!TrainingPrefabNames.IsSpeakerName(transform.name))
+            if (t.GetComponentsInChildren<Renderer>(true).Length == 0)
                 continue;
 
-            if (transform.GetComponentsInChildren<Renderer>(true).Length == 0)
-                continue;
-
-            RegisterSpeaker(transform.gameObject);
+            RegisterSpeaker(t.gameObject);
         }
     }
 
@@ -173,29 +323,57 @@ public class RadioController : MonoBehaviour
     {
         get
         {
-            if (PrimarySource == null || PrimarySource.clip == null || PrimarySource.clip.length <= 0f)
+            float len = GetEffectivePlaybackLength();
+            if (len <= 0f)
                 return 0f;
 
-            return PrimarySource.time / PrimarySource.clip.length;
+            float t = IsSyncedPlayback ? ComputeServerSeekSeconds() : (PrimarySource != null ? PrimarySource.time : 0f);
+            return Mathf.Clamp01(t / len);
         }
     }
 
-    public string CurrentTrackTitle =>
-        songs != null && songs.Length > 0 && currentSong >= 0 && currentSong < songs.Length
-            ? Path.GetFileNameWithoutExtension(songs[currentSong])
-            : string.Empty;
+    public string CurrentTrackTitle
+    {
+        get
+        {
+            if (tracks == null || tracks.Length == 0 || currentSong < 0 || currentSong >= tracks.Length)
+                return string.Empty;
+
+            TrackEntry t = tracks[currentSong];
+            return t != null ? (t.Title ?? string.Empty) : string.Empty;
+        }
+    }
 
     public string NextTrackTitle
     {
         get
         {
-            if (songs == null || songs.Length == 0)
+            if (IsSyncedPlayback)
+            {
+                if (SyncVoteNeed <= 0)
+                    return "Skip: vote";
+                return "Skip " + SyncVoteCount + "/" + SyncVoteNeed;
+            }
+
+            if (tracks == null || tracks.Length == 0)
                 return string.Empty;
 
-            if (songs.Length == 1)
-                return Path.GetFileNameWithoutExtension(songs[0]);
+            if (tracks.Length == 1)
+                return tracks[0]?.Title ?? string.Empty;
 
             return "Shuffled";
+        }
+    }
+
+    public string RestartVoteTitle
+    {
+        get
+        {
+            if (!IsSyncedPlayback)
+                return "Restart";
+            if (SyncVoteNeed <= 0)
+                return "Restart: vote";
+            return "Restart " + SyncRestartVoteCount + "/" + SyncVoteNeed;
         }
     }
 
@@ -203,10 +381,15 @@ public class RadioController : MonoBehaviour
     {
         get
         {
-            if (PrimarySource == null || PrimarySource.clip == null)
+            float len = GetEffectivePlaybackLength();
+            float t = IsSyncedPlayback
+                ? ComputeServerSeekSeconds()
+                : (PrimarySource != null ? PrimarySource.time : 0f);
+
+            if (len <= 0f && (PrimarySource == null || PrimarySource.clip == null))
                 return "0:00 / 0:00";
 
-            return FormatTime(PrimarySource.time) + " / " + FormatTime(PrimarySource.clip.length);
+            return FormatTime(t) + " / " + FormatTime(len);
         }
     }
 
@@ -221,7 +404,8 @@ public class RadioController : MonoBehaviour
         }
 
         Instance = this;
-        storedVolume = PlayerPrefs.GetFloat(PrefVolume, 0.75f);
+        storedVolume = PlayerPrefs.GetFloat(PrefVolume, 0.2f);
+        listeningEnabled = PlayerPrefs.GetInt(PrefListening, 1) != 0;
     }
 
     private void OnDestroy()
@@ -233,55 +417,82 @@ public class RadioController : MonoBehaviour
         Instance = null;
     }
 
-    /// <summary>Attach a 3D audio output to a Speaker prop.</summary>
     public void RegisterSpeaker(GameObject speakerGo)
     {
         if (speakerGo == null)
             return;
 
-        PruneDeadOutputs();
+        Transform anchor = speakerGo.transform;
+        PruneDeadSpeakerAnchors();
 
-        foreach (SpeakerOutput existing in outputs)
+        for (int i = 0; i < speakerAnchors.Count; i++)
         {
-            if (existing?.Target == speakerGo.transform)
+            if (speakerAnchors[i] == anchor)
                 return;
         }
 
-        GameObject host = new GameObject("FlamiePrac_RadioOut_" + speakerGo.name);
-        host.transform.SetParent(transform, false);
-        host.transform.SetPositionAndRotation(speakerGo.transform.position, speakerGo.transform.rotation);
+        speakerAnchors.Add(anchor);
+        FlamieLog.Info("[FlamiePrac] Radio speaker anchor #" + speakerAnchors.Count + " '" + speakerGo.name +
+                       "' (2D streamed playback + distance volume).");
 
-        AudioSource audio = host.AddComponent<AudioSource>();
-        ConfigureSpatialAudio(audio, speakerGo.name);
-
-        outputs.Add(new SpeakerOutput
-        {
-            Target = speakerGo.transform,
-            Audio = audio
-        });
-
-        audio.volume = storedVolume;
-        Debug.Log("[FlamiePrac] Radio registered output #" + outputs.Count + " following '" + speakerGo.name + "'.");
-        SyncOutputToCurrentTrack(audio);
+        EnsurePlaybackSource();
+        SyncPlaybackToCurrentTrack();
         TryStartPlayback();
+    }
+
+    /// <summary>
+    /// Clear speaker anchors and stop the single playback source (keep playlist/clips).
+    /// Call before hive rebuild.
+    /// </summary>
+    public void ClearSpeakerOutputs()
+    {
+        speakerAnchors.Clear();
+        lastDistanceAttenuation = 1f;
+
+        if (playback == null)
+            return;
+
+        try
+        {
+            if (playback.isPlaying)
+                playback.Stop();
+            playback.clip = null;
+        }
+        catch
+        {
+            // Unity/FMOD may already have recycled the channel during teardown.
+        }
+    }
+
+    private void EnsurePlaybackSource()
+    {
+        if (playback != null)
+            return;
+
+        GameObject host = new GameObject("FlamiePrac_RadioOut");
+        host.transform.SetParent(transform, false);
+        playback = host.AddComponent<AudioSource>();
+        ConfigurePlaybackAudio(playback);
+        playback.volume = storedVolume * lastDistanceAttenuation;
+        FlamieLog.InfoOnce("radio-2d",
+            "[FlamiePrac] Radio using single streamed 2D AudioSource (distance volume from speaker anchors).");
     }
 
     public void PrepareForDestroy()
     {
         CancelDelayedRestart();
         CancelTrackEndWatch();
+        CancelPlayRoutine();
+        CancelPlaylistRefresh();
 
-        foreach (SpeakerOutput output in outputs)
+        ClearSpeakerOutputs();
+        if (playback != null)
         {
-            if (output?.Audio == null)
-                continue;
-
-            output.Audio.Stop();
-            if (output.Audio.gameObject != null)
-                Destroy(output.Audio.gameObject);
+            if (playback.gameObject != null)
+                Destroy(playback.gameObject);
+            playback = null;
         }
 
-        outputs.Clear();
         libraryReady = false;
     }
 
@@ -299,35 +510,58 @@ public class RadioController : MonoBehaviour
         catch { }
 
         ApplyVolumeToOutputs();
+        LoadClientConfig();
 
-        string dllFolder = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-        string radioFolder = Path.Combine(dllFolder ?? string.Empty, "RadioSongs");
+        SetStatus("Loading playlist…");
+        yield return LoadPlaylist();
 
-        Debug.Log("[FlamiePrac] Radio looking for songs in: " + radioFolder);
-
-        if (!Directory.Exists(radioFolder))
+        if (tracks == null || tracks.Length == 0)
         {
-            Debug.LogError("[FlamiePrac] RadioSongs folder not found at: " + radioFolder);
-            SetStatus("RadioSongs folder missing");
+            FlamieLog.Error("[FlamiePrac] Radio has no tracks — phlstats /playlist unavailable.");
+            SetStatus("No radio tracks");
             yield break;
         }
 
-        songs = Directory.GetFiles(radioFolder, "*.mp3");
-        Array.Sort(songs);
+        clips = new AudioClip[tracks.Length];
+        libraryReady = true;
+        if (usingRemoteApi)
+            StartPlaylistRefreshLoop();
 
-        if (songs.Length == 0)
+        // Networked servers own the clock — wait briefly for RadioSync (late join OK).
+        if (RadioSync.IsNetworkSynced)
         {
-            Debug.LogError("[FlamiePrac] RadioSongs folder is empty (no .mp3 files).");
-            SetStatus("No MP3 files found");
-            yield break;
+            IsSyncedPlayback = true;
+            SetStatus("Syncing radio…");
+            RadioSync.ClientRequestState();
+            if (RadioSync.PendingClientState.Has)
+            {
+                ApplyServerState(
+                    RadioSync.PendingClientState.TrackId,
+                    RadioSync.PendingClientState.StartServerTime,
+                    RadioSync.PendingClientState.Duration,
+                    RadioSync.PendingClientState.VoteCount,
+                    RadioSync.PendingClientState.RestartVoteCount,
+                    RadioSync.PendingClientState.VoteNeed);
+                RadioSync.PendingClientState.Clear();
+            }
+
+            float waitUntil = Time.realtimeSinceStartup + 8f;
+            while (Time.realtimeSinceStartup < waitUntil && string.IsNullOrEmpty(syncedTrackId))
+                yield return null;
+
+            if (!string.IsNullOrEmpty(syncedTrackId))
+            {
+                FlamieLog.Info("[FlamiePrac] Radio client synced (" + tracks.Length + " track metas).");
+                yield break;
+            }
+
+            // Server playlist/sync idle — play locally so the rink isn't silent.
+            FlamieLog.Warn("[FlamiePrac] Radio sync unavailable — falling back to local shuffle.");
+            IsSyncedPlayback = false;
         }
 
-        Debug.Log("[FlamiePrac] Radio found " + songs.Length + " track(s) across " + outputs.Count + " speaker(s).");
-        clips = new AudioClip[songs.Length];
-
-        for (int i = 0; i < songs.Length; i++)
-            yield return StartCoroutine(LoadClip(i));
-
+        // Offline / no Netcode / sync timeout: local shuffle.
+        IsSyncedPlayback = false;
         int lastTrack = PlayerPrefs.GetInt(PrefLastTrack, -1);
         BuildShuffleOrder(lastTrack);
 
@@ -335,14 +569,534 @@ public class RadioController : MonoBehaviour
         playHistory.Clear();
         playHistory.Add(first);
         historyIndex = 0;
-        libraryReady = true;
+        currentSong = first;
+        pendingStartIndex = first;
+        FlamieLog.Info("[FlamiePrac] Radio local shuffle start → #" + first + " '" + tracks[first].Title + "'");
+        SetStatus(string.Empty);
         TryStartPlayback(firstIndex: first);
+    }
+
+    /// <summary>Apply authoritative radio snapshot from the server.</summary>
+    public void ApplyServerState(
+        string trackId,
+        double startServerTime,
+        float duration,
+        ushort voteCount,
+        ushort restartVoteCount,
+        ushort voteNeed)
+    {
+        if (Application.isBatchMode || string.IsNullOrEmpty(trackId))
+            return;
+
+        IsSyncedPlayback = true;
+        SyncVoteCount = voteCount;
+        SyncRestartVoteCount = restartVoteCount;
+        SyncVoteNeed = voteNeed;
+
+        bool trackChanged = !string.Equals(syncedTrackId, trackId, StringComparison.Ordinal);
+        bool restartClock = !trackChanged &&
+                            !string.IsNullOrEmpty(syncedTrackId) &&
+                            Math.Abs(syncedStartServerTime - startServerTime) > 0.05;
+
+        syncedStartServerTime = startServerTime;
+        if (trackChanged)
+        {
+            syncedDuration = ResolveDurationForTrack(trackId, duration);
+        }
+        else if (duration > syncedDuration + 0.5f)
+            syncedDuration = duration;
+        else if (duration > 0.5f && duration + 0.75f < syncedDuration)
+            syncedDuration = duration;
+        else if (duration > 0.5f && syncedDuration < 0.5f)
+            syncedDuration = duration;
+
+        syncedTrackId = trackId;
+
+        if (!libraryReady || tracks == null)
+        {
+            RadioSync.PendingClientState.Store(
+                trackId, startServerTime, duration, voteCount, restartVoteCount, voteNeed);
+            NotifyStateChanged();
+            return;
+        }
+
+        int index = FindTrackIndex(trackId);
+        if (index < 0)
+        {
+            // Playlist refresh may be stale — keep id and show title as id until merge.
+            SetStatus("Unknown track: " + trackId);
+            NotifyStateChanged();
+            StartCoroutine(RefreshPlaylistThenPlay(trackId));
+            return;
+        }
+
+        if (trackChanged)
+        {
+            reportedDurationForCurrent = false;
+            reportedEndForCurrent = false;
+            nextEndReportRetryTime = 0f;
+            lastObservedPlaybackTime = -1f;
+            lastPlaybackSampleTime = -1f;
+            syncedDuration = ResolveDurationForTrack(trackId, duration);
+            currentSong = index;
+            pendingStartIndex = -1;
+            RequestPlay(index, recordHistory: false);
+        }
+        else if (restartClock)
+        {
+            reportedEndForCurrent = false;
+            nextEndReportRetryTime = 0f;
+            TrySyncSeek(force: true);
+            ApplyListeningState(seekIfOn: true);
+        }
+        else
+        {
+            // Periodic server snapshots must not hard-seek every time — only correct real drift.
+            TrySyncSeek(force: false);
+        }
+
+        SetStatus(string.Empty);
+        NotifyStateChanged();
+    }
+
+    private IEnumerator RefreshPlaylistThenPlay(string trackId)
+    {
+        yield return RefreshPlaylistMerge();
+        int index = FindTrackIndex(trackId);
+        if (index < 0)
+            yield break;
+
+        reportedDurationForCurrent = false;
+        reportedEndForCurrent = false;
+        currentSong = index;
+        RequestPlay(index, recordHistory: false);
+    }
+
+    private int FindTrackIndex(string trackId)
+    {
+        if (tracks == null || string.IsNullOrEmpty(trackId))
+            return -1;
+
+        for (int i = 0; i < tracks.Length; i++)
+        {
+            if (tracks[i] != null && tracks[i].Id == trackId)
+                return i;
+        }
+
+        return -1;
+    }
+
+    private float ComputeServerSeekSeconds()
+    {
+        NetworkManager nm = NetworkManager.Singleton;
+        double now = nm != null ? nm.ServerTime.Time : Time.realtimeSinceStartupAsDouble;
+        float seek = (float)(now - syncedStartServerTime);
+        if (seek < 0f)
+            seek = 0f;
+
+        if (syncedDuration > 0.05f && seek > syncedDuration)
+            seek = syncedDuration;
+
+        float effective = GetEffectivePlaybackLength();
+        if (effective > 0.05f && seek > effective)
+            seek = effective;
+
+        return seek;
+    }
+
+    private void TrySyncSeek(bool force)
+    {
+        if (!IsSyncedPlayback || !listeningEnabled)
+            return;
+
+        if (!force && Time.unscaledTime < nextSyncSeekTime)
+            return;
+
+        nextSyncSeekTime = Time.unscaledTime + SyncReseekIntervalSeconds;
+
+        AudioSource primary = PrimarySource;
+        if (primary == null || primary.clip == null)
+            return;
+
+        float seek = ComputeServerSeekSeconds();
+        float len = GetEffectivePlaybackLength();
+        if (len <= 0.05f)
+            return;
+
+        // Never seek past the loaded clip — wrong server duration causes short clips to loop.
+        if (primary.clip != null && primary.clip.length > 0.05f)
+            seek = Mathf.Min(seek, Mathf.Max(0f, primary.clip.length - EndOfTrackEpsilonSeconds));
+
+        // Past end of clip: do NOT Play() again (that restarts the tail and sounds like a loop).
+        if (seek >= len - EndOfTrackEpsilonSeconds)
+        {
+            if (primary.isPlaying)
+                primary.Stop();
+
+            ReportTrackEndedIfNeeded(forceRetry: true);
+            return;
+        }
+
+        if (!force && primary.isPlaying && Mathf.Abs(primary.time - seek) <= SyncSeekToleranceSeconds)
+            return;
+
+        if (!primary.isPlaying)
+            primary.Play();
+
+        // Set time after Play — Unity can reset time on Play().
+        primary.time = seek;
+    }
+
+    private void ApplyListeningState(bool seekIfOn)
+    {
+        EnsurePlaybackSource();
+        if (playback == null)
+            return;
+
+        ApplyVolumeToOutputs();
+
+        if (!listeningEnabled)
+        {
+            if (playback.isPlaying)
+                playback.Stop();
+            return;
+        }
+
+        if (playback.clip == null)
+            return;
+
+        if (IsSyncedPlayback)
+        {
+            float seek = ComputeServerSeekSeconds();
+            float len = GetEffectivePlaybackLength();
+            if (len > 0.05f && seek >= len - EndOfTrackEpsilonSeconds)
+            {
+                playback.Stop();
+                ReportTrackEndedIfNeeded(forceRetry: true);
+                return;
+            }
+
+            if (!playback.isPlaying)
+                playback.Play();
+            if (seekIfOn)
+                TrySyncSeek(force: true);
+            return;
+        }
+
+        if (!playback.isPlaying)
+            playback.Play();
+    }
+
+    private void ReportTrackEndedIfNeeded(bool forceRetry)
+    {
+        if (!IsSyncedPlayback || string.IsNullOrEmpty(syncedTrackId))
+            return;
+
+        if (reportedEndForCurrent && !forceRetry)
+            return;
+
+        if (forceRetry && reportedEndForCurrent && Time.unscaledTime < nextEndReportRetryTime)
+            return;
+
+        reportedEndForCurrent = true;
+        nextEndReportRetryTime = Time.unscaledTime + 2f;
+        RadioSync.ClientReportTrackEnded(syncedTrackId);
+    }
+
+    private void MaybeReportEndFromServerClock()
+    {
+        if (!IsSyncedPlayback || string.IsNullOrEmpty(syncedTrackId))
+            return;
+
+        float seek = ComputeServerSeekSeconds();
+        float len = GetEffectivePlaybackLength();
+
+        if (len <= 0.5f)
+            return;
+
+        if (seek + EndOfTrackEpsilonSeconds < len)
+            return;
+
+        if (playback != null && playback.isPlaying)
+            playback.Stop();
+
+        ReportTrackEndedIfNeeded(forceRetry: true);
+    }
+
+    private void MaybeReportVerifiedClipDuration()
+    {
+        if (!IsSyncedPlayback || string.IsNullOrEmpty(syncedTrackId))
+            return;
+
+        if (!TryGetSyncedClipLength(out float clipLen))
+            return;
+
+        RememberVerifiedDuration(syncedTrackId, clipLen);
+
+        if (reportedDurationForCurrent && Mathf.Abs(syncedDuration - clipLen) < 0.5f)
+            return;
+
+        reportedDurationForCurrent = true;
+        syncedDuration = clipLen;
+        RadioSync.ClientReportDuration(syncedTrackId, clipLen);
+    }
+
+    private void MaybeDetectPlaybackLoop()
+    {
+        if (!listeningEnabled || playback == null || playback.clip == null || !playback.isPlaying)
+        {
+            lastPlaybackSampleTime = -1f;
+            return;
+        }
+
+        if (!IsPlaybackClipForSyncedTrack())
+        {
+            lastPlaybackSampleTime = -1f;
+            return;
+        }
+
+        float t = playback.time;
+        if (lastPlaybackSampleTime > 0.75f && t + 0.35f < lastPlaybackSampleTime)
+        {
+            float actualLen = lastPlaybackSampleTime;
+            RememberVerifiedDuration(syncedTrackId, actualLen);
+            syncedDuration = actualLen;
+            reportedDurationForCurrent = true;
+            RadioSync.ClientReportDuration(syncedTrackId, actualLen);
+            playback.Stop();
+            ReportTrackEndedIfNeeded(forceRetry: true);
+            lastPlaybackSampleTime = -1f;
+            lastObservedPlaybackTime = -1f;
+            return;
+        }
+
+        lastPlaybackSampleTime = t;
+    }
+
+    /// <summary>HUD open: refresh playlist if the last fetch is stale (rate-limit safe).</summary>
+    public void RequestPlaylistRefreshFromHud()
+    {
+        if (!usingRemoteApi || !libraryReady)
+            return;
+
+        if (Time.realtimeSinceStartup - lastPlaylistFetchRealtime < 30f)
+            return;
+
+        StartCoroutine(RefreshPlaylistMerge());
+    }
+
+    private void LoadClientConfig()
+    {
+        apiBase = RadioApiUtil.DefaultApiBase;
+
+        try
+        {
+            string dllFolder = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? string.Empty;
+            string path = Path.Combine(dllFolder, "config", "radio_client.json");
+            if (!File.Exists(path))
+                path = Path.Combine(dllFolder, "config", "radio_client.example.json");
+
+            // Prefer game-cwd config/ (same pattern as multi_rink / training_layout).
+            string cwdPath = Path.Combine(Directory.GetCurrentDirectory(), "config", "radio_client.json");
+            if (File.Exists(cwdPath))
+                path = cwdPath;
+
+            if (!File.Exists(path))
+                return;
+
+            ClientConfigFile cfg = JsonUtility.FromJson<ClientConfigFile>(File.ReadAllText(path));
+            if (cfg == null)
+                return;
+
+            if (!string.IsNullOrWhiteSpace(cfg.ApiBase))
+                apiBase = cfg.ApiBase.Trim().TrimEnd('/');
+            FlamieLog.Info("[FlamiePrac] Radio API base=" + apiBase);
+        }
+        catch (Exception ex)
+        {
+            FlamieLog.Warn("[FlamiePrac] Radio client config load failed: " + ex.Message);
+        }
+    }
+
+    private IEnumerator LoadPlaylist()
+    {
+        usingRemoteApi = false;
+        bool apiOk = false;
+        yield return FetchRemotePlaylist(ok => apiOk = ok);
+
+        if (apiOk)
+            usingRemoteApi = true;
+    }
+
+    private IEnumerator FetchRemotePlaylist(Action<bool> done)
+    {
+        string url = apiBase + "/playlist";
+        var ids = new List<string>();
+        var titles = new List<string>();
+
+        using (UnityWebRequest req = UnityWebRequest.Get(url))
+        {
+            RadioApiUtil.ConfigureRequest(req);
+            yield return req.SendWebRequest();
+            lastPlaylistFetchRealtime = Time.realtimeSinceStartup;
+
+            string json = req.downloadHandler?.text;
+            if (req.result == UnityWebRequest.Result.Success &&
+                RadioApiUtil.TryParsePlaylist(json, ids, titles))
+            {
+                ApplyParsedPlaylist(ids, titles);
+                done(true);
+                yield break;
+            }
+
+            FlamieLog.Warn("[FlamiePrac] Radio playlist UWR failed: result=" + req.result +
+                             " code=" + req.responseCode + " err=" + req.error +
+                             " (" + url + ")");
+        }
+
+        if (RadioApiUtil.TryDownloadString(url, out string body, out string err) &&
+            RadioApiUtil.TryParsePlaylist(body, ids, titles))
+        {
+            lastPlaylistFetchRealtime = Time.realtimeSinceStartup;
+            ApplyParsedPlaylist(ids, titles);
+            done(true);
+            yield break;
+        }
+
+        if (!string.IsNullOrEmpty(err))
+            FlamieLog.Warn("[FlamiePrac] Radio playlist WebClient failed: " + err);
+
+        // Last resort: same file the dedicated server may use.
+        if (RadioApiUtil.TryLoadPlaylistFile(ids, titles))
+        {
+            ApplyParsedPlaylist(ids, titles);
+            done(true);
+            yield break;
+        }
+
+        done(false);
+    }
+
+    private void ApplyParsedPlaylist(List<string> ids, List<string> titles)
+    {
+        tracks = new TrackEntry[ids.Count];
+        for (int i = 0; i < ids.Count; i++)
+        {
+            string id = ids[i];
+            string title = (titles != null && i < titles.Count && !string.IsNullOrWhiteSpace(titles[i]))
+                ? titles[i]
+                : id;
+            tracks[i] = new TrackEntry { Id = id, Title = title };
+        }
+
+        FlamieLog.InfoOnce("radio-playlist", "[FlamiePrac] Radio playlist from API: " + tracks.Length + " track(s).");
+    }
+
+    private void StartPlaylistRefreshLoop()
+    {
+        CancelPlaylistRefresh();
+        playlistRefreshRoutine = StartCoroutine(PlaylistRefreshLoop());
+    }
+
+    private void CancelPlaylistRefresh()
+    {
+        if (playlistRefreshRoutine == null)
+            return;
+
+        StopCoroutine(playlistRefreshRoutine);
+        playlistRefreshRoutine = null;
+    }
+
+    private IEnumerator PlaylistRefreshLoop()
+    {
+        while (usingRemoteApi && libraryReady)
+        {
+            yield return new WaitForSecondsRealtime(PlaylistRefreshSeconds);
+            yield return RefreshPlaylistMerge();
+        }
+
+        playlistRefreshRoutine = null;
+    }
+
+    private IEnumerator RefreshPlaylistMerge()
+    {
+        if (!usingRemoteApi)
+            yield break;
+
+        TrackEntry[] previous = tracks;
+        AudioClip[] previousClips = clips;
+        string currentId = (previous != null && currentSong >= 0 && currentSong < previous.Length)
+            ? previous[currentSong]?.Id
+            : null;
+
+        bool ok = false;
+        yield return FetchRemotePlaylist(success => ok = success);
+        if (!ok || tracks == null || tracks.Length == 0)
+        {
+            // Keep prior playlist if refresh fails.
+            if (previous != null)
+                tracks = previous;
+            yield break;
+        }
+
+        var byId = new Dictionary<string, int>(StringComparer.Ordinal);
+        if (previous != null)
+        {
+            for (int i = 0; i < previous.Length; i++)
+            {
+                if (previous[i] != null && !string.IsNullOrEmpty(previous[i].Id))
+                    byId[previous[i].Id] = i;
+            }
+        }
+
+        var newClips = new AudioClip[tracks.Length];
+        for (int i = 0; i < tracks.Length; i++)
+        {
+            TrackEntry entry = tracks[i];
+            if (entry == null || !byId.TryGetValue(entry.Id, out int oldIndex))
+                continue;
+
+            TrackEntry old = previous[oldIndex];
+            if (old != null)
+            {
+                entry.SignedUrl = old.SignedUrl;
+                entry.UrlExpiresAtRealtime = old.UrlExpiresAtRealtime;
+                entry.LocalPath = old.LocalPath;
+                if (!string.IsNullOrWhiteSpace(old.Title) && string.IsNullOrWhiteSpace(entry.Title))
+                    entry.Title = old.Title;
+            }
+
+            if (previousClips != null && oldIndex >= 0 && oldIndex < previousClips.Length)
+                newClips[i] = previousClips[oldIndex];
+        }
+
+        clips = newClips;
+
+        if (!string.IsNullOrEmpty(currentId))
+        {
+            for (int i = 0; i < tracks.Length; i++)
+            {
+                if (tracks[i] != null && tracks[i].Id == currentId)
+                {
+                    currentSong = i;
+                    break;
+                }
+            }
+        }
+
+        NotifyStateChanged();
+        FlamieLog.Info("[FlamiePrac] Radio playlist refreshed: " + tracks.Length + " track(s).");
     }
 
     private void BuildShuffleOrder(int avoidFirstIndex)
     {
+        UnityEngine.Random.InitState(unchecked(
+            Environment.TickCount * 397 ^
+            (int)(DateTime.UtcNow.Ticks & 0x7fffffff) ^
+            (tracks != null ? tracks.Length * 7919 : 0)));
+
         shuffleOrder.Clear();
-        for (int i = 0; i < songs.Length; i++)
+        for (int i = 0; i < tracks.Length; i++)
             shuffleOrder.Add(i);
 
         for (int i = shuffleOrder.Count - 1; i > 0; i--)
@@ -369,10 +1123,10 @@ public class RadioController : MonoBehaviour
 
     private int PickNextIndex(int excludeIndex = -1)
     {
-        if (songs == null || songs.Length == 0)
+        if (tracks == null || tracks.Length == 0)
             return 0;
 
-        if (songs.Length == 1)
+        if (tracks.Length == 1)
             return 0;
 
         if (shuffleIndex >= shuffleOrder.Count)
@@ -393,29 +1147,46 @@ public class RadioController : MonoBehaviour
 
     private void Update()
     {
-        if (!libraryReady || songs == null || songs.Length == 0)
+        if (!libraryReady || tracks == null || tracks.Length == 0)
             return;
 
-        PruneDeadOutputs();
+        if (playback == null)
+            EnsurePlaybackSource();
 
-        if (outputs.Count == 0)
-            RefreshSpeakerOutputsFromScene();
-
-        if (outputs.Count == 0)
+        if (playback == null)
             return;
 
-        if (!userPaused &&
-            !advancingTrack &&
-            AllOutputsIdle() &&
-            trackWasPlaying &&
-            Time.unscaledTime - currentTrackStartedAt >= MinAutoAdvanceSeconds)
+        if (IsSyncedPlayback)
+        {
+            // End-of-track uses the server clock so mute / far speakers still advance the playlist.
+            MaybeReportVerifiedClipDuration();
+            MaybeDetectPlaybackLoop();
+            MaybeDetectPlaybackStall();
+            MaybeReportEndFromServerClock();
+
+            if (listeningEnabled)
+                TrySyncSeek(force: false);
+            else if (playback.isPlaying)
+                playback.Stop();
+
+            trackWasPlaying = listeningEnabled && IsAnyOutputPlaying();
+        }
+        else if (listeningEnabled &&
+                 !advancingTrack &&
+                 AllOutputsIdle() &&
+                 trackWasPlaying &&
+                 Time.unscaledTime - currentTrackStartedAt >= MinAutoAdvanceSeconds)
         {
             AutoAdvanceToNextTrack();
+            trackWasPlaying = IsAnyOutputPlaying();
+        }
+        else
+        {
+            trackWasPlaying = listeningEnabled && IsAnyOutputPlaying();
         }
 
-        trackWasPlaying = IsAnyOutputPlaying() && !userPaused;
-
-        if (PrimarySource != null && PrimarySource.clip != null)
+        // HUD progress only needs pulses while the panel is expanded (handler no-ops when collapsed).
+        if (playback.clip != null)
             NotifyStateChangedThrottled();
     }
 
@@ -426,7 +1197,7 @@ public class RadioController : MonoBehaviour
         if (Time.unscaledTime < nextUiPulse)
             return;
 
-        nextUiPulse = Time.unscaledTime + 0.25f;
+        nextUiPulse = Time.unscaledTime + 0.5f;
         NotifyStateChanged();
     }
 
@@ -438,58 +1209,39 @@ public class RadioController : MonoBehaviour
         }
         catch (Exception ex)
         {
-            Debug.LogWarning("[FlamiePrac] Radio StateChanged handler failed: " + ex.Message);
+            FlamieLog.Warn("[FlamiePrac] Radio StateChanged handler failed: " + ex.Message);
         }
     }
 
-    private static void ConfigureSpatialAudio(AudioSource audio, string speakerName)
+    private static void ConfigurePlaybackAudio(AudioSource audio)
     {
         audio.loop = false;
         audio.playOnAwake = false;
         audio.dopplerLevel = 0f;
-        audio.spatialBlend = 1f;
-        audio.rolloffMode = AudioRolloffMode.Logarithmic;
-        audio.minDistance = 4f;
-        audio.maxDistance = 48f;
-        Debug.Log("[FlamiePrac] Radio using 3D audio at " + speakerName + ": " + audio.transform.position);
+        audio.spatialBlend = 0f; // 2D — volume faked from nearest speaker distance
+        audio.spatialize = false;
+        audio.priority = 64;
     }
 
+    /// <summary>
+    /// Client listen on/off. Does not pause the server clock — turning on re-seeks to the shared position.
+    /// </summary>
     public void TogglePlayPause()
     {
-        if (PrimarySource == null || PrimarySource.clip == null)
-            return;
-
-        if (PrimarySource.isPlaying)
-        {
-            foreach (SpeakerOutput output in outputs)
-            {
-                if (output?.Audio != null)
-                    output.Audio.Pause();
-            }
-
-            CancelTrackEndWatch();
-            userPaused = true;
-        }
-        else
-        {
-            foreach (SpeakerOutput output in outputs)
-            {
-                if (output?.Audio == null)
-                    continue;
-
-                output.Audio.UnPause();
-                if (!output.Audio.isPlaying)
-                    output.Audio.Play();
-            }
-
-            userPaused = false;
-        }
-
-        NotifyStateChanged();
+        ListeningEnabled = !ListeningEnabled;
     }
 
     public void RequestTrackChange(byte command)
     {
+        if (IsSyncedPlayback || RadioSync.IsNetworkSynced)
+        {
+            if (command == CmdNext)
+                RadioSync.ClientVoteSkip();
+            else if (command == CmdPrev)
+                RadioSync.ClientRestart();
+            return;
+        }
+
         if (TrainingSync.Instance != null)
             TrainingSync.Instance.RequestRadioCommand(command);
         else
@@ -507,7 +1259,7 @@ public class RadioController : MonoBehaviour
         }
         catch (Exception ex)
         {
-            Debug.LogWarning("[FlamiePrac] Radio advance failed: " + ex.Message);
+            FlamieLog.Warn("[FlamiePrac] Radio advance failed: " + ex.Message);
         }
         finally
         {
@@ -517,39 +1269,22 @@ public class RadioController : MonoBehaviour
 
     private void AutoAdvanceToNextTrack()
     {
-        if (advancingTrack || userPaused || songs == null || songs.Length == 0)
+        if (advancingTrack || !listeningEnabled || tracks == null || tracks.Length == 0)
             return;
 
         advancingTrack = true;
-        Debug.Log("[FlamiePrac] Radio auto-advancing to next track.");
+        FlamieLog.InfoThrottled("radio-advance", "[FlamiePrac] Radio auto-advancing to next track.");
         AdvanceTrackLocally(CmdNext);
     }
 
     private bool AllOutputsIdle()
     {
-        PruneDeadOutputs();
-        if (outputs.Count == 0)
-            return true;
-
-        foreach (SpeakerOutput output in outputs)
-        {
-            if (output?.Audio != null && output.Audio.isPlaying)
-                return false;
-        }
-
-        return true;
+        return !IsAnyOutputPlaying();
     }
 
     private bool IsAnyOutputPlaying()
     {
-        PruneDeadOutputs();
-        foreach (SpeakerOutput output in outputs)
-        {
-            if (output?.Audio != null && output.Audio.isPlaying)
-                return true;
-        }
-
-        return false;
+        return playback != null && playback.isPlaying;
     }
 
     private AudioClip GetActiveClip()
@@ -573,37 +1308,10 @@ public class RadioController : MonoBehaviour
         return clip.length;
     }
 
-    private static string ToFileUri(string path)
-    {
-        return new Uri(Path.GetFullPath(path)).AbsoluteUri;
-    }
-
     private static string FormatTime(float seconds)
     {
         int total = Mathf.Max(0, (int)seconds);
         return (total / 60) + ":" + (total % 60).ToString("00");
-    }
-
-    private IEnumerator LoadClip(int index)
-    {
-        string uri = ToFileUri(songs[index]);
-
-        using (UnityWebRequest www = UnityWebRequestMultimedia.GetAudioClip(uri, AudioType.MPEG))
-        {
-            if (www.downloadHandler is DownloadHandlerAudioClip streamHandler)
-                streamHandler.streamAudio = false;
-
-            yield return www.SendWebRequest();
-
-            if (www.result != UnityWebRequest.Result.Success)
-            {
-                Debug.LogError("[FlamiePrac] Failed to load " + songs[index] + ": " + www.error);
-                yield break;
-            }
-
-            clips[index] = DownloadHandlerAudioClip.GetContent(www);
-            Debug.Log("[FlamiePrac] Radio loaded: " + Path.GetFileNameWithoutExtension(songs[index]));
-        }
     }
 
     private void SetStatus(string message)
@@ -612,79 +1320,403 @@ public class RadioController : MonoBehaviour
         NotifyStateChanged();
     }
 
-    private void PlayLoadedSong(int index, bool recordHistory = true)
+    private void CancelPlayRoutine()
     {
-        if (songs == null || songs.Length == 0)
+        if (playRoutine == null)
             return;
 
-        currentSong = index;
-        userPaused = false;
-        advancingTrack = false;
-        currentTrackStartedAt = Time.unscaledTime;
+        StopCoroutine(playRoutine);
+        playRoutine = null;
+    }
 
-        if (recordHistory)
-            RecordForwardPlay(index);
+    private void RequestPlay(int index, bool recordHistory)
+    {
+        CancelPlayRoutine();
+        int gen = ++playRequestGeneration;
+        playRoutine = StartCoroutine(PlayTrackRoutine(index, recordHistory, gen));
+    }
 
-        PlayerPrefs.SetInt(PrefLastTrack, index);
-        PlayerPrefs.Save();
+    private IEnumerator PlayTrackRoutine(int index, bool recordHistory, int generation)
+    {
+        if (tracks == null || index < 0 || index >= tracks.Length)
+        {
+            advancingTrack = false;
+            yield break;
+        }
+
+        SetStatus("Loading…");
+        // Always resolve via /track?id= before play (playlist has titles only).
+        yield return EnsureSignedUrl(index, force: false);
+        if (generation != playRequestGeneration)
+            yield break;
+
+        yield return EnsureClipLoaded(index, allowResignRetry: true);
+        if (generation != playRequestGeneration)
+            yield break;
 
         if (clips == null || clips[index] == null)
         {
-            Debug.LogWarning("[FlamiePrac] Song failed to load, skipping: " +
-                             Path.GetFileNameWithoutExtension(songs[index]));
-            TryPlayAlternate(PickNextIndex(index), songs.Length - 1);
+            FlamieLog.Warn("[FlamiePrac] Song failed to load, skipping: " + tracks[index].Title);
+            yield return PlayAlternateRoutine(PickNextIndex(index), Mathf.Max(tracks.Length * 2, 4), generation);
+            yield break;
+        }
+
+        ApplyClipToOutputs(index, recordHistory);
+        advancingTrack = false;
+        playRoutine = null;
+    }
+
+    private IEnumerator EnsureSignedUrl(int index, bool force)
+    {
+        TrackEntry entry = tracks[index];
+        if (entry == null)
+            yield break;
+
+        if (!string.IsNullOrEmpty(entry.LocalPath))
+            yield break;
+
+        if (!force)
+        {
+            bool fresh = !string.IsNullOrEmpty(entry.SignedUrl) &&
+                         entry.UrlExpiresAtRealtime > Time.realtimeSinceStartup + UrlRefreshSkewSeconds;
+            if (fresh)
+                yield break;
+        }
+
+        entry.SignedUrl = null;
+        string url = apiBase + "/track?id=" + UnityWebRequest.EscapeURL(entry.Id);
+        using (UnityWebRequest req = UnityWebRequest.Get(url))
+        {
+            RadioApiUtil.ConfigureRequest(req);
+            yield return req.SendWebRequest();
+
+            long code = req.responseCode;
+            if (req.result != UnityWebRequest.Result.Success)
+            {
+                if (code == 404)
+                    FlamieLog.Warn("[FlamiePrac] Radio track not found (404): '" + entry.Id + "'");
+                else
+                    FlamieLog.Warn("[FlamiePrac] Radio sign failed for '" + entry.Id + "': " + req.error);
+                entry.SignedUrl = null;
+                yield break;
+            }
+
+            TrackDto dto;
+            try
+            {
+                dto = JsonUtility.FromJson<TrackDto>(req.downloadHandler.text);
+            }
+            catch (Exception ex)
+            {
+                FlamieLog.Warn("[FlamiePrac] Radio sign JSON failed: " + ex.Message);
+                yield break;
+            }
+
+            if (dto == null || string.IsNullOrWhiteSpace(dto.url))
+            {
+                FlamieLog.Warn("[FlamiePrac] Radio sign returned no url for '" + entry.Id + "'.");
+                yield break;
+            }
+
+            entry.SignedUrl = dto.url.Trim();
+            int ttl = dto.expiresIn > 0 ? dto.expiresIn : 3600;
+            entry.UrlExpiresAtRealtime = Time.realtimeSinceStartup + ttl;
+            if (!string.IsNullOrWhiteSpace(dto.title))
+                entry.Title = dto.title.Trim();
+        }
+    }
+
+    private IEnumerator EnsureClipLoaded(int index, bool allowResignRetry)
+    {
+        if (clips != null && clips[index] != null)
+            yield break;
+
+        TrackEntry entry = tracks[index];
+        if (entry == null)
+            yield break;
+
+        yield return DownloadClipOnce(index);
+
+        if (clips != null && clips[index] != null)
+            yield break;
+
+        // Expired / 403 from S3 → ask phlstats for a fresh signed URL once.
+        if (!allowResignRetry || !string.IsNullOrEmpty(entry.LocalPath))
+            yield break;
+
+        entry.SignedUrl = null;
+        entry.UrlExpiresAtRealtime = -1f;
+        yield return EnsureSignedUrl(index, force: true);
+        yield return DownloadClipOnce(index);
+    }
+
+    private IEnumerator DownloadClipOnce(int index)
+    {
+        if (clips != null && clips[index] != null)
+            yield break;
+
+        TrackEntry entry = tracks[index];
+        if (entry == null)
+            yield break;
+
+        string uri;
+        if (!string.IsNullOrEmpty(entry.LocalPath))
+            uri = new Uri(Path.GetFullPath(entry.LocalPath)).AbsoluteUri;
+        else if (!string.IsNullOrEmpty(entry.SignedUrl))
+            uri = entry.SignedUrl;
+        else
+            yield break;
+
+        using (UnityWebRequest www = UnityWebRequestMultimedia.GetAudioClip(uri, AudioType.MPEG))
+        {
+            RadioApiUtil.ConfigureRequest(www);
+            // Full download — streaming MP3 length is often wrong (VBR/header padding reads as 20s+).
+            if (www.downloadHandler is DownloadHandlerAudioClip streamHandler)
+            {
+                streamHandler.streamAudio = false;
+                streamHandler.compressed = true;
+            }
+
+            yield return www.SendWebRequest();
+
+            if (www.result != UnityWebRequest.Result.Success)
+            {
+                long code = www.responseCode;
+                FlamieLog.Error("[FlamiePrac] Failed to load '" + entry.Title + "': " + www.error +
+                               (code > 0 ? " (HTTP " + code + ")" : string.Empty));
+                if (string.IsNullOrEmpty(entry.LocalPath))
+                {
+                    entry.SignedUrl = null;
+                    entry.UrlExpiresAtRealtime = -1f;
+                }
+
+                yield break;
+            }
+
+            AudioClip clip = DownloadHandlerAudioClip.GetContent(www);
+            if (clips == null || index >= clips.Length)
+                yield break;
+
+            clips[index] = clip;
+            FlamieLog.Info("[FlamiePrac] Radio loaded: " + entry.Title + " (" + clip.length.ToString("0.0") + "s)");
+        }
+    }
+
+    private float ResolveDurationForTrack(string trackId, float serverDuration)
+    {
+        if (verifiedDurations.TryGetValue(trackId, out float verified) && verified > 0.05f)
+            return verified;
+
+        return serverDuration > 0.05f ? serverDuration : 0f;
+    }
+
+    private void RememberVerifiedDuration(string trackId, float duration)
+    {
+        if (string.IsNullOrEmpty(trackId) || duration <= 0.05f)
+            return;
+
+        verifiedDurations[trackId] = duration;
+    }
+
+    private bool IsPlaybackClipForSyncedTrack()
+    {
+        if (playback == null || playback.clip == null || string.IsNullOrEmpty(syncedTrackId))
+            return false;
+
+        if (tracks == null || currentSong < 0 || currentSong >= tracks.Length)
+            return false;
+
+        TrackEntry entry = tracks[currentSong];
+        if (entry == null || !string.Equals(entry.Id, syncedTrackId, StringComparison.Ordinal))
+            return false;
+
+        return clips != null && currentSong < clips.Length && clips[currentSong] == playback.clip;
+    }
+
+    private bool TryGetSyncedClipLength(out float length)
+    {
+        length = 0f;
+        if (!IsPlaybackClipForSyncedTrack())
+            return false;
+
+        length = playback.clip.length;
+        return length > 0.05f;
+    }
+
+    private float GetEffectivePlaybackLength()
+    {
+        if (IsSyncedPlayback && !string.IsNullOrEmpty(syncedTrackId))
+        {
+            if (verifiedDurations.TryGetValue(syncedTrackId, out float verified) && verified > 0.05f)
+                return verified;
+
+            if (TryGetSyncedClipLength(out float clipLen))
+                return clipLen;
+
+            if (syncedDuration > 0.05f)
+                return syncedDuration;
+        }
+
+        AudioSource src = PrimarySource;
+        float loaded = src != null && src.clip != null ? src.clip.length : 0f;
+        return loaded > 0.05f ? loaded : 0f;
+    }
+
+    private void ReportCorrectedDuration(float duration)
+    {
+        if (!IsSyncedPlayback || string.IsNullOrEmpty(syncedTrackId) || duration <= 0.5f)
+            return;
+
+        RememberVerifiedDuration(syncedTrackId, duration);
+        syncedDuration = duration;
+        reportedDurationForCurrent = true;
+        RadioSync.ClientReportDuration(syncedTrackId, duration);
+    }
+
+    private void MaybeDetectPlaybackStall()
+    {
+        if (!listeningEnabled || playback == null || playback.clip == null)
+        {
+            lastObservedPlaybackTime = -1f;
             return;
         }
 
-        AudioClip clip = clips[index];
-        PruneDeadOutputs();
-
-        if (outputs.Count == 0)
-            RefreshSpeakerOutputsFromScene();
-
-        if (outputs.Count == 0)
+        if (!playback.isPlaying)
         {
-            Debug.LogWarning("[FlamiePrac] Radio track ready but no speaker outputs — audio will not play.");
+            lastObservedPlaybackTime = -1f;
+            return;
+        }
+
+        float t = playback.time;
+        if (lastObservedPlaybackTime < 0f || t > lastObservedPlaybackTime + 0.02f)
+        {
+            lastObservedPlaybackTime = t;
+            lastPlaybackTimeChangeAt = Time.unscaledTime;
+            return;
+        }
+
+        if (t < 0.5f || Time.unscaledTime - lastPlaybackTimeChangeAt < PlaybackStallSeconds)
+            return;
+
+        float actualLen = Mathf.Max(t, lastObservedPlaybackTime);
+        ReportCorrectedDuration(actualLen);
+        playback.Stop();
+        ReportTrackEndedIfNeeded(forceRetry: true);
+        lastObservedPlaybackTime = -1f;
+    }
+
+    private void ReleaseUnusedClips(int keepIndex)
+    {
+        if (clips == null)
+            return;
+
+        for (int i = 0; i < clips.Length; i++)
+        {
+            if (i == keepIndex || clips[i] == null)
+                continue;
+
+            Destroy(clips[i]);
+            clips[i] = null;
+        }
+    }
+
+    private void ApplyClipToOutputs(int index, bool recordHistory)
+    {
+        currentSong = index;
+        advancingTrack = false;
+        currentTrackStartedAt = Time.unscaledTime;
+
+        if (recordHistory && !IsSyncedPlayback)
+            RecordForwardPlay(index);
+
+        PlayerPrefs.SetInt(PrefLastTrack, index);
+        // Do not PlayerPrefs.Save() here — disk flush hitch on every track change.
+
+        AudioClip clip = clips[index];
+        ReleaseUnusedClips(index);
+        EnsurePlaybackSource();
+        PruneDeadSpeakerAnchors();
+
+        if (speakerAnchors.Count == 0)
+            RefreshSpeakerAnchorsFromScene();
+
+        if (playback == null)
+        {
+            FlamieLog.Warn("[FlamiePrac] Radio track ready but playback source missing.");
             NotifyStateChanged();
             return;
         }
 
-        foreach (SpeakerOutput output in outputs)
+        float seek = IsSyncedPlayback ? ComputeServerSeekSeconds() : 0f;
+        if (clip != null && clip.length > 0.05f)
         {
-            if (output?.Audio == null)
-                continue;
+            // If sync clock is already past the clip, wait for server advance — don't restart.
+            if (IsSyncedPlayback && seek >= clip.length - EndOfTrackEpsilonSeconds)
+            {
+                playback.clip = clip;
+                playback.Stop();
+                ReportTrackEndedIfNeeded(forceRetry: true);
+                NotifyStateChanged();
+                return;
+            }
 
-            output.Audio.clip = clip;
-            output.Audio.time = 0f;
-            output.Audio.Play();
+            seek = Mathf.Clamp(seek, 0f, Mathf.Max(0f, clip.length - EndOfTrackEpsilonSeconds));
         }
 
-        ScheduleTrackEndWatch(GetActiveClipLength());
+        playback.loop = false;
+        playback.clip = clip;
+        UpdateDistanceVolume();
+
+        if (listeningEnabled)
+        {
+            playback.Play();
+            playback.time = seek;
+        }
+        else
+        {
+            playback.Stop();
+        }
+
+        if (IsSyncedPlayback)
+        {
+            CancelTrackEndWatch();
+            if (clip != null && tracks[index] != null &&
+                string.Equals(tracks[index].Id, syncedTrackId, StringComparison.Ordinal))
+            {
+                RememberVerifiedDuration(tracks[index].Id, clip.length);
+                reportedDurationForCurrent = true;
+                syncedDuration = clip.length;
+                RadioSync.ClientReportDuration(tracks[index].Id, clip.length);
+            }
+        }
+        else if (listeningEnabled)
+        {
+            ScheduleTrackEndWatch(GetActiveClipLength());
+        }
 
         StatusMessage = string.Empty;
-        Debug.Log("[FlamiePrac] Radio playing: " + Path.GetFileNameWithoutExtension(songs[index]));
+        FlamieLog.Info("[FlamiePrac] Radio " + (listeningEnabled ? "playing" : "loaded (muted)") + ": " +
+                       tracks[index].Title +
+                       (IsSyncedPlayback ? (" @ " + seek.ToString("0.00") + "s sync") : string.Empty));
         NotifyStateChanged();
     }
 
-    private void SyncOutputToCurrentTrack(AudioSource audio)
+    private void SyncPlaybackToCurrentTrack()
     {
-        if (audio == null || !libraryReady || clips == null || currentSong < 0 || currentSong >= clips.Length)
+        EnsurePlaybackSource();
+        if (playback == null || !libraryReady || clips == null || currentSong < 0 || currentSong >= clips.Length)
             return;
 
         AudioClip clip = clips[currentSong];
         if (clip == null)
             return;
 
-        audio.clip = clip;
-
-        if (userPaused)
+        if (playback.clip == clip && (playback.isPlaying || !listeningEnabled))
             return;
 
-        AudioSource primary = PrimarySource;
-        if (primary != null && primary != audio && primary.isPlaying)
-            audio.time = primary.time;
-
-        audio.Play();
+        playback.clip = clip;
+        UpdateDistanceVolume();
+        ApplyListeningState(seekIfOn: true);
     }
 
     private void ScheduleTrackEndWatch(float clipLength)
@@ -702,7 +1734,7 @@ public class RadioController : MonoBehaviour
         float deadline = Time.unscaledTime + 3f;
         while (Time.unscaledTime < deadline)
         {
-            if (generation != trackPlayGeneration || userPaused)
+            if (generation != trackPlayGeneration || !listeningEnabled)
                 yield break;
 
             if (AllOutputsIdle())
@@ -715,7 +1747,7 @@ public class RadioController : MonoBehaviour
             yield return null;
         }
 
-        if (generation != trackPlayGeneration || userPaused || advancingTrack)
+        if (generation != trackPlayGeneration || !listeningEnabled || advancingTrack)
             yield break;
 
         AutoAdvanceToNextTrack();
@@ -732,35 +1764,32 @@ public class RadioController : MonoBehaviour
 
     private void TryStartPlayback(int? firstIndex = null)
     {
-        if (!libraryReady || userPaused || songs == null || songs.Length == 0)
+        if (!libraryReady || !listeningEnabled || tracks == null || tracks.Length == 0)
             return;
 
-        PruneDeadOutputs();
-        if (outputs.Count == 0)
+        EnsurePlaybackSource();
+        if (playback == null)
             return;
 
         if (IsAnyOutputPlaying())
             return;
 
-        int index = firstIndex ?? currentSong;
-        if (index < 0 || index >= songs.Length)
+        int index = firstIndex ?? pendingStartIndex;
+        if (index < 0)
+            index = currentSong;
+        if (index < 0 || index >= tracks.Length)
             index = 0;
 
-        PlayLoadedSong(index, recordHistory: false);
+        pendingStartIndex = -1;
+        RequestPlay(index, recordHistory: false);
     }
 
-    private void PruneDeadOutputs()
+    private void PruneDeadSpeakerAnchors()
     {
-        for (int i = outputs.Count - 1; i >= 0; i--)
+        for (int i = speakerAnchors.Count - 1; i >= 0; i--)
         {
-            SpeakerOutput output = outputs[i];
-            if (output == null || output.Audio == null || output.Target == null)
-            {
-                if (output?.Audio != null && output.Audio.gameObject != null)
-                    Destroy(output.Audio.gameObject);
-
-                outputs.RemoveAt(i);
-            }
+            if (speakerAnchors[i] == null)
+                speakerAnchors.RemoveAt(i);
         }
     }
 
@@ -778,24 +1807,25 @@ public class RadioController : MonoBehaviour
     private void RestartCurrentSong()
     {
         if (PrimarySource == null || PrimarySource.clip == null)
+        {
+            RequestPlay(currentSong, recordHistory: false);
             return;
+        }
 
         CancelTrackEndWatch();
         currentTrackStartedAt = Time.unscaledTime;
 
-        foreach (SpeakerOutput output in outputs)
+        EnsurePlaybackSource();
+        if (playback != null)
         {
-            if (output?.Audio == null)
-                continue;
-
-            output.Audio.time = 0f;
-            if (!output.Audio.isPlaying)
-                output.Audio.Play();
+            playback.time = 0f;
+            if (!playback.isPlaying)
+                playback.Play();
         }
 
-        ScheduleTrackEndWatch(GetActiveClipLength());
+        if (listeningEnabled)
+            ScheduleTrackEndWatch(GetActiveClipLength());
 
-        userPaused = false;
         NotifyStateChanged();
     }
 
@@ -808,7 +1838,7 @@ public class RadioController : MonoBehaviour
         }
 
         historyIndex--;
-        PlayLoadedSong(playHistory[historyIndex], recordHistory: false);
+        RequestPlay(playHistory[historyIndex], recordHistory: false);
     }
 
     private IEnumerator DelayedRestartCurrentSong()
@@ -827,37 +1857,52 @@ public class RadioController : MonoBehaviour
         delayedRestartCoroutine = null;
     }
 
-    private void TryPlayAlternate(int index, int attemptsLeft)
+    private IEnumerator PlayAlternateRoutine(int index, int attemptsLeft, int generation)
     {
-        if (attemptsLeft <= 0 || songs == null || songs.Length == 0)
+        while (attemptsLeft > 0)
         {
-            SetStatus("No playable tracks");
-            advancingTrack = false;
-            return;
+            if (generation != playRequestGeneration)
+                yield break;
+
+            yield return EnsureSignedUrl(index, force: false);
+            if (generation != playRequestGeneration)
+                yield break;
+
+            yield return EnsureClipLoaded(index, allowResignRetry: true);
+            if (generation != playRequestGeneration)
+                yield break;
+
+            if (clips != null && clips[index] != null)
+            {
+                ApplyClipToOutputs(index, recordHistory: true);
+                advancingTrack = false;
+                playRoutine = null;
+                yield break;
+            }
+
+            index = PickNextIndex(index);
+            attemptsLeft--;
         }
 
-        if (clips == null || clips[index] == null)
-        {
-            TryPlayAlternate(PickNextIndex(index), attemptsLeft - 1);
-            return;
-        }
-
-        PlayLoadedSong(index);
+        SetStatus("No playable tracks");
+        advancingTrack = false;
+        playRoutine = null;
     }
 
     public void NextSong()
     {
-        if (songs == null || songs.Length == 0)
+        if (tracks == null || tracks.Length == 0)
             return;
 
         CancelDelayedRestart();
         CancelTrackEndWatch();
-        TryPlayAlternate(PickNextIndex(currentSong), Mathf.Max(songs.Length * 2, 4));
+        advancingTrack = true;
+        RequestPlay(PickNextIndex(currentSong), recordHistory: true);
     }
 
     public void PreviousSong()
     {
-        if (songs == null || songs.Length == 0)
+        if (tracks == null || tracks.Length == 0)
             return;
 
         CancelTrackEndWatch();

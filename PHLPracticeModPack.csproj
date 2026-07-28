@@ -12,7 +12,9 @@
     <GameManaged>$(GameDir)\Puck_Data\Managed</GameManaged>
     <DeployDir>$(MSBuildProjectDirectory)\dist</DeployDir>
     <PuckLargeLevelDir>$(MSBuildProjectDirectory)\_vendor\PuckLargeLevel</PuckLargeLevelDir>
+    <FlamieDir>$(MSBuildProjectDirectory)\_vendor\phltrainingcode-main</FlamieDir>
     <IncludePuckLargeLevel>true</IncludePuckLargeLevel>
+    <IncludeFlamiePrac>true</IncludeFlamiePrac>
   </PropertyGroup>
 
   <ItemGroup>
@@ -46,6 +48,9 @@
     <Compile Include="TrlReskinBridge.cs" />
     <Compile Include="MultiRinkCloneMeta.cs" />
     <Compile Include="MinimapRinkView.cs" />
+    <Compile Include="RinkStripMode.cs" />
+    <Compile Include="RinkStripVoteProgress.cs" />
+    <Compile Include="RinkStripVote.cs" />
     <Compile Include="RinkMotdShared.cs" />
     <Compile Include="RinkMotdService.cs" />
     <Compile Include="RinkMotdUI.cs" />
@@ -77,6 +82,57 @@
     <Compile Include="$(PuckLargeLevelDir)\PuckSpawnSync.cs" Link="LargeLevel\PuckSpawnSync.cs" />
   </ItemGroup>
 
+  <!-- FlamiePrac training hive / passers / slidables / MaxPractice AI goalie (hosted by MultiSheet). -->
+  <ItemGroup Condition="'$(IncludeFlamiePrac)' == 'true'">
+    <Compile Include="$(FlamieDir)\MyMod.cs" Link="Flamie\MyMod.cs" />
+    <Compile Include="$(FlamieDir)\CircularMovingTarget.cs" Link="Flamie\CircularMovingTarget.cs" />
+    <Compile Include="$(FlamieDir)\CollisionHelper.cs" Link="Flamie\CollisionHelper.cs" />
+    <Compile Include="$(FlamieDir)\ConstantMover.cs" Link="Flamie\ConstantMover.cs" />
+    <Compile Include="$(FlamieDir)\ConstantRotator.cs" Link="Flamie\ConstantRotator.cs" />
+    <Compile Include="$(FlamieDir)\FlamiePracFeatures.cs" Link="Flamie\FlamiePracFeatures.cs" />
+    <Compile Include="$(FlamieDir)\FlamiePracGoalieBootstrap.cs" Link="Flamie\FlamiePracGoalieBootstrap.cs" />
+    <Compile Include="$(FlamieDir)\FlamiePracGoaliePlacement.cs" Link="Flamie\FlamiePracGoaliePlacement.cs" />
+    <Compile Include="$(FlamieDir)\FlamiePracLifecycle.cs" Link="Flamie\FlamiePracLifecycle.cs" />
+    <Compile Include="$(FlamieDir)\FlamiePracMaxPracticeShim.cs" Link="Flamie\FlamiePracMaxPracticeShim.cs" />
+    <Compile Include="$(FlamieDir)\FlamiePracTestPuckSpawn.cs" Link="Flamie\FlamiePracTestPuckSpawn.cs" />
+    <Compile Include="$(FlamieDir)\FlamiePracTrainingGoalie.cs" Link="Flamie\FlamiePracTrainingGoalie.cs" />
+    <Compile Include="$(FlamieDir)\FlamiePracVersion.cs" Link="Flamie\FlamiePracVersion.cs" />
+    <Compile Include="$(FlamieDir)\FlamiePracRinkVisibility.cs" Link="Flamie\FlamiePracRinkVisibility.cs" />
+    <Compile Include="$(FlamieDir)\FlamiePracRinkInterest.cs" Link="Flamie\FlamiePracRinkInterest.cs" />
+    <Compile Include="$(FlamieDir)\FlamieLog.cs" Link="Flamie\FlamieLog.cs" />
+    <Compile Include="$(FlamieDir)\FollowSpinningObject.cs" Link="Flamie\FollowSpinningObject.cs" />
+    <Compile Include="$(FlamieDir)\PassBackBoardLock.cs" Link="Flamie\PassBackBoardLock.cs" />
+    <Compile Include="$(FlamieDir)\PassBumperHitRelay.cs" Link="Flamie\PassBumperHitRelay.cs" />
+    <Compile Include="$(FlamieDir)\PuckPasser.cs" Link="Flamie\PuckPasser.cs" />
+    <Compile Include="$(FlamieDir)\PuckSpawner.cs" Link="Flamie\PuckSpawner.cs" />
+    <Compile Include="$(FlamieDir)\RadioApiUtil.cs" Link="Flamie\RadioApiUtil.cs" />
+    <Compile Include="$(FlamieDir)\RadioController.cs" Link="Flamie\RadioController.cs" />
+    <Compile Include="$(FlamieDir)\RadioHudDriver.cs" Link="Flamie\RadioHudDriver.cs" />
+    <Compile Include="$(FlamieDir)\RadioHudUI.cs" Link="Flamie\RadioHudUI.cs" />
+    <Compile Include="$(FlamieDir)\RadioSync.cs" Link="Flamie\RadioSync.cs" />
+    <Compile Include="$(FlamieDir)\ReactiveTarget.cs" Link="Flamie\ReactiveTarget.cs" />
+    <Compile Include="$(FlamieDir)\RinkOrigin.cs" Link="Flamie\RinkOrigin.cs" />
+    <Compile Include="$(FlamieDir)\SlidableBoardCollision.cs" Link="Flamie\SlidableBoardCollision.cs" />
+    <Compile Include="$(FlamieDir)\SlidableObstacle.cs" Link="Flamie\SlidableObstacle.cs" />
+    <Compile Include="$(FlamieDir)\SlidableObstacleSetup.cs" Link="Flamie\SlidableObstacleSetup.cs" />
+    <Compile Include="$(FlamieDir)\SlidableObstacleSync.cs" Link="Flamie\SlidableObstacleSync.cs" />
+    <Compile Include="$(FlamieDir)\SlidablePuckFilter.cs" Link="Flamie\SlidablePuckFilter.cs" />
+    <Compile Include="$(FlamieDir)\TrainingClientChat.cs" Link="Flamie\TrainingClientChat.cs" />
+    <Compile Include="$(FlamieDir)\TrainingLayoutConfig.cs" Link="Flamie\TrainingLayoutConfig.cs" />
+    <Compile Include="$(FlamieDir)\TrainingMaterialFix.cs" Link="Flamie\TrainingMaterialFix.cs" />
+    <Compile Include="$(FlamieDir)\TrainingMotionSync.cs" Link="Flamie\TrainingMotionSync.cs" />
+    <Compile Include="$(FlamieDir)\TrainingObjectFactory.cs" Link="Flamie\TrainingObjectFactory.cs" />
+    <Compile Include="$(FlamieDir)\TrainingObjectManager.cs" Link="Flamie\TrainingObjectManager.cs" />
+    <Compile Include="$(FlamieDir)\TrainingPrefabNames.cs" Link="Flamie\TrainingPrefabNames.cs" />
+    <Compile Include="$(FlamieDir)\TrainingPrefabRenamer.cs" Link="Flamie\TrainingPrefabRenamer.cs" />
+    <Compile Include="$(FlamieDir)\TrainingSync.cs" Link="Flamie\TrainingSync.cs" />
+    <Compile Include="$(FlamieDir)\MaxPractice\GoalieAI.cs" Link="Flamie\MaxPractice\GoalieAI.cs" />
+    <Compile Include="$(FlamieDir)\MaxPractice\GoalieAIManager.cs" Link="Flamie\MaxPractice\GoalieAIManager.cs" />
+    <Compile Include="$(FlamieDir)\MaxPractice\ModConfig.cs" Link="Flamie\MaxPractice\ModConfig.cs" />
+    <Compile Include="$(FlamieDir)\MaxPractice\PracticeHelpers.cs" Link="Flamie\MaxPractice\PracticeHelpers.cs" />
+    <Compile Include="$(FlamieDir)\MaxPractice\PracticePatches.cs" Link="Flamie\MaxPractice\PracticePatches.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <Reference Include="Puck">
       <HintPath>..\libs\Puck.dll</HintPath>
@@ -100,6 +156,34 @@
     </Reference>
     <Reference Include="UnityEngine.PhysicsModule">
       <HintPath>$(GameManaged)\UnityEngine.PhysicsModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.AudioModule">
+      <HintPath>$(GameManaged)\UnityEngine.AudioModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UnityWebRequestModule">
+      <HintPath>$(GameManaged)\UnityEngine.UnityWebRequestModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UnityWebRequestAudioModule">
+      <HintPath>$(GameManaged)\UnityEngine.UnityWebRequestAudioModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.InputLegacyModule">
+      <HintPath>$(GameManaged)\UnityEngine.InputLegacyModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.JSONSerializeModule">
+      <HintPath>$(GameManaged)\UnityEngine.JSONSerializeModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.ParticleSystemModule">
+      <HintPath>$(GameManaged)\UnityEngine.ParticleSystemModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.AnimationModule">
+      <HintPath>$(GameManaged)\UnityEngine.AnimationModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.TerrainModule">
@@ -146,21 +230,21 @@
            Text="Missing $(PuckLargeLevelDir). Run: PHLPracticeModPack\setup-vendor.ps1" />
   </Target>
 
+  <Target Name="EnsureFlamiePresent" BeforeTargets="CoreCompile"
+            Condition="'$(IncludeFlamiePrac)' == 'true'">
+    <Error Condition="!Exists('$(FlamieDir)\MyMod.cs')"
+           Text="Missing Flamie sources at $(FlamieDir)" />
+    <Error Condition="!Exists('$(FlamieDir)\trainingprefabs')"
+           Text="Missing Flamie AssetBundle at $(FlamieDir)\trainingprefabs" />
+  </Target>
+
   <Target Name="CopyDeployOutputs" AfterTargets="Build">
-    <MakeDir Directories="$(DeployDir)" />
-    <MakeDir Directories="$(DeployDir)\config" />
-    <MakeDir Directories="$(DeployDir)\assets" />
+    <!-- dist\ is the full Steam Workshop upload folder (DLL + Flamie assets + config + RadioSongs). -->
     <Copy SourceFiles="$(OutputPath)$(AssemblyName).dll"
           DestinationFolder="$(DeployDir)"
           OverwriteReadOnlyFiles="true" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\config\multi_rink.example.json"
-          DestinationFiles="$(DeployDir)\config\multi_rink.example.json"
-          SkipUnchangedFiles="true"
-          Condition="Exists('$(MSBuildProjectDirectory)\config\multi_rink.example.json')" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\assets\README.md"
-          DestinationFiles="$(DeployDir)\assets\README.md"
-          SkipUnchangedFiles="true"
-          Condition="Exists('$(MSBuildProjectDirectory)\assets\README.md')" />
-    <Message Importance="high" Text="Copied $(AssemblyName).dll → $(DeployDir)" />
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\tools\assemble-workshop-dist.ps1&quot; -ProjectRoot &quot;$(MSBuildProjectDirectory)&quot; -Configuration $(Configuration)"
+          IgnoreExitCode="false" />
+    <Message Importance="high" Text="Workshop package ready → $(DeployDir) (upload the entire folder)" />
   </Target>
 </Project>

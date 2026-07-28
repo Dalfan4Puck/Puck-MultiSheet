@@ -14,7 +14,7 @@ public static class FlamiePracTrainingGoalie
 
         if (!FlamiePracGoaliePlacement.ConfigureFromTrainingHive(trainingRoot, out PlayerTeam team))
         {
-            Debug.LogWarning("[FlamiePrac] Could not resolve training net for MaxPractice AI goalie.");
+            FlamieLog.Warn("[FlamiePrac] Could not resolve training net for MaxPractice AI goalie.");
             return;
         }
 
@@ -22,7 +22,7 @@ public static class FlamiePracTrainingGoalie
         MaxPracticePlugin.SuppressNullRefsFor(120);
 
         bool ok = GoalieAIManager.SpawnAIGoalie(team);
-        Debug.Log("[FlamiePrac] MaxPractice AI goalie spawn team=" + team + " success=" + ok);
+        FlamieLog.Info("[FlamiePrac] MaxPractice AI goalie spawn team=" + team + " success=" + ok);
 
     }
 

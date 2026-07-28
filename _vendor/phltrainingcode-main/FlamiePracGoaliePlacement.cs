@@ -1,4 +1,5 @@
 using UnityEngine;
+using Object = UnityEngine.Object;
 
 /// <summary>
 /// MaxPractice AI crease for the training hive. Decorative GoalieModel in the prefab bundle
@@ -58,8 +59,9 @@ public static class FlamiePracGoaliePlacement
 
         spawnTeam = DefaultTeam;
         trainingTeam = DefaultTeam;
-        creasePos = DefaultCrease;
-        trainingGoalPos = DefaultNet;
+        // Authored crease/net are sheet-local (Rink 1 space).
+        creasePos = RinkOrigin.Apply(DefaultCrease);
+        trainingGoalPos = RinkOrigin.Apply(DefaultNet);
 
         float iceY = ResolveIceY(creasePos);
         creasePos.y = iceY;
@@ -69,8 +71,9 @@ public static class FlamiePracGoaliePlacement
         creaseRot = Quaternion.LookRotation(towardIce);
         active = true;
 
-        Debug.Log("[FlamiePrac] Training goalie crease=" + creasePos + " net=" + trainingGoalPos +
-                  " team=" + spawnTeam + " (layout constants — GoalieDecor not used)");
+        FlamieLog.Info("[FlamiePrac] Training goalie crease=" + creasePos + " net=" + trainingGoalPos +
+                  " team=" + spawnTeam + " rink=" + RinkOrigin.ActiveRinkIndex +
+                  " (layout constants — GoalieDecor not used)");
         return true;
     }
 
@@ -108,7 +111,7 @@ public static class FlamiePracGoaliePlacement
         }
 
         if (removed > 0)
-            Debug.Log("[FlamiePrac] Removed GoalieDecor from hive instance (" + removed + " root(s)).");
+            FlamieLog.Info("[FlamiePrac] Removed GoalieDecor from hive instance (" + removed + " root(s)).");
     }
 
     // --- Retired: CacheAnchorFromHive / DisableUnusedGoalieDecor / PurgeUnusedGoalieDecor ---

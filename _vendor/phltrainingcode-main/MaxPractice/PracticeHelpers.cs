@@ -416,7 +416,7 @@ namespace MaxPractice
                                 _cachedPuckMaterial = mr.sharedMaterial;
                                 _cachedPuckMesh = mf.sharedMesh;
                                 _visualsCached = true;
-                                Debug.Log("[MaxPractice] Cached puck visuals for future repairs");
+                                FlamieLog.Info("[MaxPractice] Cached puck visuals for future repairs");
                             }
                             break;
                         }
@@ -425,7 +425,7 @@ namespace MaxPractice
                 
                 if (!hasValidVisuals)
                 {
-                    Debug.LogWarning("[MaxPractice] Puck spawned without valid visuals - attempting repair");
+                    FlamieLog.Warn("[MaxPractice] Puck spawned without valid visuals - attempting repair");
                     
                     // Try cached visuals first (most reliable)
                     if (_visualsCached && _cachedPuckMaterial != null && _cachedPuckMesh != null)
@@ -445,7 +445,7 @@ namespace MaxPractice
                                 mf.sharedMesh = _cachedPuckMesh;
                             }
                         }
-                        Debug.Log("[MaxPractice] Puck visuals repaired from cache");
+                        FlamieLog.Info("[MaxPractice] Puck visuals repaired from cache");
                         return;
                     }
                     
@@ -489,7 +489,7 @@ namespace MaxPractice
                                                     mf.sharedMesh = existingMF.sharedMesh;
                                                 }
                                             }
-                                            Debug.Log("[MaxPractice] Puck visuals repaired from existing puck");
+                                            FlamieLog.Info("[MaxPractice] Puck visuals repaired from existing puck");
                                             return;
                                         }
                                     }
@@ -498,12 +498,12 @@ namespace MaxPractice
                         }
                     }
                     
-                    Debug.LogWarning("[MaxPractice] Could not repair puck visuals - no valid source found");
+                    FlamieLog.Warn("[MaxPractice] Could not repair puck visuals - no valid source found");
                 }
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[MaxPractice] Error validating puck visuals: {ex.Message}");
+                FlamieLog.Warn($"[MaxPractice] Error validating puck visuals: {ex.Message}");
             }
         }
         
@@ -582,7 +582,7 @@ namespace MaxPractice
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[MaxPractice] Error stripping puck: {ex.Message}");
+                FlamieLog.Warn($"[MaxPractice] Error stripping puck: {ex.Message}");
             }
         }
         
@@ -611,7 +611,7 @@ namespace MaxPractice
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[MaxPractice] Error disabling handle puck collision: {ex.Message}");
+                FlamieLog.Warn($"[MaxPractice] Error disabling handle puck collision: {ex.Message}");
             }
         }
         
@@ -654,7 +654,7 @@ namespace MaxPractice
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[MaxPractice] Error setting up handle puck collision ignoring: {ex.Message}");
+                FlamieLog.Warn($"[MaxPractice] Error setting up handle puck collision ignoring: {ex.Message}");
             }
         }
         
@@ -761,13 +761,13 @@ namespace MaxPractice
                 if (cleared > 0)
                 {
                     int kept = protectedPucks.Count;
-                    Debug.Log($"[MaxPractice] Auto-cleared {cleared} pucks, kept {kept} closest to players");
+                    FlamieLog.Info($"[MaxPractice] Auto-cleared {cleared} pucks, kept {kept} closest to players");
                     PracticeHelpers.SendChatMessage(null, $"<size=70%><color=#FFFFFFFF>Auto-cleared {cleared} pucks, kept {kept} closest to players.</color></size>");
                 }
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[MaxPractice] Error in cleanup pucks: {ex}");
+                FlamieLog.Error($"[MaxPractice] Error in cleanup pucks: {ex}");
             }
         }
     }

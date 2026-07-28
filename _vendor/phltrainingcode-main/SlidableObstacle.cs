@@ -34,6 +34,7 @@ public class SlidableObstacle : MonoBehaviour
     private float wakeTime;
     private bool isAwake;
     private bool collidersFitted;
+    private bool physicsFrozen;
 
     private const float JoinSettleSeconds = 0.35f;
     private const float SpeakerJoinSettleSeconds = 0.85f;
@@ -59,6 +60,15 @@ public class SlidableObstacle : MonoBehaviour
     private const float BodyHitBounceMax = 9f;
 
     public static IReadOnlyList<SlidableObstacle> ActiveObstacles => Active;
+
+    public static void ApplyPhysicsEnabled(bool enabled)
+    {
+        foreach (SlidableObstacle obstacle in Active)
+        {
+            if (obstacle != null)
+                obstacle.SetPhysicsEnabled(enabled);
+        }
+    }
 
     public void Initialize(Transform trainingRoot, int syncId, string relativePath, GameObject anchorToOwn = null)
     {
@@ -99,6 +109,8 @@ public class SlidableObstacle : MonoBehaviour
         if (!Active.Contains(this))
             Active.Add(this);
 
+        physicsFrozen = !FlamiePracFeatures.SlidablePhysicsEnabled;
+
         string boundsText = TryGetCombinedColliderBounds(out Bounds bounds)
             ? bounds.size.ToString("F2")
             : "unknown";
@@ -131,10 +143,39 @@ public class SlidableObstacle : MonoBehaviour
         SlidablePuckFilter.Unregister(gameObject);
     }
 
+    private void SetPhysicsEnabled(bool enabled)
+    {
+        physicsFrozen = !enabled;
+        if (rb == null)
+            return;
+
+        if (!enabled)
+        {
+            rb.isKinematic = true;
+            rb.linearVelocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+            SnapRestPose();
+            Physics.SyncTransforms();
+        }
+        else
+        {
+            isAwake = false;
+            wakeTime = Time.time + 0.05f;
+            rb.WakeUp();
+        }
+    }
+
     private void FixedUpdate()
     {
         if (!IsServerSide() || rb == null)
             return;
+
+        if (physicsFrozen || !FlamiePracFeatures.SlidablePhysicsEnabled)
+        {
+            if (!rb.isKinematic)
+                SetPhysicsEnabled(false);
+            return;
+        }
 
         // Rink/Puck may flip Ice↔Ice off after load — keep slidables solid to each other.
         SlidableBoardCollision.Ensure();
@@ -1043,6 +1084,9 @@ public class SlidableObstacle : MonoBehaviour
         if (!IsServerSide() || rb == null || collision == null)
             return;
 
+        if (physicsFrozen || !FlamiePracFeatures.SlidablePhysicsEnabled)
+            return;
+
         if (SlidableBoardCollision.IsBoardLayer(collision.collider.gameObject.layer))
             CancelBoardVelocity(collision);
 
@@ -1053,6 +1097,9 @@ public class SlidableObstacle : MonoBehaviour
     private void OnCollisionStay(Collision collision)
     {
         if (!IsServerSide() || rb == null || collision == null)
+            return;
+
+        if (physicsFrozen || !FlamiePracFeatures.SlidablePhysicsEnabled)
             return;
 
         if (SlidableBoardCollision.IsBoardLayer(collision.collider.gameObject.layer))

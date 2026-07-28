@@ -29,7 +29,7 @@ Build copies to Steam `Plugins\FlamieTraining\` and `dist\`:
 - `training_layout.json` (auto-seeded from example on first boot if missing)
 - `training_layout.example.json`
 - `training_prefab_names.json`
-- `RadioSongs/` (optional `.mp3` files)
+- `config/radio_client.example.json` (optional override for phlstats API base)
 - `SERVER_DEPLOY.md`
 
 ## Blank dedicated QA (no MultiSheet)
@@ -48,7 +48,7 @@ Build copies to Steam `Plugins\FlamieTraining\` and `dist\`:
 | **MaxPractice goalie** | Real AI `Player` at the hive net (decorative prefab goalie hidden) |
 | **Slidable beams** | Long prefab rectangles in the hive — push with stick (all beams, server-synced) |
 | **Test puck** | Press **R** to spawn puck above stick (QA) |
-| **Radio** | 3D speaker audio; shuffle next; single-prev restart, double-prev history |
+| **Radio** | 3D speaker via phlstats signed S3 URLs; server-synced track + majority skip |
 
 ## Chat commands
 
@@ -63,43 +63,39 @@ Build copies to Steam `Plugins\FlamieTraining\` and `dist\`:
 
 ## Radio
 
-Songs go in `RadioSongs\` next to `MyMod.dll` — any `.mp3` filename (e.g. `WatermelonCrawl.mp3`).
+Playlist + signed MP3 URLs come from **phlstats** (`https://phlstats.com/radio/api`) — private S3, no AWS keys in the DLL, no local `RadioSongs\` folder. Details: [docs/RADIO.md](docs/RADIO.md).
 
 | Command | Description |
 |---------|-------------|
-| `/nextsong` | Next track (alias: `/radioskip`) |
-| `/prevsong` | Previous track — **tap once** restarts current; **double-tap within 0.4 s** goes back in history (alias: `/radioprev`) |
-
-**Next/auto-advance** picks randomly without repeating until every song has played once.
+| `/nextsong` | Vote to skip / next track (alias: `/radioskip`) |
+| `/prevsong` | Server restart of current track (alias: `/radioprev`) |
 
 **Do not use `/skip` or `/prev`** — those are reserved Puck admin commands and will show “You do not have permissions.”
 
-After joining a rink, wait a few seconds for MP3s to load. **Radio controls are optional** — click the small **♪ Radio** chip at the **bottom-left** to open the panel (close with **✕**). It does not cover the team/role select screen. Chat commands `/nextsong` and `/prevsong` still work. **Audio plays from the Speaker prop in 3D** — walk toward the training hive to hear it clearly.
+After joining a rink, wait a few seconds for the playlist + first signed URL. **Radio controls are optional** — click the small **♪ Radio** chip at the **bottom-left** to open the panel (close with **✕**). Chat commands still work. **Audio plays from the Speaker prop in 3D** — walk toward the training hive to hear it clearly.
 
 ### Radio log lines (Player.log / Puck.log)
 
 ```
-[FlamiePrac] Radio looking for songs in: ...\FlamieTraining\RadioSongs
-[FlamiePrac] Radio found 1 track(s).
-[FlamiePrac] Radio loaded: WatermelonCrawl
-[FlamiePrac] Radio playing: WatermelonCrawl
+[FlamiePrac] Radio API base=https://phlstats.com/radio/api
+[FlamiePrac] Radio playing: <title>
 ```
 
-If loading fails, check for `Failed to load` or `RadioSongs folder not found`.
+If loading fails, check for `phlstats /playlist unavailable` or TLS/network errors on the client.
 
 ### Host vs dedicated
 
 | Mode | Radio |
 |------|--------|
 | **Local host** (you start the server) | Works — radio attaches to the hive on host |
-| **Dedicated server + remote client** | Works on the joining client |
-| **Dedicated headless (no client)** | No radio (expected — no listener) |
+| **Dedicated server + remote client** | Server owns sync clock; clients stream audio from phlstats |
+| **Dedicated headless (no client)** | Sync state only — no audio (expected) |
 
 ## Architecture
 
 - **Server**: spawns authority objects with colliders + gameplay scripts.
 - **Clients**: receive spawns via Custom Messaging (`TrainingSync`) and instantiate visuals locally.
-- **Radio**: `RadioController` on the hive **Speaker** — 3D MP3 + screen UI; track changes synced via `FlamiePrac_Radio` / `FlamiePrac_RadioRequest`.
+- **Radio**: `RadioController` on the hive **Speaker** — phlstats playlist + signed URLs, 3D audio + UITK HUD; sync via `FlamiePrac_Radio` / `FlamiePrac_RadioRequest`.
 - **training_layout.json** in the plugin folder overrides built-in pass-back defaults — update or delete after layout changes.
 - Joining clients request a full snapshot from the server.
 

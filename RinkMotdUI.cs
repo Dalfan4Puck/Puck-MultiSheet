@@ -22,6 +22,7 @@ namespace PHLPracticeModPack
         private static VisualElement overlay;
         private static VisualElement roleSectionHost;
         private static VisualElement rinkSectionHost;
+        private static VisualElement stripSectionHost;
         private static RinkMotdPayload lastPayload;
         private static RinkMotdPayload lastRenderedPayload;
         private static int lastRenderedLocalRink = -2;
@@ -43,6 +44,7 @@ namespace PHLPracticeModPack
         internal static void OnStatusReceived(RinkMotdPayload payload, byte show)
         {
             if (ModRuntimeContext.IsDedicatedGameServer || payload == null) return;
+            RinkMotdPayload previous = lastPayload;
             lastPayload = payload;
 
             if (MultiSheetClientSettings.SkipMotdUi)
@@ -54,6 +56,7 @@ namespace PHLPracticeModPack
             }
 
             RinkPreview.EnsureRig(payload);
+            RequestRecaptureForStripChanges(previous, payload);
 
             bool forced = show == 1;
             bool welcome = show == 2;
@@ -143,11 +146,18 @@ namespace PHLPracticeModPack
             pending = null;
             roleSectionHost = null;
             rinkSectionHost = null;
+            stripSectionHost = null;
             if (overlay != null)
             {
                 try { overlay.RemoveFromHierarchy(); } catch { }
                 overlay = null;
             }
+
+            if (!RinkScoreboardTab.IsMenuPaneActive)
+                RadioHudUI.DetachEmbedded();
+            else
+                RinkScoreboardTab.RefreshRadioSection();
+
             if (!RinkScoreboardTab.IsMenuPaneActive)
                 RinkPreview.SetVisible(false);
             ReleaseMouse();
@@ -174,13 +184,54 @@ namespace PHLPracticeModPack
             checkMouseRequirement = null;
         }
 
+        internal static void ApplyStripVoteProgress(RinkStripVoteProgress progress)
+        {
+            if (lastPayload != null)
+                lastPayload.StripVoteProgress = progress;
+
+            if (!IsVisible || stripSectionHost == null || lastPayload == null) return;
+            try
+            {
+                RinkPanelBuilder.FillStripSection(
+                    stripSectionHost, lastPayload, CreateSharedCallbacks(Hide), embedded: false);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[PHLPractice] MOTD strip vote refresh failed: " + ex.Message);
+            }
+        }
+
+        /// <summary>Re-snap tiles when a rink's tools strip changes (empty ↔ PHL Tools).</summary>
+        private static void RequestRecaptureForStripChanges(RinkMotdPayload previous, RinkMotdPayload next)
+        {
+            if (previous == null || next?.StripModes == null || next.StripModes.Count == 0) return;
+            if (!IsVisible && !RinkScoreboardTab.IsMenuPaneActive) return;
+
+            for (int i = 0; i < next.StripModes.Count; i++)
+            {
+                RinkStripMode mode = next.StripModes[i];
+                bool changed = previous == null
+                    || previous.StripModes == null
+                    || i >= previous.StripModes.Count
+                    || previous.StripModes[i] != mode;
+                if (!changed) continue;
+
+                // Extra frames so client-side training props can mirror before the snap.
+                RinkPreview.RequestCapture(i, extendedFrames: true);
+            }
+        }
+
         internal static RinkPanelBuilder.Callbacks CreateSharedCallbacks(Action onContinue)
         {
             return new RinkPanelBuilder.Callbacks
             {
                 OnContinue = onContinue ?? Hide,
                 OnSelectRink = OnSelectRink,
-                OnSelectRole = OnSelectRole
+                OnSelectRole = OnSelectRole,
+                OnVoteStrip = delegate(int rinkIndex, RinkStripMode mode)
+                {
+                    RinkStripVote.ClientRequestVote(rinkIndex, mode);
+                }
             };
         }
 
@@ -212,6 +263,11 @@ namespace PHLPracticeModPack
                 {
                     RinkPanelBuilder.FillRinkSection(
                         rinkSectionHost, lastPayload, callbacks, embedded: false);
+                }
+                if (stripSectionHost != null)
+                {
+                    RinkPanelBuilder.FillStripSection(
+                        stripSectionHost, lastPayload, callbacks, embedded: false);
                 }
                 NoteRenderedPayload(lastPayload);
                 RinkPanelBuilder.FocusForInput(overlay);
@@ -271,6 +327,7 @@ namespace PHLPracticeModPack
                 overlay = null;
                 roleSectionHost = null;
                 rinkSectionHost = null;
+                stripSectionHost = null;
             }
             pending = null;
             ClaimMouse();
@@ -279,6 +336,7 @@ namespace PHLPracticeModPack
             overlay = built.Overlay;
             roleSectionHost = built.RoleSectionHost;
             rinkSectionHost = built.RinkSectionHost;
+            stripSectionHost = built.StripSectionHost;
             root.Add(overlay);
             ClaimMouse();
             NoteRenderedPayload(data);

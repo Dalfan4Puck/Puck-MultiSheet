@@ -14,11 +14,11 @@ public class FollowSpinningObject : MonoBehaviour
         if (player != null)
         {
             target = player.transform;
-            Debug.Log("Player found!");
+            FlamieLog.Info("Player found!");
         }
         else
         {
-            Debug.LogError("Player NOT found!");
+            FlamieLog.Error("Player NOT found!");
         }
     }
 

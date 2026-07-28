@@ -71,13 +71,13 @@ Or use the deploy script (builds, commits, and pushes to GitHub by default):
 
 ```powershell
 .\deploy-qa.ps1
-.\deploy-qa.ps1 -SkipGit          # build only — then Workshop-upload dist/MultiSheet.dll
+.\deploy-qa.ps1 -SkipGit          # build only — then Workshop-upload the entire dist\ folder
 .\tools\sync-git.ps1              # commit + push without rebuilding
 ```
 
-Output (Workshop upload this file):
+Output (Workshop upload **this entire folder**):
 
-`dist/MultiSheet.dll`
+`dist\` — see `dist/UPLOAD.txt`
 
 Workshop item: `3771130437`
 
@@ -91,15 +91,20 @@ Build expects `../libs/Puck.dll` (copy from your Puck install: `Puck_Data/Manage
 
 ## Deployment (Steam Workshop)
 
-1. Run `.\deploy-qa.ps1` (or `dotnet build`) to produce `dist/MultiSheet.dll`.
+1. Run `.\deploy-qa.ps1` (or `dotnet build`) to assemble `dist\`.
 2. GitHub sync runs automatically after each successful build unless you pass `-SkipGit`.
-3. Upload `dist/MultiSheet.dll` to Workshop item **`3771130437`**.
-4. Steam delivers the same build to subscribed clients and dedicated servers.
+3. Upload the **entire** `dist\` folder to Workshop item **`3771130437`** (DLL + Flamie bundle + layout + `config\`). MP3s are **not** required in Workshop — radio streams from phlstats (see `docs/RADIO.md`).
+4. Steam delivers the same package to subscribed clients and dedicated servers.
 5. Fully restart Puck (client) and restart the dedicated server if needed so Workshop content refreshes.
+6. Disable any separate `Plugins/FlamiePrac` folder (Flamie is compiled into `MultiSheet.dll`).
 
-Optional dev path: `.\deploy-qa.ps1 -DeployLocal` copies into a local `Puck\Plugins\` folder (bypasses Workshop). Fully quit Puck before testing.
+Optional dev path: `.\deploy-qa.ps1 -DeployLocal` mirrors `dist\` into a local `Puck\Plugins\` folder (bypasses Workshop). Fully quit Puck before testing.
 
-Server **config** (`config/multi_rink.json`) is edited on the host separately from Workshop DLL updates. Clients sync rink layout from the server MOTD list when running a matching build.
+Server **config** is shipped as `dist/config/multi_rink.json` (read from beside the plugin DLL). You can still override with game-cwd `./config/multi_rink.json` on dedicated hosts. Clients sync rink layout from the server MOTD list when running a matching build.
+
+### Practice radio (API)
+
+Clients stream from `https://phlstats.com/radio/api` only (override base with `config/radio_client.json`). No local MP3 pack. Dedicated servers skip radio audio.
 
 ### Client FPS A/B (`config/multisheet_client.json`)
 

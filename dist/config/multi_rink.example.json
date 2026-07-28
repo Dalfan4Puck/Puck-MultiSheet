@@ -1,4 +1,4 @@
-{
+﻿{
   "ConfigVersion": 6,
   "EnableMultiRink": true,
   "UseAssetBundle": false,
@@ -18,7 +18,7 @@
   "OffRinkSyncHz": 10,
   "VerboseLogging": false,
   "MotdTitle": "Welcome to PHL MultiSheet Practice",
-  "MotdSubtitle": "Nine sheets, one server. Pick a rink below — press R for a puck.",
+  "MotdSubtitle": "Six sheets, one server. Pick a rink below — press R for a puck.",
   "Rinks": [
     {
       "Id": "rink1",
@@ -61,27 +61,6 @@
       "Label": "Rink 6",
       "WorldOrigin": { "x": 128.0, "y": 0.0, "z": 128.0 },
       "Spawn": { "x": 128.0, "y": 0.0, "z": 128.0 }
-    },
-    {
-      "Id": "rink7",
-      "Command": "/rink7",
-      "Label": "Rink 7",
-      "WorldOrigin": { "x": 0.0, "y": 0.0, "z": 256.0 },
-      "Spawn": { "x": 0.0, "y": 0.0, "z": 256.0 }
-    },
-    {
-      "Id": "rink8",
-      "Command": "/rink8",
-      "Label": "Rink 8",
-      "WorldOrigin": { "x": 64.0, "y": 0.0, "z": 256.0 },
-      "Spawn": { "x": 64.0, "y": 0.0, "z": 256.0 }
-    },
-    {
-      "Id": "rink9",
-      "Command": "/rink9",
-      "Label": "Rink 9",
-      "WorldOrigin": { "x": 128.0, "y": 0.0, "z": 256.0 },
-      "Spawn": { "x": 128.0, "y": 0.0, "z": 256.0 }
     }
   ]
 }

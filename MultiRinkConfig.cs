@@ -91,8 +91,8 @@ namespace PHLPracticeModPack
         {
             try
             {
-                string path = Path.Combine(".", "config", "multi_rink.json");
-                if (!File.Exists(path))
+                string path = ResolveConfigPath("multi_rink.json");
+                if (path == null || !File.Exists(path))
                 {
                     Current = CreateDefaults();
                     PracticeLog.Info("[PHLPractice] No config/multi_rink.json — using built-in rink layout.");
@@ -108,13 +108,34 @@ namespace PHLPracticeModPack
                 }
 
                 Current = loaded;
-                PracticeLog.Info($"[PHLPractice] Loaded multi-rink config ({Current.Rinks.Count} rinks, multiRink={Current.EnableMultiRink}, bundle={Current.UseAssetBundle}).");
+                PracticeLog.Info($"[PHLPractice] Loaded multi-rink config from {path} ({Current.Rinks.Count} rinks, multiRink={Current.EnableMultiRink}, bundle={Current.UseAssetBundle}).");
             }
             catch (Exception ex)
             {
                 Debug.LogWarning("[PHLPractice] Failed to load multi_rink.json: " + ex.Message);
                 Current = CreateDefaults();
             }
+        }
+
+        /// <summary>
+        /// Prefer config beside the Workshop/plugin DLL, then game-cwd ./config/ (legacy dedicated layout).
+        /// </summary>
+        internal static string ResolveConfigPath(string fileName)
+        {
+            try
+            {
+                string pluginDir = Path.GetDirectoryName(typeof(MultiRinkConfig).Assembly.Location);
+                if (!string.IsNullOrEmpty(pluginDir))
+                {
+                    string besidePlugin = Path.Combine(pluginDir, "config", fileName);
+                    if (File.Exists(besidePlugin))
+                        return besidePlugin;
+                }
+            }
+            catch { }
+
+            string cwd = Path.Combine(".", "config", fileName);
+            return File.Exists(cwd) ? cwd : null;
         }
 
         public static MultiRinkConfig CreateDefaults()

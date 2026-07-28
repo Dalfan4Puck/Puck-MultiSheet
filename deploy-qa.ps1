@@ -1,6 +1,6 @@
-# Build MultiSheet and sync to GitHub (Workshop upload is separate).
+# Build MultiSheet and assemble dist\ as the full Steam Workshop folder.
 #
-# Steam Workshop item 3771130437: upload dist\MultiSheet.dll after each release build.
+# Steam Workshop item 3771130437: upload the ENTIRE dist\ folder (not just the DLL).
 # Steam delivers the same item to clients and dedicated servers.
 #
 # Usage (from this folder):
@@ -24,9 +24,9 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = $PSScriptRoot
 $RepoRoot = Split-Path $ProjectRoot -Parent
 $Csproj = Join-Path $ProjectRoot "PHLPracticeModPack.csproj"
+$DistDir = Join-Path $ProjectRoot "dist"
 $BuiltDllName = "MultiSheet.dll"
-$LocalDllName = "DalfMultiSheet.dll"
-$BuiltDll = Join-Path $ProjectRoot "dist\$BuiltDllName"
+$BuiltDll = Join-Path $DistDir $BuiltDllName
 $WorkshopItemId = "3771130437"
 $GitCommon = Join-Path $ProjectRoot "tools\git-push-common.ps1"
 
@@ -34,16 +34,6 @@ if (-not (Test-Path $GitCommon)) {
     throw "Missing git helper: $GitCommon"
 }
 . $GitCommon
-
-function Install-Dll([string]$SourceDll, [string]$DestPath) {
-    $destDir = Split-Path $DestPath -Parent
-    if (-not (Test-Path $destDir)) {
-        New-Item -ItemType Directory -Path $destDir -Force | Out-Null
-    }
-    $tempPath = "$DestPath.tmp"
-    Copy-Item -Path $SourceDll -Destination $tempPath -Force
-    Move-Item -Path $tempPath -Destination $DestPath -Force
-}
 
 Write-Host "==> Building $Configuration..." -ForegroundColor Cyan
 Push-Location $RepoRoot
@@ -62,23 +52,50 @@ if (-not (Test-Path $BuiltDll)) {
 $dll = Get-Item $BuiltDll
 $buildStamp = $dll.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss")
 Write-Host ""
-Write-Host "Build OK — Workshop upload this file:" -ForegroundColor Green
-Write-Host "  $($dll.FullName)" -ForegroundColor Cyan
-Write-Host "  ($buildStamp, $($dll.Length) bytes)" -ForegroundColor Cyan
+Write-Host "Build OK — Workshop upload the ENTIRE folder:" -ForegroundColor Green
+Write-Host "  $DistDir" -ForegroundColor Cyan
+Write-Host "  MultiSheet.dll ($buildStamp, $($dll.Length) bytes)" -ForegroundColor Cyan
+Write-Host "  Radio: phlstats /radio/api only (no RadioSongs)" -ForegroundColor Cyan
 Write-Host "  Workshop item: $WorkshopItemId" -ForegroundColor Cyan
-Write-Host "  Steam Workshop delivers the DLL to clients and servers after you upload." -ForegroundColor Yellow
+Write-Host "  See docs\RADIO.md for radio client config." -ForegroundColor Yellow
 
 if ($DeployLocal) {
-    $localDll = Join-Path $LocalPluginDir $LocalDllName
     Write-Host ""
-    Write-Host "==> -DeployLocal: copying to client Plugins (dev-only, bypasses Workshop):" -ForegroundColor Yellow
-    Write-Host "  $localDll" -ForegroundColor Yellow
-    Install-Dll -SourceDll $BuiltDll -DestPath $localDll
-    $legacyLocal = Join-Path $LocalPluginDir $BuiltDllName
-    if (Test-Path $legacyLocal) {
-        Remove-Item $legacyLocal -Force
+    Write-Host "==> -DeployLocal: mirroring dist\ → $LocalPluginDir" -ForegroundColor Yellow
+    if (-not (Test-Path $LocalPluginDir)) {
+        New-Item -ItemType Directory -Path $LocalPluginDir -Force | Out-Null
     }
-    Write-Host "Local Plugins copy OK. Fully quit Puck before enabling the plugin." -ForegroundColor Yellow
+
+    # Full package mirror (skip upload guide / rollback leftovers).
+    Get-ChildItem $DistDir -Force | ForEach-Object {
+        if ($_.Name -in @("UPLOAD.txt", "MultiSheet-ROLLBACK.dll")) { return }
+        $dest = Join-Path $LocalPluginDir $_.Name
+        if ($_.PSIsContainer) {
+            Copy-Item $_.FullName $dest -Recurse -Force
+        }
+        else {
+            Copy-Item $_.FullName $dest -Force
+        }
+    }
+
+    # Prefer MultiSheet.dll name in Plugins (Workshop name); drop legacy rename if present.
+    $legacyRename = Join-Path $LocalPluginDir "DalfMultiSheet.dll"
+    if (Test-Path $legacyRename) {
+        Remove-Item $legacyRename -Force
+    }
+
+    $steamPlugins = "C:\Program Files (x86)\Steam\steamapps\common\Puck\Plugins"
+    foreach ($legacy in @("FlamiePrac", "FlamieTraining")) {
+        $legacyDir = Join-Path $steamPlugins $legacy
+        if (Test-Path $legacyDir) {
+            $disabled = "$legacyDir.disabled"
+            if (Test-Path $disabled) { Remove-Item $disabled -Recurse -Force }
+            Rename-Item -Path $legacyDir -NewName "$legacy.disabled" -Force
+            Write-Host "Disabled separate plugin folder: $legacy.disabled" -ForegroundColor Yellow
+        }
+    }
+
+    Write-Host "Local Plugins mirror OK. Fully quit Puck before enabling." -ForegroundColor Yellow
 }
 
 if (-not $SkipGit) {
@@ -87,4 +104,5 @@ if (-not $SkipGit) {
 }
 
 Write-Host ""
-Write-Host "Done. Upload the DLL above via Workshop when you are ready to ship the build." -ForegroundColor Green
+Write-Host "Done. Upload the entire dist\ folder to Workshop $WorkshopItemId." -ForegroundColor Green
+Write-Host "On the VPS: remove/disable Plugins/FlamiePrac so Flamie does not load twice." -ForegroundColor Yellow

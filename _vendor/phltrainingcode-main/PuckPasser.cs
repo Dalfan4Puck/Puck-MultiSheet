@@ -94,7 +94,7 @@ public class PuckPasser : MonoBehaviour
 
         try
         {
-            Debug.Log("[PuckPasser] Pass to " + player.Username.Value +
+            FlamieLog.Info("[PuckPasser] Pass to " + player.Username.Value +
                       " blend=" + blend.ToString("F2") + " (0=feet,1=blade) → " + target);
         }
         catch { }

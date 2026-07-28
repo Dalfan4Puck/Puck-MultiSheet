@@ -27,6 +27,8 @@ public sealed class TrainingSync : MonoBehaviour
 
     public static TrainingSync Instance { get; private set; }
 
+    public Transform ClientVisualRoot => clientVisualRoot;
+
     private readonly Dictionary<int, GameObject> clientObjects = new Dictionary<int, GameObject>();
     private readonly HashSet<ulong> pendingSnapshotClients = new HashSet<ulong>();
     private Transform clientVisualRoot;

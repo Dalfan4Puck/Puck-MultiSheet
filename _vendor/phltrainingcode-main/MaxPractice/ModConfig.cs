@@ -190,7 +190,7 @@ namespace MaxPractice
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[MaxPractice] Error ensuring config: {ex.Message}");
+                FlamieLog.Warn($"[MaxPractice] Error ensuring config: {ex.Message}");
             }
         }
         
@@ -221,7 +221,7 @@ namespace MaxPractice
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[MaxPractice] Error loading config: {ex.Message}");
+                FlamieLog.Warn($"[MaxPractice] Error loading config: {ex.Message}");
                 Config = new ModConfig();
             }
         }
@@ -234,7 +234,7 @@ namespace MaxPractice
         
         public static void Log(string message)
         {
-            Debug.Log("[MaxPractice] " + message);
+            FlamieLog.Info("[MaxPractice] " + message);
         }
         
         public static void Dbg(string message)

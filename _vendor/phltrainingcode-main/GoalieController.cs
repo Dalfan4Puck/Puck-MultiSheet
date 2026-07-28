@@ -64,7 +64,7 @@ public class GoalieController : MonoBehaviour
         {
             CachePose(transform.position, transform.forward);
             aligned = true;
-            Debug.LogWarning("[FlamiePrac] Goalie net anchor not found — using prefab pose.");
+            FlamieLog.Warn("[FlamiePrac] Goalie net anchor not found — using prefab pose.");
             return;
         }
 
@@ -75,7 +75,7 @@ public class GoalieController : MonoBehaviour
         transform.rotation = Quaternion.LookRotation(faceDir, Vector3.up);
 
         aligned = true;
-        Debug.Log("[FlamiePrac] Goalie aligned: net=" + goalPos + " crease=" + creaseHome);
+        FlamieLog.Info("[FlamiePrac] Goalie aligned: net=" + goalPos + " crease=" + creaseHome);
     }
 
     private void TickGoalie()
@@ -241,7 +241,7 @@ internal static class GoalieNetAlign
         {
         ApplyBounds(preferredBounds, trainingRoot, goalie, creaseDepth, out creaseCenter, out faceDirection, out netCenter);
         creaseCenter = PreferPrefabCrease(goalieHintWorld, netCenter, creaseCenter);
-        Debug.Log("[FlamiePrac] Goalie net: using preferred Goaltarp/shooter root at " + netCenter);
+        FlamieLog.Info("[FlamiePrac] Goalie net: using preferred Goaltarp/shooter root at " + netCenter);
         return true;
         }
 
@@ -250,7 +250,7 @@ internal static class GoalieNetAlign
 
         ApplyBounds(clusterBounds, trainingRoot, goalie, creaseDepth, out creaseCenter, out faceDirection, out netCenter);
         creaseCenter = PreferPrefabCrease(goalieHintWorld, netCenter, creaseCenter);
-        Debug.Log("[FlamiePrac] Goalie net: using nearest cluster to prefab hint at " + netCenter);
+        FlamieLog.Info("[FlamiePrac] Goalie net: using nearest cluster to prefab hint at " + netCenter);
         return true;
     }
 

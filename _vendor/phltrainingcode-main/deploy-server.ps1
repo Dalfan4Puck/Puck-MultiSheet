@@ -213,12 +213,16 @@ if ($RestartServer -and -not $SkipRemote) {
     )
     # Upload a disk script — never pkill -f from the SSH command line (it matches itself).
     $restartLocal = Join-Path $env:TEMP "flamietraining-restart-puck.sh"
+    # Always restart via systemd. A second nohup start_server races PuckServer.service
+    # and leaves one process bound + one failing "address already in use".
     $restartBody = @'
 #!/bin/bash
 set -e
 cd /srv/puck-download
 
-# Kill every Puck binary and its start_server wrappers (avoid double-bind on 30609).
+systemctl stop PuckServer.service || true
+
+# Sweep any orphan nohup copies left from older deploy scripts.
 while read -r pid; do
   [ -z "$pid" ] && continue
   exe=$(readlink -f "/proc/$pid/exe" 2>/dev/null || true)
@@ -228,44 +232,51 @@ while read -r pid; do
   fi
 done < <(ps -eo pid=)
 
-# Wait until UDP 30609 is free (up to ~20s).
+fuser -k 30609/udp 30609/tcp 2>/dev/null || true
+
 for i in $(seq 1 40); do
-  if ! ss -ulpn 2>/dev/null | grep -q ':30609'; then
+  if ! pgrep -f '/srv/puck-download/Puck' >/dev/null 2>&1 && ! ss -ulpn 2>/dev/null | grep -q ':30609'; then
     break
   fi
   sleep 0.5
 done
+sleep 2
 
-# Truncate log so verification is for THIS boot only.
 : > /srv/puck-download/Logs/Puck.log
+systemctl start PuckServer.service
+sleep 16
 
-nohup /bin/bash /srv/puck-download/start_server.sh >/srv/puck-download/Logs/start_server.out 2>&1 &
-sleep 14
-
+echo "=== systemd ==="
+systemctl is-active PuckServer.service
 echo "=== processes ==="
-ps -eo pid,etime,cmd | grep -E '/srv/puck-download/Puck|/srv/puck-download/start_server' | grep -v grep || true
-puck_count=$(ps -eo cmd | grep '/srv/puck-download/Puck' | grep -v grep | wc -l | tr -d ' ')
+ps -eo pid,ppid,etime,cmd | grep -E '/srv/puck-download/Puck|/srv/puck-download/start_server' | grep -v grep || true
+puck_count=$(pgrep -c -f '/srv/puck-download/Puck' 2>/dev/null || echo 0)
 echo "Puck process count: $puck_count"
+ss -ulpn 2>/dev/null | grep 30609 || echo "NOT_LISTENING"
 
 echo "=== FlamiePrac boot ==="
-grep -iE 'Adding plugin|FlamiePrac|Network ready|Starting training|Spawned .training|Failed to bind|Failed to start server|Slidable sync locked' /srv/puck-download/Logs/Puck.log | tail -n 50 || true
+grep -a -iE 'Adding plugin|FlamiePrac|Network ready|Starting training|Spawned .training|Failed to bind|Failed to start server|Slidable sync locked|hiveMotion' /srv/puck-download/Logs/Puck.log | tail -n 50 || true
 
 if [ "$puck_count" != "1" ]; then
   echo "ERROR: expected exactly 1 Puck process, found $puck_count" >&2
   exit 1
 fi
-if grep -qiE 'Failed to bind|Failed to start server' /srv/puck-download/Logs/Puck.log; then
+if grep -a -qiE 'Failed to bind|Failed to start server' /srv/puck-download/Logs/Puck.log; then
   echo "ERROR: server failed to bind" >&2
   exit 1
 fi
-if ! grep -q 'Adding plugin FlamiePrac' /srv/puck-download/Logs/Puck.log; then
+if ! ss -ulpn 2>/dev/null | grep -q ':30609'; then
+  echo "ERROR: not listening on 30609" >&2
+  exit 1
+fi
+if ! grep -a -q 'Adding plugin FlamiePrac' /srv/puck-download/Logs/Puck.log; then
   echo "ERROR: FlamiePrac did not load" >&2
   exit 1
 fi
-if ! grep -q 'Starting training mode' /srv/puck-download/Logs/Puck.log; then
+if ! grep -a -q 'Starting training mode' /srv/puck-download/Logs/Puck.log; then
   echo "WARN: training mode not started yet (ice may still be loading)" >&2
 fi
-echo "Restart OK."
+echo "Restart OK (single systemd instance)."
 '@
     # UTF-8 without BOM — PowerShell's utf8 encoding adds a BOM that breaks #!/bin/bash.
     [System.IO.File]::WriteAllText($restartLocal, $restartBody, (New-Object System.Text.UTF8Encoding $false))

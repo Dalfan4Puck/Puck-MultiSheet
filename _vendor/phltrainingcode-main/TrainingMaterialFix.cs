@@ -49,12 +49,12 @@ public static class TrainingMaterialFix
             }
             catch (Exception ex)
             {
-                Debug.LogWarning("[FlamiePrac] TrainingMaterialFix bundle scan failed: " + ex.Message);
+                FlamieLog.Warn("[FlamiePrac] TrainingMaterialFix bundle scan failed: " + ex.Message);
             }
         }
 
         initialized = true;
-        Debug.Log("[FlamiePrac] TrainingMaterialFix cached " + BundleMaterials.Count + " material(s).");
+        FlamieLog.Info("[FlamiePrac] TrainingMaterialFix cached " + BundleMaterials.Count + " material(s).");
     }
 
     public static Material CreateLitMaterial(Color color)
@@ -176,7 +176,7 @@ public static class TrainingMaterialFix
         }
 
         if (fixedCount > 0)
-            Debug.Log("[FlamiePrac] Fixed materials on '" + instance.name + "' (" + fixedCount + " renderer(s)).");
+            FlamieLog.Info("[FlamiePrac] Fixed materials on '" + instance.name + "' (" + fixedCount + " renderer(s)).");
     }
 
     private static bool IsBroken(Material mat)

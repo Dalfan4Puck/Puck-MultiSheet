@@ -37,7 +37,7 @@ public class PuckSpawner : MonoBehaviour
         if (Keyboard.current.bKey.wasPressedThisFrame)
         {
             StartCoroutine(SpawnIncomingPucks());
-            Debug.Log("Incoming puck drill started!");
+            FlamieLog.Info("Incoming puck drill started!");
         }
     //    if (Keyboard.current.cKey.wasPressedThisFrame)
     //    {
@@ -81,7 +81,7 @@ public class PuckSpawner : MonoBehaviour
     puckBody.linearVelocity = playerBody.linearVelocity;
     puckBody.angularVelocity = Vector3.zero;
 
-    Debug.Log("TEST: Puck spawned in air");
+    FlamieLog.Info("TEST: Puck spawned in air");
 }
         void PassPuckToPlayer()
     {
@@ -113,7 +113,7 @@ public class PuckSpawner : MonoBehaviour
 
             puckBody.angularVelocity = Vector3.zero;
 
-            Debug.Log("Pass coming toward player");
+            FlamieLog.Info("Pass coming toward player");
         }
         IEnumerator SpawnIncomingPucks()
 {
@@ -141,7 +141,7 @@ public class PuckSpawner : MonoBehaviour
         // Destroy the puck automatically after 5 seconds
         Destroy(newPuck, 4f);
 
-        Debug.Log($"Incoming puck #{i + 1} spawned toward player!");
+        FlamieLog.Info($"Incoming puck #{i + 1} spawned toward player!");
 
         yield return new WaitForSeconds(incomingSpawnInterval);
     }
@@ -219,7 +219,7 @@ void LobPassToPlayer()
     puckBody.linearVelocity = direction * forwardSpeed + Vector3.up * upwardSpeed;
     puckBody.angularVelocity = Vector3.zero;
 
-    Debug.Log("Lob pass spawned!");
+    FlamieLog.Info("Lob pass spawned!");
 }
 
 }

@@ -140,6 +140,13 @@ public static class SlidableObstacleSync
         handlersRegistered = false;
     }
 
+    public static void ForceBroadcastAll()
+    {
+        lastBroadcastTick = 0;
+        nextFallbackBroadcastTime = 0f;
+        TickServer();
+    }
+
     public static void TickServer()
     {
         NetworkManager nm = NetworkManager.Singleton;

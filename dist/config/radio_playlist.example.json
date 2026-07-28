@@ -1,0 +1,6 @@
+{
+  "note": "Optional fallback when phlstats /playlist is unreachable. Live clients still need /track?id= for audio URLs.",
+  "tracks": [
+    { "id": "ExampleTrack", "title": "Example Track" }
+  ]
+}

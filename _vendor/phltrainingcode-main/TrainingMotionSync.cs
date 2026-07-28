@@ -14,12 +14,14 @@ public static class TrainingMotionSync
 {
     private const string ChannelMotion = "FlamiePrac_Mover";
     private const int FallbackTickRate = 100;
+    /// <summary>Max pose stream rate for circular targets (rotators/movers stay clock-local).</summary>
+    private const int PoseSendHz = 30;
     private const int MaxUnreliablePayload = 1000;
     private const int WriterMaxSize = 64 * 1024;
     private const int PoseBytes = sizeof(float) * 13;
     private const byte MsgParams = 1;
     private const byte MsgPoses = 2;
-    private const int ParamsEveryTicks = 15; // ~0.5s at 30 Hz
+    private const int ParamsEveryTicks = 15; // ~0.5s at 30 Hz network tick
 
     private sealed class ServerEntry
     {
@@ -29,11 +31,14 @@ public static class TrainingMotionSync
     }
 
     private static readonly List<ServerEntry> ServerEntries = new List<ServerEntry>();
+    private static readonly Dictionary<int, List<ServerEntry>> EntriesByRink =
+        new Dictionary<int, List<ServerEntry>>(8);
     private static readonly Dictionary<string, TrainingMotionVisual> Visuals =
         new Dictionary<string, TrainingMotionVisual>();
 
     private static bool handlersRegistered;
-    private static int lastBroadcastTick;
+    private static int lastSeenTick;
+    private static int lastPoseSentTick;
     private static float nextFallbackBroadcastTime;
     private static int lastParamsTick;
     private static bool loggedClockDrive;
@@ -64,7 +69,7 @@ public static class TrainingMotionSync
         if (!loggedClockDrive)
         {
             loggedClockDrive = true;
-            Debug.Log("[FlamiePrac] Rotators/movers use ServerTime clock sync (local sim both sides).");
+            FlamieLog.InfoOnce("clock-drive", "[FlamiePrac] Rotators/movers use ServerTime clock sync (local sim both sides).");
         }
 
         // Bounce targets are non-deterministic (random on hit) — keep pose replication.
@@ -134,8 +139,12 @@ public static class TrainingMotionSync
     public static void UnregisterAll()
     {
         ServerEntries.Clear();
+        EntriesByRink.Clear();
         Visuals.Clear();
         loggedClockDrive = false;
+        lastSeenTick = 0;
+        lastPoseSentTick = 0;
+        FlamiePracRinkInterest.ResetLogFlag();
     }
 
     public static void EnsureHandlers(NetworkManager nm)
@@ -170,7 +179,7 @@ public static class TrainingMotionSync
         }
         catch (Exception ex)
         {
-            Debug.LogWarning("[FlamiePrac] Motion params broadcast failed: " + ex.Message);
+            FlamieLog.Warn("[FlamiePrac] Motion params broadcast failed: " + ex.Message);
         }
     }
 
@@ -181,24 +190,22 @@ public static class TrainingMotionSync
             return;
 
         int tick = GetServerTick(nm);
+        int tickRate = GetTickRate(nm);
+        int poseStride = Mathf.Max(1, Mathf.RoundToInt(tickRate / (float)PoseSendHz));
+
         if (tick != 0)
         {
-            if (tick == lastBroadcastTick)
+            if (tick == lastSeenTick)
                 return;
+            lastSeenTick = tick;
         }
         else if (Time.time < nextFallbackBroadcastTime)
         {
             return;
         }
 
-        int clientCount = 0;
-        foreach (NetworkClient client in nm.ConnectedClientsList)
-        {
-            if (client.ClientId != NetworkManager.ServerClientId)
-                clientCount++;
-        }
-
-        if (clientCount == 0)
+        FlamiePracRinkInterest.RebuildClientGroups(nm);
+        if (!FlamiePracRinkInterest.AnyInterestedClients() && FlamiePracRinkInterest.UseInterestFilter)
             return;
 
         try
@@ -218,20 +225,29 @@ public static class TrainingMotionSync
                     ServerEntries.RemoveAt(i);
             }
 
-            if (ServerEntries.Count > 0)
-                SendPoseBatches(nm);
+            bool sendPoses = ServerEntries.Count > 0;
+            if (sendPoses && tick != 0)
+                sendPoses = lastPoseSentTick == 0 || (tick - lastPoseSentTick) >= poseStride;
 
-            if (tick != 0)
-                lastBroadcastTick = tick;
-            else
-                nextFallbackBroadcastTime = Time.time + (1f / GetTickRate(nm));
+            if (sendPoses && ServerEntries.Count > 0)
+            {
+                SendPoseBatches(nm);
+                if (tick != 0)
+                    lastPoseSentTick = tick;
+                else
+                    nextFallbackBroadcastTime = Time.time + (1f / PoseSendHz);
+            }
+            else if (tick == 0)
+            {
+                nextFallbackBroadcastTime = Time.time + (1f / PoseSendHz);
+            }
         }
         catch (Exception ex)
         {
             if (Time.time >= nextOverflowLogTime)
             {
                 nextOverflowLogTime = Time.time + 5f;
-                Debug.LogWarning("[FlamiePrac] Motion sync broadcast failed: " + ex.Message);
+                FlamieLog.Warn("[FlamiePrac] Motion sync broadcast failed: " + ex.Message);
             }
         }
     }
@@ -244,7 +260,9 @@ public static class TrainingMotionSync
             writer.WriteValueSafe(ConstantRotator.globalSpeed);
             writer.WriteValueSafe(ConstantMover.globalSpeed);
             writer.WriteValueSafe(ConstantMover.globalDistance);
-            nm.CustomMessagingManager.SendNamedMessageToAll(
+            FlamiePracRinkInterest.RebuildClientGroups(nm);
+            FlamiePracRinkInterest.SendBroadcastOrToAllBodies(
+                nm,
                 ChannelMotion,
                 writer,
                 NetworkDelivery.Unreliable);
@@ -253,14 +271,54 @@ public static class TrainingMotionSync
 
     private static void SendPoseBatches(NetworkManager nm)
     {
+        if (!FlamiePracRinkInterest.UseInterestFilter)
+        {
+            SendPoseBatchesForEntries(nm, ServerEntries, broadcastAll: true);
+            return;
+        }
+
+        foreach (List<ServerEntry> list in EntriesByRink.Values)
+            list.Clear();
+
+        for (int i = 0; i < ServerEntries.Count; i++)
+        {
+            ServerEntry entry = ServerEntries[i];
+            if (entry.Transform == null)
+                continue;
+            int rink = FlamiePracRinkInterest.RinkOfWorldPosition(entry.Transform.position);
+            if (!EntriesByRink.TryGetValue(rink, out List<ServerEntry> bucket))
+            {
+                bucket = new List<ServerEntry>(8);
+                EntriesByRink.Add(rink, bucket);
+            }
+
+            bucket.Add(entry);
+        }
+
+        foreach (KeyValuePair<int, List<ServerEntry>> kvp in EntriesByRink)
+        {
+            if (kvp.Value.Count == 0)
+                continue;
+            if (!FlamiePracRinkInterest.AnyClientsOnRink(kvp.Key))
+                continue;
+            SendPoseBatchesForEntries(nm, kvp.Value, broadcastAll: false, rinkIndex: kvp.Key);
+        }
+    }
+
+    private static void SendPoseBatchesForEntries(
+        NetworkManager nm,
+        List<ServerEntry> entries,
+        bool broadcastAll,
+        int rinkIndex = -1)
+    {
         int index = 0;
-        while (index < ServerEntries.Count)
+        while (index < entries.Count)
         {
             int batchStart = index;
             int estimated = 5; // msg type + count
-            while (index < ServerEntries.Count)
+            while (index < entries.Count)
             {
-                int entryBytes = EstimateEntryBytes(ServerEntries[index]);
+                int entryBytes = EstimateEntryBytes(entries[index]);
                 if (index > batchStart && estimated + entryBytes > MaxUnreliablePayload)
                     break;
 
@@ -275,12 +333,24 @@ public static class TrainingMotionSync
                 writer.WriteValueSafe(MsgPoses);
                 writer.WriteValueSafe(batchCount);
                 for (int i = batchStart; i < index; i++)
-                    WriteEntry(writer, ServerEntries[i]);
+                    WriteEntry(writer, entries[i]);
 
-                nm.CustomMessagingManager.SendNamedMessageToAll(
-                    ChannelMotion,
-                    writer,
-                    NetworkDelivery.Unreliable);
+                if (broadcastAll)
+                {
+                    nm.CustomMessagingManager.SendNamedMessageToAll(
+                        ChannelMotion,
+                        writer,
+                        NetworkDelivery.Unreliable);
+                }
+                else
+                {
+                    FlamiePracRinkInterest.SendToClients(
+                        nm,
+                        ChannelMotion,
+                        writer,
+                        FlamiePracRinkInterest.ClientsOnRink(rinkIndex),
+                        NetworkDelivery.Unreliable);
+                }
             }
         }
     }
@@ -359,6 +429,9 @@ public static class TrainingMotionSync
                     visual == null)
                     continue;
 
+                if (!visual.gameObject.activeInHierarchy)
+                    continue;
+
                 visual.ApplyState(
                     new Vector3(px, py, pz),
                     new Quaternion(qx, qy, qz, qw),
@@ -368,7 +441,7 @@ public static class TrainingMotionSync
         }
         catch (Exception ex)
         {
-            Debug.LogWarning("[FlamiePrac] Motion sync receive failed: " + ex.Message);
+            FlamieLog.Warn("[FlamiePrac] Motion sync receive failed: " + ex.Message);
         }
     }
 
@@ -466,7 +539,7 @@ public sealed class TrainingMotionVisual : MonoBehaviour
 
     private void LateUpdate()
     {
-        if (!hasState)
+        if (!hasState || !isActiveAndEnabled)
             return;
 
         transform.SetPositionAndRotation(networkPos, networkRot);

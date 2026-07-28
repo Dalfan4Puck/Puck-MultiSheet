@@ -45,7 +45,7 @@ public class StaticCircularTarget : MonoBehaviour
     {
         if (other.CompareTag("Puck"))
         {
-            Debug.Log("[StaticCircularTarget] Hit by puck!");
+            FlamieLog.Info("[StaticCircularTarget] Hit by puck!");
             if (manager != null)
             {
                 // Optional: move or give feedback

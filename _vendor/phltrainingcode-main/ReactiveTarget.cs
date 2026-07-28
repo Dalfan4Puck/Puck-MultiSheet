@@ -27,7 +27,7 @@ public class ReactiveTarget : MonoBehaviour
         {
             lastHitTime = Time.time;
 
-            Debug.Log("Puck hit target!");
+            FlamieLog.Info("Puck hit target!");
             spawner.MoveTarget();
         }
     }

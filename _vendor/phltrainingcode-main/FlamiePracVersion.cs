@@ -9,5 +9,9 @@ public static class FlamiePracVersion
     public const string Target = "blank-dedicated"; // no MultiSheet
 
     public static string Banner =>
-        "FlamiePrac " + Package + " protocol=" + Protocol + " target=" + Target;
+        "FlamiePrac " + Package + " protocol=" + Protocol + " target=" + Target +
+        " slidable=" + FlamiePracFeatures.EnableSlidableProps +
+        " slidablePhysics=" + FlamiePracFeatures.SlidablePhysicsEnabled +
+        " hiveMotion=" + FlamiePracFeatures.EnableHiveMotion +
+        " radio=" + FlamiePracFeatures.EnableRadio;
 }

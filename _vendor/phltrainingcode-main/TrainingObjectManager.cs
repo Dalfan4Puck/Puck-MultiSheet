@@ -1,191 +1,327 @@
-using UnityEngine;
-using Unity.Netcode;
 using System;
+using Object = UnityEngine.Object;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using MyMod;
+using Unity.Collections;
+using Unity.Netcode;
+using UnityEngine;
 
-/// <summary>
-/// Server-side spawn authority for training tools. Clients mirror via TrainingSync.
-/// </summary>
 public class TrainingObjectManager : MonoBehaviour
 {
-    public static TrainingObjectManager Instance { get; private set; }
-
-    public static bool IsModEnabled =>
-        Instance != null && Instance.modEnabled;
-
-    private readonly Dictionary<int, SpawnedTrainingObject> spawnedObjects =
-        new Dictionary<int, SpawnedTrainingObject>();
-
-    private readonly Dictionary<int, TrainingSpawnRecord> spawnRecords =
-        new Dictionary<int, TrainingSpawnRecord>();
-
-    private readonly Dictionary<ulong, List<int>> playerObjects = new Dictionary<ulong, List<int>>();
-    private readonly List<CircularMovingTarget> activeTargets = new List<CircularMovingTarget>();
-
-    private int nextObjectId = 1;
-    private bool modEnabled;
-    private float nextCleanupTime;
-
-    private const int MaxObjects = 50;
-    private const byte RadioNext = 1;
-    private const byte RadioPrev = 2;
-
-    private Action<Dictionary<string, object>> _onChatCommand;
-    private bool shutDown;
-
     private struct SpawnedTrainingObject
     {
         public int Id;
+
         public string PrefabName;
+
         public GameObject Object;
+
         public ulong SpawnedBy;
+
         public float SpawnTime;
+
+        public int RinkIndex;
     }
+
+    [CompilerGenerated]
+    private sealed class _003CStartTrainingModeWhenReady_003Ed__27 : IEnumerator<object>, IEnumerator, IDisposable
+    {
+        private int _003C_003E1__state;
+
+        private object _003C_003E2__current;
+
+        public TrainingObjectManager _003C_003E4__this;
+
+        private float _003Cwaited_003E5__2;
+
+        object IEnumerator<object>.Current
+        {
+            [DebuggerHidden]
+            get
+            {
+                return _003C_003E2__current;
+            }
+        }
+
+        object IEnumerator.Current
+        {
+            [DebuggerHidden]
+            get
+            {
+                return _003C_003E2__current;
+            }
+        }
+
+        [DebuggerHidden]
+        public _003CStartTrainingModeWhenReady_003Ed__27(int _003C_003E1__state)
+        {
+            this._003C_003E1__state = _003C_003E1__state;
+        }
+
+        [DebuggerHidden]
+        void IDisposable.Dispose()
+        {
+            _003C_003E1__state = -2;
+        }
+
+        private bool MoveNext()
+        {
+            //IL_00a7: Unknown result type (might be due to invalid IL or missing references)
+            //IL_00b1: Expected O, but got Unknown
+            //IL_007a: Unknown result type (might be due to invalid IL or missing references)
+                        int num = _003C_003E1__state;
+            TrainingObjectManager trainingObjectManager = _003C_003E4__this;
+            switch (num)
+            {
+            default:
+                return false;
+            case 0:
+                _003C_003E1__state = -1;
+                _003Cwaited_003E5__2 = 0f;
+                goto IL_0094;
+            case 1:
+                _003C_003E1__state = -1;
+                goto IL_0094;
+            case 2:
+                {
+                    _003C_003E1__state = -1;
+                    if (SkipAutoStartForMultiRink)
+                    {
+                        FlamieLog.Info("[FlamiePrac] MultiSheet per-rink strip — AutoStart deferred to RinkStripVote.");
+                        return false;
+                    }
+                    trainingObjectManager.StartTrainingMode();
+                    return false;
+                }
+                IL_0094:
+                if (_003Cwaited_003E5__2 < 45f)
+                {
+                    if (trainingObjectManager.shutDown)
+                    {
+                        return false;
+                    }
+                    if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer)
+                    {
+                        return false;
+                    }
+                    if (!HasUsableRinkIce())
+                    {
+                        _003Cwaited_003E5__2 += 0.5f;
+                        _003C_003E2__current = (object)new WaitForSeconds(0.5f);
+                        _003C_003E1__state = 1;
+                        return true;
+                    }
+                }
+                _003C_003E2__current = (object)new WaitForSeconds(1.5f);
+                _003C_003E1__state = 2;
+                return true;
+            }
+        }
+
+        bool IEnumerator.MoveNext()
+        {
+            //ILSpy generated this explicit interface implementation from .override directive in MoveNext
+            return this.MoveNext();
+        }
+
+        [DebuggerHidden]
+        void IEnumerator.Reset()
+        {
+            throw new NotSupportedException();
+        }
+    }
+
+    private readonly Dictionary<int, SpawnedTrainingObject> spawnedObjects = new Dictionary<int, SpawnedTrainingObject>();
+
+    private readonly Dictionary<int, TrainingSpawnRecord> spawnRecords = new Dictionary<int, TrainingSpawnRecord>();
+
+    private readonly Dictionary<ulong, List<int>> playerObjects = new Dictionary<ulong, List<int>>();
+
+    private readonly List<CircularMovingTarget> activeTargets = new List<CircularMovingTarget>();
+
+    private int nextObjectId = 1;
+
+    private bool modEnabled;
+
+    private float nextCleanupTime;
+
+    private const int MaxObjects = 50;
+
+    private const byte RadioNext = 1;
+
+    private const byte RadioPrev = 2;
+
+    private Action<Dictionary<string, object>> _onChatCommand;
+
+    private bool shutDown;
+
+    private readonly Dictionary<int, HashSet<int>> objectsByRink = new Dictionary<int, HashSet<int>>();
+
+    private readonly HashSet<int> toolsEnabledRinks = new HashSet<int>();
+
+    public static TrainingObjectManager Instance { get; private set; }
+
+    public static bool IsModEnabled
+    {
+        get
+        {
+            if (Instance != null)
+            {
+                return Instance.modEnabled;
+            }
+            return false;
+        }
+    }
+
+    public static bool SkipAutoStartForMultiRink { get; set; }
 
     private void Awake()
     {
         if (Instance != null)
         {
-            Destroy(this);
+            Object.Destroy(this);
             return;
         }
-
         Instance = this;
-        Debug.Log("[FlamiePrac] TrainingObjectManager Awake()");
+        FlamieLog.Info("[FlamiePrac] TrainingObjectManager Awake()");
     }
 
     private void Start()
     {
-        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer)
-            return;
-
-        try
+        if (!(NetworkManager.Singleton == null) && NetworkManager.Singleton.IsServer)
         {
-            _onChatCommand = OnChatCommand;
-            EventManager.AddEventListener(
-                "Event_Server_OnChatCommand",
-                _onChatCommand);
-            Debug.Log("[FlamiePrac] Registered chat command listener");
+            try
+            {
+                _onChatCommand = OnChatCommand;
+                EventManager.AddEventListener("Event_Server_OnChatCommand", _onChatCommand);
+                FlamieLog.Info("[FlamiePrac] Registered chat command listener");
+            }
+            catch (Exception ex)
+            {
+                FlamieLog.Error("[FlamiePrac] Failed to register chat command listener: " + ex.Message);
+            }
+            this.StartCoroutine(StartTrainingModeWhenReady());
         }
-        catch (Exception ex)
-        {
-            Debug.LogError("[FlamiePrac] Failed to register chat command listener: " + ex.Message);
-        }
-
-        // Dedicated boots can finish netcode before rink ice exists — wait, then AutoStart.
-        StartCoroutine(StartTrainingModeWhenReady());
     }
 
+    [IteratorStateMachine(typeof(_003CStartTrainingModeWhenReady_003Ed__27))]
     private IEnumerator StartTrainingModeWhenReady()
     {
-        float waited = 0f;
-        const float maxWait = 45f;
-
-        while (waited < maxWait)
+        //yield-return decompiler failed: Unexpected instruction in Iterator.Dispose()
+        return new _003CStartTrainingModeWhenReady_003Ed__27(0)
         {
-            if (shutDown)
-                yield break;
-
-            if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer)
-                yield break;
-
-            if (HasUsableRinkIce())
-                break;
-
-            waited += 0.5f;
-            yield return new WaitForSeconds(0.5f);
-        }
-
-        // Small settle after ice appears (or timeout) before spawning hive/passers.
-        yield return new WaitForSeconds(1.5f);
-        StartTrainingMode();
+            _003C_003E4__this = this
+        };
     }
 
     private static bool HasUsableRinkIce()
     {
-        int ice = LayerMask.NameToLayer("Ice");
-        if (ice < 0)
-            return true;
-
-        Vector3 origin = new Vector3(0f, 8f, 0f);
-        if (Physics.Raycast(origin, Vector3.down, out RaycastHit hit, 20f, 1 << ice,
-                QueryTriggerInteraction.Ignore))
+                                                //IL_006c: Unknown result type (might be due to invalid IL or missing references)
+        int num = LayerMask.NameToLayer("Ice");
+        if (num < 0)
         {
-            return Vector3.Dot(hit.normal, Vector3.up) > 0.7f && hit.point.y > -2f && hit.point.y < 3f;
+            return true;
         }
-
+        RaycastHit val = default(RaycastHit);
+        if (Physics.Raycast(new Vector3(0f, 8f, 0f), Vector3.down, out val, 20f, 1 << num, QueryTriggerInteraction.Ignore))
+        {
+            if (Vector3.Dot(val.normal, Vector3.up) > 0.7f && val.point.y > -2f)
+            {
+                return val.point.y < 3f;
+            }
+            return false;
+        }
         return false;
     }
 
     private void OnDestroy()
     {
         Shutdown();
-
         if (Instance == this)
+        {
             Instance = null;
+        }
     }
 
-    /// <summary>Idempotent server teardown — despawn props, unregister chat, cancel pending invokes.</summary>
-    public void Shutdown()
+    public void RespawnFromLayout()
     {
-        if (shutDown)
+        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer || shutDown)
+        {
             return;
-
-        shutDown = true;
-        modEnabled = false;
-
-        CancelInvoke();
-
-        if (_onChatCommand != null)
-        {
-            try
-            {
-                EventManager.RemoveEventListener(
-                    "Event_Server_OnChatCommand",
-                    _onChatCommand);
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning("[FlamiePrac] RemoveEventListener failed: " + ex.Message);
-            }
-
-            _onChatCommand = null;
         }
-
-        List<int> ids = spawnedObjects.Keys.ToList();
-        foreach (int id in ids)
+        TrainingLayoutConfig.Reload();
+        TrainingPrefabRenamer.Reload();
+        foreach (int item in spawnedObjects.Keys.ToList())
         {
-            if (!spawnedObjects.TryGetValue(id, out SpawnedTrainingObject entry))
-                continue;
-
-            if (entry.Object != null)
-                Destroy(entry.Object);
+            if (spawnedObjects.TryGetValue(item, out var value))
+            {
+                if (value.Object != null)
+                {
+                    Object.Destroy(value.Object);
+                }
+                TrainingSync.Instance?.BroadcastDespawn(item);
+            }
         }
-
         spawnedObjects.Clear();
         spawnRecords.Clear();
         playerObjects.Clear();
         activeTargets.Clear();
         TrainingMotionSync.UnregisterAll();
-
         FlamiePracTrainingGoalie.Despawn();
+        modEnabled = false;
+        StartTrainingMode();
+        FlamieLog.Info("[FlamiePrac] RespawnFromLayout complete.");
+    }
 
-        Debug.Log("[FlamiePrac] TrainingObjectManager shutdown (" + ids.Count + " object(s) removed).");
+    public void Shutdown()
+    {
+        if (shutDown)
+        {
+            return;
+        }
+        shutDown = true;
+        modEnabled = false;
+        this.CancelInvoke();
+        if (_onChatCommand != null)
+        {
+            try
+            {
+                EventManager.RemoveEventListener("Event_Server_OnChatCommand", _onChatCommand);
+            }
+            catch (Exception ex)
+            {
+                FlamieLog.Warn("[FlamiePrac] RemoveEventListener failed: " + ex.Message);
+            }
+            _onChatCommand = null;
+        }
+        List<int> list = spawnedObjects.Keys.ToList();
+        foreach (int item in list)
+        {
+            if (spawnedObjects.TryGetValue(item, out var value) && value.Object != null)
+            {
+                Object.Destroy(value.Object);
+            }
+        }
+        spawnedObjects.Clear();
+        spawnRecords.Clear();
+        playerObjects.Clear();
+        activeTargets.Clear();
+        TrainingMotionSync.UnregisterAll();
+        FlamiePracTrainingGoalie.Despawn();
+        FlamieLog.Info("[FlamiePrac] TrainingObjectManager shutdown (" + list.Count + " object(s) removed).");
     }
 
     private void Update()
     {
-        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer)
-            return;
-
-        if (Time.time < nextCleanupTime)
-            return;
-
-        nextCleanupTime = Time.time + 30f;
-        CleanupStaleReferences();
+        if (!(NetworkManager.Singleton == null) && NetworkManager.Singleton.IsServer && !(Time.time < nextCleanupTime))
+        {
+            nextCleanupTime = Time.time + 30f;
+            CleanupStaleReferences();
+        }
     }
 
     public List<TrainingSpawnRecord> GetSpawnRecords()
@@ -193,74 +329,88 @@ public class TrainingObjectManager : MonoBehaviour
         return spawnRecords.Values.ToList();
     }
 
-    private void StartTrainingMode()
+    public void CollectCullRoots(List<Transform> into)
     {
-        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer)
-            return;
-
-        if (modEnabled)
-            return;
-
-        modEnabled = true;
-        Debug.Log("[FlamiePrac] Starting training mode");
-
-        TrainingLayoutConfig.LayoutFile layout = TrainingLayoutConfig.Current;
-        if (!layout.AutoStart)
+        if (into == null)
         {
-            Debug.Log("[FlamiePrac] AutoStart disabled in layout.");
             return;
         }
+        foreach (SpawnedTrainingObject value in spawnedObjects.Values)
+        {
+            if (!(value.Object == null))
+            {
+                Transform val = value.Object.transform;
+                Transform parent = val.parent;
+                if (parent != null && parent.name.StartsWith("PassBackAnchor_"))
+                {
+                    val = parent;
+                }
+                if (!into.Contains(val))
+                {
+                    into.Add(val);
+                }
+            }
+        }
+    }
 
-        foreach (TrainingLayoutConfig.SpawnEntry entry in layout.Spawns)
-            ApplyLayoutEntry(entry, 0);
-
-        // Late joiners that requested while records were empty need a push now.
+    private void StartTrainingMode()
+    {
+                if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer || modEnabled)
+        {
+            return;
+        }
+        modEnabled = true;
+        FlamieLog.InfoOnce("train-start", "[FlamiePrac] Starting training mode");
+        TrainingLayoutConfig.LayoutFile current = TrainingLayoutConfig.Current;
+        if (!current.AutoStart)
+        {
+            FlamieLog.Info("[FlamiePrac] AutoStart disabled in layout.");
+            return;
+        }
+        if (!HasUsableRinkIce())
+        {
+            FlamieLog.Warn("[FlamiePrac] AutoStart with no ice raycast hit — spawning anyway (timeout path).");
+        }
+        TrainingLayoutConfig.SpawnEntry[] spawns = current.Spawns;
+        foreach (TrainingLayoutConfig.SpawnEntry entry in spawns)
+        {
+            ApplyLayoutEntry(entry, 0uL, spawnGoalie: true, 0, Vector3.zero);
+        }
         TrainingSync.Instance?.QueueSnapshotToAllClients();
     }
 
-    /// <summary>
-    /// After a rink reload, scene-parented hive props may be gone while modEnabled stays true.
-    /// Respawn from layout when nothing live remains.
-    /// </summary>
     public void EnsureTrainingRunningAfterLevelSpawn()
     {
         EnsureTrainingRunningIfIceReady(forceIceCheck: false);
     }
 
-    /// <summary>
-    /// Workshop mid-session server enable / network catch-up: only AutoStart when ice exists.
-    /// Avoids spawning into a pre-level void that LevelSpawned then destroys.
-    /// </summary>
     public void EnsureTrainingRunningIfIceReady(bool forceIceCheck = true)
     {
         if (shutDown || NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer)
-            return;
-
-        CleanupStaleReferences();
-
-        bool anyLive = false;
-        foreach (SpawnedTrainingObject entry in spawnedObjects.Values)
         {
-            if (entry.Object != null)
+            return;
+        }
+        CleanupStaleReferences();
+        bool flag = false;
+        foreach (SpawnedTrainingObject value in spawnedObjects.Values)
+        {
+            if (value.Object != null)
             {
-                anyLive = true;
+                flag = true;
                 break;
             }
         }
-
-        if (anyLive)
+        if (flag)
         {
             TrainingSync.Instance?.QueueSnapshotToAllClients();
             return;
         }
-
         if (forceIceCheck && !HasUsableRinkIce())
         {
-            Debug.Log("[FlamiePrac] Catch-up: rink ice not ready yet — AutoStart coroutine will spawn.");
+            FlamieLog.Info("[FlamiePrac] Catch-up: rink ice not ready yet — AutoStart coroutine will spawn.");
             return;
         }
-
-        Debug.Log("[FlamiePrac] Level/catch-up with no live training props — restarting AutoStart.");
+        FlamieLog.Info("[FlamiePrac] Level/catch-up with no live training props — restarting AutoStart.");
         modEnabled = false;
         spawnRecords.Clear();
         spawnedObjects.Clear();
@@ -269,40 +419,105 @@ public class TrainingObjectManager : MonoBehaviour
         StartTrainingMode();
     }
 
-    private void ApplyLayoutEntry(TrainingLayoutConfig.SpawnEntry entry, ulong spawnedBy)
+    public void SetRinkToolsEnabled(int rinkIndex, bool enabled)
     {
-        if (entry == null)
-            return;
-
-        string type = (entry.Type ?? "prefab").ToLowerInvariant();
-        Vector3 pos = entry.Position != null ? entry.Position.ToVector3() : Vector3.zero;
-        Quaternion rot = Quaternion.Euler(0f, entry.RotationY, 0f);
-
-        if (type == "passer")
+        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer || shutDown)
         {
-            Vector3 scale = entry.Scale != null ? entry.Scale.ToVector3() : new Vector3(2f, 0.5f, 0.5f);
-            SpawnOnePasser(pos, entry.RotationY, entry.Speed, scale, spawnedBy);
             return;
         }
-
-        if (type == "target")
+        if (enabled)
         {
-            SpawnCircularTarget(pos);
+            if (!toolsEnabledRinks.Contains(rinkIndex))
+            {
+                SpawnLayoutForRink(rinkIndex);
+            }
+        }
+        else if (toolsEnabledRinks.Contains(rinkIndex))
+        {
+            ClearRinkTools(rinkIndex);
+        }
+    }
+
+    public bool IsRinkToolsEnabled(int rinkIndex)
+    {
+        return toolsEnabledRinks.Contains(rinkIndex);
+    }
+
+    private void SpawnLayoutForRink(int rinkIndex)
+    {
+        //IL_002c: Unknown result type (might be due to invalid IL or missing references)
+                        TrainingLayoutConfig.LayoutFile current = TrainingLayoutConfig.Current;
+        if (!current.AutoStart)
+        {
+            FlamieLog.Info("[FlamiePrac] AutoStart disabled — skipping strip spawn for rink " + (rinkIndex + 1));
             return;
         }
-
-        GameObject prefab = Class1.Instance?.GetPrefab(entry.Name ?? "trainingprefab");
-        if (prefab == null)
+        Vector3 worldOffset = RinkOrigin.OriginFor(rinkIndex + 1);
+        FlamieLog.Info("[FlamiePrac] Spawning PHL tools on rink " + (rinkIndex + 1) + " at " + worldOffset.ToString("F1"));
+        TrainingLayoutConfig.SpawnEntry[] spawns = current.Spawns;
+        foreach (TrainingLayoutConfig.SpawnEntry entry in spawns)
         {
-            Debug.LogError("[FlamiePrac] Layout prefab not found: " + entry.Name);
+            ApplyLayoutEntry(entry, 0uL, spawnGoalie: true, rinkIndex, worldOffset);
+        }
+        toolsEnabledRinks.Add(rinkIndex);
+        modEnabled = true;
+        TrainingSync.Instance?.QueueSnapshotToAllClients();
+    }
+
+    private void ClearRinkTools(int rinkIndex)
+    {
+        if (!objectsByRink.TryGetValue(rinkIndex, out var value) || value == null)
+        {
+            toolsEnabledRinks.Remove(rinkIndex);
             return;
         }
-
-        int id = SpawnTrainingObject(prefab, entry.Name ?? "trainingprefab", pos, rot, spawnedBy);
-        if (id >= 0 && IsTrainingHivePrefab(entry.Name))
+        foreach (int item in value.ToList())
         {
-            if (spawnedObjects.TryGetValue(id, out SpawnedTrainingObject hiveEntry) && hiveEntry.Object != null)
-                FlamiePracTrainingGoalie.SpawnForHive(hiveEntry.Object);
+            DespawnById(item);
+        }
+        objectsByRink.Remove(rinkIndex);
+        toolsEnabledRinks.Remove(rinkIndex);
+        if (spawnedObjects.Count == 0)
+        {
+            modEnabled = false;
+        }
+        FlamieLog.Info("[FlamiePrac] Cleared PHL tools on rink " + (rinkIndex + 1));
+    }
+
+    private void ApplyLayoutEntry(TrainingLayoutConfig.SpawnEntry entry, ulong spawnedBy, bool spawnGoalie, int rinkIndex, Vector3 worldOffset)
+    {
+        //IL_002b: Unknown result type (might be due to invalid IL or missing references)
+                                                //IL_004d: Unknown result type (might be due to invalid IL or missing references)
+        //IL_00ad: Unknown result type (might be due to invalid IL or missing references)
+        //IL_007f: Unknown result type (might be due to invalid IL or missing references)
+                                                        if (entry == null)
+        {
+            return;
+        }
+        string text = (entry.Type ?? "prefab").ToLowerInvariant();
+        Vector3 val = ((entry.Position != null) ? (entry.Position.ToVector3() + worldOffset) : worldOffset);
+        Quaternion rotation = Quaternion.Euler(0f, entry.RotationY, 0f);
+        if (text == "passer")
+        {
+            Vector3 scale = (Vector3)((entry.Scale != null) ? entry.Scale.ToVector3() : new Vector3(2f, 0.5f, 0.5f));
+            SpawnOnePasser(val, entry.RotationY, entry.Speed, scale, spawnedBy, rinkIndex);
+            return;
+        }
+        if (text == "target")
+        {
+            SpawnCircularTarget(val, rinkIndex);
+            return;
+        }
+        GameObject val2 = Class1.Instance?.GetPrefab(entry.Name ?? "trainingprefab");
+        if (val2 == null)
+        {
+            FlamieLog.Error("[FlamiePrac] Layout prefab not found: " + entry.Name);
+            return;
+        }
+        int num = SpawnTrainingObject(val2, entry.Name ?? "trainingprefab", val, rotation, spawnedBy, rinkIndex);
+        if (spawnGoalie && num >= 0 && IsTrainingHivePrefab(entry.Name) && spawnedObjects.TryGetValue(num, out var value) && value.Object != null)
+        {
+            FlamiePracTrainingGoalie.SpawnForHive(value.Object);
         }
     }
 
@@ -313,95 +528,175 @@ public class TrainingObjectManager : MonoBehaviour
 
     private void OnChatCommand(Dictionary<string, object> data)
     {
-        try
+                try
         {
-            if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer)
-                return;
-
-            if (!data.ContainsKey("command"))
-                return;
-
-            string command = (data["command"] as string ?? string.Empty).ToLowerInvariant();
-            if (string.IsNullOrEmpty(command))
-                return;
-
-            string[] args = data.ContainsKey("args")
-                ? (data["args"] as string[] ?? new string[0])
-                : new string[0];
-
-            ulong senderClientId = 0;
-            if (data.ContainsKey("clientId"))
-                senderClientId = (ulong)data["clientId"];
-
-            Player senderPlayer = GetPlayerByClientId(senderClientId);
-
-            switch (command)
+            if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer || !data.ContainsKey("command"))
             {
-                case "/speed":
-                case "/lu54bdhrtjr":
-                    HandleSpeedCommand(senderClientId, args);
+                return;
+            }
+            string text = ((data["command"] as string) ?? string.Empty).ToLowerInvariant();
+            if (string.IsNullOrEmpty(text))
+            {
+                return;
+            }
+            string[] args = (data.ContainsKey("args") ? ((data["args"] as string[]) ?? new string[0]) : new string[0]);
+            ulong num = 0uL;
+            if (data.ContainsKey("clientId"))
+            {
+                num = (ulong)data["clientId"];
+            }
+            Player playerByClientId = GetPlayerByClientId(num);
+            if (text == null)
+            {
+                return;
+            }
+            switch (text.Length)
+            {
+            case 12:
+                switch (text[1])
+                {
+                default:
+                    return;
+                case 'l':
                     break;
-
-                case "/nextsong":
-                case "/radioskip":  // alias; /skip is a stock admin command
-                    Debug.Log("[FlamiePrac] Server radio command: next");
-                    TrainingSync.Instance?.BroadcastRadioCommand(RadioNext);
+                case 't':
+                    if (text == "/trainreload")
+                    {
+                        RespawnFromLayout();
+                        SendMessageToClient(num, "Reloaded training layout and respawned props.");
+                    }
+                    return;
+                }
+                if (!(text == "/lu54bdhrtjr"))
+                {
                     break;
-
-                case "/prevsong":
-                case "/radioprev":  // alias; avoid future conflicts
-                    Debug.Log("[FlamiePrac] Server radio command: prev");
-                    TrainingSync.Instance?.BroadcastRadioCommand(RadioPrev);
+                }
+                goto IL_0299;
+            case 9:
+            {
+                char c = text[1];
+                if (c != 'n')
+                {
+                    switch (c)
+                    {
+                    default:
+                        return;
+                    case 'p':
+                        break;
+                    case 's':
+                        if (text == "/slidable")
+                        {
+                            HandleSlidableCommand(playerByClientId, num, args);
+                        }
+                        return;
+                    }
+                    if (!(text == "/prevsong"))
+                    {
+                        break;
+                    }
+                    goto IL_02c7;
+                }
+                if (!(text == "/nextsong"))
+                {
                     break;
-
-                case "/trainhere":
-                    HandleTrainHere(senderPlayer, senderClientId, args);
+                }
+                goto IL_02a6;
+            }
+            case 10:
+            {
+                char c = text[6];
+                if ((uint)c <= 104u)
+                {
+                    switch (c)
+                    {
+                    case 'h':
+                        if (text == "/trainhere")
+                        {
+                            HandleTrainHere(playerByClientId, num, args);
+                        }
+                        break;
+                    case 'd':
+                        if (text == "/traindump")
+                        {
+                            HandleTrainDump(num);
+                        }
+                        break;
+                    }
                     break;
-
-                case "/traindump":
-                    HandleTrainDump(senderClientId);
+                }
+                if (c != 'p')
+                {
+                    if (c != 's' || !(text == "/radioskip"))
+                    {
+                        break;
+                    }
+                    goto IL_02a6;
+                }
+                if (!(text == "/radioprev"))
+                {
                     break;
-
-                case "/trainreload":
-                    TrainingLayoutConfig.Reload();
-                    TrainingPrefabRenamer.Reload();
-                    SendMessageToClient(senderClientId, "Reloaded training_layout.json + training_prefab_names.json");
+                }
+                goto IL_02c7;
+            }
+            case 6:
+                if (!(text == "/speed"))
+                {
                     break;
-
-                case "/targetpractise":
+                }
+                goto IL_0299;
+            case 15:
+                if (text == "/targetpractise")
+                {
                     SpawnCircularTarget(new Vector3(0f, 1.4f, 40f));
-                    SendMessageToClient(senderClientId, "Spawned circular target.");
-                    break;
-
-                case "/cleartargetpractise":
+                    SendMessageToClient(num, "Spawned circular target.");
+                }
+                break;
+            case 20:
+                if (text == "/cleartargetpractise")
+                {
                     ClearCircularTargets();
-                    SendMessageToClient(senderClientId, "Cleared circular targets.");
+                    SendMessageToClient(num, "Cleared circular targets.");
+                }
+                break;
+            case 7:
+                {
+                    if (text == "/passer")
+                    {
+                        SpawnPassBackBox(num);
+                    }
                     break;
-
-                case "/passer":
-                    SpawnPassBackBox(senderClientId);
-                    break;
+                }
+                IL_0299:
+                HandleSpeedCommand(num, args);
+                break;
+                IL_02c7:
+                FlamieLog.Info("[FlamiePrac] Server radio command: restart");
+                RadioSync.ServerRestart();
+                break;
+                IL_02a6:
+                FlamieLog.Info("[FlamiePrac] Server radio command: skip vote from " + num);
+                RadioSync.ServerCastSkipVote(num);
+                break;
             }
         }
         catch (Exception ex)
         {
-            Debug.LogError("[FlamiePrac] Error handling chat command: " + ex);
+            FlamieLog.Error("[FlamiePrac] Error handling chat command: " + ex);
         }
     }
 
     private void HandleSpeedCommand(ulong clientId, string[] args)
     {
+        float result;
         if (args.Length < 1)
         {
             SendMessageToClient(clientId, "Usage: /speed <number>");
-            return;
         }
-
-        if (float.TryParse(args[0], out float newSpeed))
+        else if (float.TryParse(args[0], out result))
         {
-            ConstantRotator.globalSpeed = newSpeed;
+            ConstantRotator.globalSpeed = result;
             TrainingMotionSync.BroadcastParamsNow();
-            SendMessageToClient(clientId, "Rotation speed set to " + newSpeed);
+            SendMessageToClient(clientId, "Rotation speed set to " + result);
         }
         else
         {
@@ -409,98 +704,183 @@ public class TrainingObjectManager : MonoBehaviour
         }
     }
 
+    private void HandleSlidableCommand(Player sender, ulong clientId, string[] args)
+    {
+        if (!IsAdmin(sender))
+        {
+            SendMessageToClient(clientId, "Admin only: /slidable true|false");
+            return;
+        }
+        if (args.Length < 1)
+        {
+            SendMessageToClient(clientId, "Usage: /slidable true|false (currently " + (FlamiePracFeatures.SlidablePhysicsEnabled ? "on" : "off") + ")");
+            return;
+        }
+        string text = args[0].Trim().ToLowerInvariant();
+        bool flag;
+        switch (text)
+        {
+        case "true":
+        case "on":
+        case "1":
+            flag = true;
+            break;
+        default:
+            flag = false;
+            break;
+        }
+        bool flag2;
+        if (flag)
+        {
+            flag2 = true;
+        }
+        else
+        {
+            switch (text)
+            {
+            case "false":
+            case "off":
+            case "0":
+                flag = true;
+                break;
+            default:
+                flag = false;
+                break;
+            }
+            if (!flag)
+            {
+                SendMessageToClient(clientId, "Usage: /slidable true|false");
+                return;
+            }
+            flag2 = false;
+        }
+        FlamiePracFeatures.SetSlidablePhysicsEnabled(flag2);
+        FlamieLog.Info("[FlamiePrac] Slidable physics " + (flag2 ? "enabled" : "disabled") + " by client " + clientId);
+        SendMessageToClient(clientId, "Slidable physics " + (flag2 ? "enabled" : "disabled") + ".");
+    }
+
+    private static bool IsAdmin(Player player)
+    {
+        //IL_004e: Unknown result type (might be due to invalid IL or missing references)
+                if (player == null)
+        {
+            return false;
+        }
+        if (player.AdminLevel != null && player.AdminLevel.Value > 0)
+        {
+            return true;
+        }
+        try
+        {
+            ServerManager instance = NetworkBehaviourSingleton<ServerManager>.Instance;
+            if (instance?.AdminManager == (Object)null)
+            {
+                return false;
+            }
+            AdminManager adminManager = instance.AdminManager;
+            FixedString32Bytes value = player.SteamId.Value;
+            return adminManager.IsSteamIdAdmin(value.ToString());
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private void HandleTrainHere(Player player, ulong clientId, string[] args)
     {
+        //IL_005f: Unknown result type (might be due to invalid IL or missing references)
+                                //IL_00a5: Unknown result type (might be due to invalid IL or missing references)
+        //IL_00b1: Unknown result type (might be due to invalid IL or missing references)
+        //IL_00bd: Unknown result type (might be due to invalid IL or missing references)
         if (player == null)
         {
             SendMessageToClient(clientId, "Player not found.");
             return;
         }
-
-        string prefabName = args.Length > 0 ? args[0].ToLowerInvariant() : "trainingprefab";
-        GameObject prefab = Class1.Instance?.GetPrefab(prefabName);
-        if (prefab == null)
+        string text = ((args.Length != 0) ? args[0].ToLowerInvariant() : "trainingprefab");
+        GameObject val = Class1.Instance?.GetPrefab(text);
+        if (val == null)
         {
-            SendMessageToClient(clientId, "Prefab not found: " + prefabName);
+            SendMessageToClient(clientId, "Prefab not found: " + text);
             return;
         }
-
-        Vector3 pos = player.transform.position;
-        pos.y = 0f;
-        int id = SpawnTrainingObject(prefab, prefabName, pos, Quaternion.identity, clientId);
-
-        if (id >= 0)
+        Vector3 position = ((Component)player).transform.position;
+        position.y = 0f;
+        if (SpawnTrainingObject(val, text, position, Quaternion.identity, clientId) >= 0)
         {
             TrainingLayoutConfig.AppendSpawn(new TrainingLayoutConfig.SpawnEntry
             {
                 Type = "prefab",
-                Name = prefabName,
-                Position = new TrainingLayoutConfig.Vec3 { x = pos.x, y = pos.y, z = pos.z }
+                Name = text,
+                Position = new TrainingLayoutConfig.Vec3
+                {
+                    x = position.x,
+                    y = position.y,
+                    z = position.z
+                }
             });
-            SendMessageToClient(clientId,
-                "Spawned + saved " + prefabName + " at (" +
-                pos.x.ToString("F1") + ", " + pos.y.ToString("F1") + ", " + pos.z.ToString("F1") + ")");
+            SendMessageToClient(clientId, "Spawned + saved " + text + " at (" + position.x.ToString("F1") + ", " + position.y.ToString("F1") + ", " + position.z.ToString("F1") + ")");
         }
     }
 
     private void HandleTrainDump(ulong clientId)
     {
-        foreach (TrainingSpawnRecord record in spawnRecords.Values)
+        //IL_005a: Unknown result type (might be due to invalid IL or missing references)
+        //IL_005f: Unknown result type (might be due to invalid IL or missing references)
+        foreach (TrainingSpawnRecord value in spawnRecords.Values)
         {
-            string line = "[FlamiePrac] #" + record.SyncId + " kind=" + record.Kind +
-                            " pos=" + record.Position;
-            Debug.Log(line);
+            string[] obj = new string[6]
+            {
+                "[FlamiePrac] #",
+                value.SyncId.ToString(),
+                " kind=",
+                value.Kind.ToString(),
+                " pos=",
+                null
+            };
+            Vector3 position = value.Position;
+            obj[5] = position.ToString();
+            FlamieLog.Info(string.Concat(obj));
         }
-
         SendMessageToClient(clientId, "Dumped " + spawnRecords.Count + " spawn(s) to server log.");
     }
 
-    public int SpawnTrainingObject(
-        GameObject prefab,
-        string prefabName,
-        Vector3 position,
-        Quaternion rotation,
-        ulong spawnedBy)
+    public int SpawnTrainingObject(GameObject prefab, string prefabName, Vector3 position, Quaternion rotation, ulong spawnedBy, int rinkIndex = 0)
     {
+        //IL_003e: Unknown result type (might be due to invalid IL or missing references)
+        //IL_003f: Unknown result type (might be due to invalid IL or missing references)
+                        //IL_008a: Unknown result type (might be due to invalid IL or missing references)
+        //IL_008c: Unknown result type (might be due to invalid IL or missing references)
         if (prefab == null)
+        {
             return -1;
-
-        if (spawnedObjects.Count >= MaxObjects)
+        }
+        if (spawnedObjects.Count >= 50)
         {
             SendMessageToClient(spawnedBy, "Max training objects reached.");
             return -1;
         }
-
         try
         {
-            int id = nextObjectId++;
-            GameObject obj = TrainingObjectFactory.BuildPrefab(
-                prefab,
-                prefabName,
-                position,
-                rotation,
-                id,
-                TrainingObjectFactory.BuildRole.ServerAuthority);
-
-            RegisterSpawn(id, prefabName.ToLowerInvariant(), obj, spawnedBy);
-
-            var record = new TrainingSpawnRecord
-            {
-                Kind = 1,
-                SyncId = id,
-                PrefabName = prefabName.ToLowerInvariant(),
-                Position = position,
-                Rotation = rotation
-            };
-            spawnRecords[id] = record;
-            TrainingSync.Instance?.BroadcastSpawn(record);
-
-            Debug.Log("[FlamiePrac] Spawned '" + prefabName + "' (#" + id + ") at " + position);
-            return id;
+            int num = nextObjectId++;
+            GameObject obj = TrainingObjectFactory.BuildPrefab(prefab, prefabName, position, rotation, num, TrainingObjectFactory.BuildRole.ServerAuthority);
+            RegisterSpawn(num, prefabName.ToLowerInvariant(), obj, spawnedBy, rinkIndex);
+            TrainingSpawnRecord trainingSpawnRecord = default(TrainingSpawnRecord);
+            trainingSpawnRecord.Kind = 1;
+            trainingSpawnRecord.SyncId = num;
+            trainingSpawnRecord.PrefabName = prefabName.ToLowerInvariant();
+            trainingSpawnRecord.Position = position;
+            trainingSpawnRecord.Rotation = rotation;
+            TrainingSpawnRecord trainingSpawnRecord2 = trainingSpawnRecord;
+            spawnRecords[num] = trainingSpawnRecord2;
+            TrainingSync.Instance?.BroadcastSpawn(trainingSpawnRecord2);
+            FlamieLog.Info("[FlamiePrac] Spawned '" + prefabName + "' (#" + num + ") at " + position.ToString());
+            return num;
         }
         catch (Exception ex)
         {
-            Debug.LogError("[FlamiePrac] Failed to spawn training object: " + ex);
+            FlamieLog.Error("[FlamiePrac] Failed to spawn training object: " + ex);
             SendMessageToClient(spawnedBy, "Failed to spawn: " + ex.Message);
             return -1;
         }
@@ -508,105 +888,105 @@ public class TrainingObjectManager : MonoBehaviour
 
     private void SpawnPassBackBox(ulong clientId)
     {
-        float length = TrainingLayoutConfig.DefaultPasserLength;
-        float goalZ = TrainingLayoutConfig.PasserCenterZ(length, TrainingLayoutConfig.DefaultPasserRotationY);
-        Vector3 scale = new Vector3(length, 0.55f, 0.5f);
-        SpawnOnePasser(new Vector3(6f, 0f, goalZ), TrainingLayoutConfig.DefaultPasserRotationY, 14f, scale, clientId);
-        SpawnOnePasser(new Vector3(-6f, 0f, goalZ), -TrainingLayoutConfig.DefaultPasserRotationY, 14f, scale, clientId);
+                //IL_003f: Unknown result type (might be due to invalid IL or missing references)
+                        float num = 5f;
+        float num2 = TrainingLayoutConfig.PasserCenterZ(num);
+        Vector3 scale = default(Vector3);
+        scale = new Vector3(num, 0.55f, 0.5f);
+        SpawnOnePasser(new Vector3(6f, 0f, num2), 45f, 14f, scale, clientId);
+        SpawnOnePasser(new Vector3(-6f, 0f, num2), -45f, 14f, scale, clientId);
         SendMessageToClient(clientId, "2 puck passers spawned.");
     }
 
-    private void SpawnOnePasser(Vector3 pos, float yRot, float speed, Vector3 scale, ulong spawnedBy)
+    private void SpawnOnePasser(Vector3 pos, float yRot, float speed, Vector3 scale, ulong spawnedBy, int rinkIndex = 0)
     {
-        int id = nextObjectId++;
-        GameObject box = TrainingObjectFactory.BuildPasser(
-            pos,
-            yRot,
-            speed,
-            scale,
-            id,
-            TrainingObjectFactory.BuildRole.ServerAuthority);
-
-        RegisterSpawn(id, "passer", box, spawnedBy);
-
-        // Broadcast the seated world center — clients must not re-apply layout Y lift / ice guess.
-        var record = new TrainingSpawnRecord
-        {
-            Kind = 2,
-            SyncId = id,
-            Position = box.transform.position,
-            Rotation = box.transform.rotation,
-            RotationY = yRot,
-            PasserSpeed = speed,
-            Scale = scale
-        };
-        spawnRecords[id] = record;
-        TrainingSync.Instance?.BroadcastSpawn(record);
+                                                        //IL_007f: Unknown result type (might be due to invalid IL or missing references)
+                int num = nextObjectId++;
+        GameObject val = TrainingObjectFactory.BuildPasser(pos, yRot, speed, scale, num, TrainingObjectFactory.BuildRole.ServerAuthority);
+        RegisterSpawn(num, "passer", val, spawnedBy, rinkIndex);
+        TrainingSpawnRecord trainingSpawnRecord = default(TrainingSpawnRecord);
+        trainingSpawnRecord.Kind = 2;
+        trainingSpawnRecord.SyncId = num;
+        trainingSpawnRecord.Position = val.transform.position;
+        trainingSpawnRecord.Rotation = val.transform.rotation;
+        trainingSpawnRecord.RotationY = yRot;
+        trainingSpawnRecord.PasserSpeed = speed;
+        trainingSpawnRecord.Scale = scale;
+        TrainingSpawnRecord trainingSpawnRecord2 = trainingSpawnRecord;
+        spawnRecords[num] = trainingSpawnRecord2;
+        TrainingSync.Instance?.BroadcastSpawn(trainingSpawnRecord2);
     }
 
-    public void SpawnCircularTarget(Vector3 position)
+    public void SpawnCircularTarget(Vector3 position, int rinkIndex = 0)
     {
-        int id = nextObjectId++;
-        GameObject targetObj = TrainingObjectFactory.BuildCircularTarget(
-            position,
-            id,
-            TrainingObjectFactory.BuildRole.ServerAuthority);
-
-        RegisterSpawn(id, "circulartarget", targetObj, 0);
-        activeTargets.Add(targetObj.GetComponent<CircularMovingTarget>());
-
-        var record = new TrainingSpawnRecord
-        {
-            Kind = 3,
-            SyncId = id,
-            Position = position,
-            Rotation = Quaternion.identity
-        };
-        spawnRecords[id] = record;
-        TrainingSync.Instance?.BroadcastSpawn(record);
+                                //IL_005e: Unknown result type (might be due to invalid IL or missing references)
+                int num = nextObjectId++;
+        GameObject val = TrainingObjectFactory.BuildCircularTarget(position, num, TrainingObjectFactory.BuildRole.ServerAuthority);
+        RegisterSpawn(num, "circulartarget", val, 0uL, rinkIndex);
+        activeTargets.Add(val.GetComponent<CircularMovingTarget>());
+        TrainingSpawnRecord trainingSpawnRecord = default(TrainingSpawnRecord);
+        trainingSpawnRecord.Kind = 3;
+        trainingSpawnRecord.SyncId = num;
+        trainingSpawnRecord.Position = position;
+        trainingSpawnRecord.Rotation = Quaternion.identity;
+        TrainingSpawnRecord trainingSpawnRecord2 = trainingSpawnRecord;
+        spawnRecords[num] = trainingSpawnRecord2;
+        TrainingSync.Instance?.BroadcastSpawn(trainingSpawnRecord2);
     }
 
     public void ClearCircularTargets()
     {
-        foreach (CircularMovingTarget target in activeTargets)
+        foreach (CircularMovingTarget activeTarget in activeTargets)
         {
-            if (target == null)
-                continue;
-
-            TrainingSyncMarker marker = target.GetComponent<TrainingSyncMarker>();
-            if (marker != null)
-                DespawnById(marker.SyncId);
+            if (!(activeTarget == null))
+            {
+                TrainingSyncMarker component = ((Component)activeTarget).GetComponent<TrainingSyncMarker>();
+                if (component != null)
+                {
+                    DespawnById(component.SyncId);
+                }
+            }
         }
-
         activeTargets.Clear();
     }
 
     public void MoveTarget(CircularMovingTarget target)
     {
-        if (target == null)
-            return;
-
-        Vector3 newPos = target.transform.position;
-        newPos.x += UnityEngine.Random.Range(-1.9f, 1.9f);
-        newPos.y += UnityEngine.Random.Range(0f, 1f);
-        target.transform.position = newPos;
+                                if (!(target == null))
+        {
+            Vector3 position = ((Component)target).transform.position;
+            position.x += UnityEngine.Random.Range(-1.9f, 1.9f);
+            position.y += UnityEngine.Random.Range(0f, 1f);
+            ((Component)target).transform.position = position;
+        }
     }
 
     private void DespawnById(int id)
     {
-        if (spawnedObjects.TryGetValue(id, out SpawnedTrainingObject entry))
+        int key = 0;
+        if (spawnedObjects.TryGetValue(id, out var value))
         {
-            if (entry.Object != null)
-                Destroy(entry.Object);
+            key = value.RinkIndex;
+            if (value.Object != null)
+            {
+                Object.Destroy(value.Object);
+            }
             spawnedObjects.Remove(id);
         }
-
         spawnRecords.Remove(id);
         TrainingMotionSync.UnregisterSyncId(id);
         TrainingSync.Instance?.BroadcastDespawn(id);
+        if (objectsByRink.TryGetValue(key, out var value2))
+        {
+            value2.Remove(id);
+            if (value2.Count == 0)
+            {
+                objectsByRink.Remove(key);
+            }
+        }
     }
 
-    private void RegisterSpawn(int id, string prefabName, GameObject obj, ulong spawnedBy)
+    private void RegisterSpawn(int id, string prefabName, GameObject obj, ulong spawnedBy, int rinkIndex = 0)
     {
         spawnedObjects[id] = new SpawnedTrainingObject
         {
@@ -614,68 +994,84 @@ public class TrainingObjectManager : MonoBehaviour
             PrefabName = prefabName,
             Object = obj,
             SpawnedBy = spawnedBy,
-            SpawnTime = Time.time
+            SpawnTime = Time.time,
+            RinkIndex = rinkIndex
         };
-
+        if (!objectsByRink.TryGetValue(rinkIndex, out var value))
+        {
+            value = new HashSet<int>();
+            objectsByRink[rinkIndex] = value;
+        }
+        value.Add(id);
         if (!playerObjects.ContainsKey(spawnedBy))
+        {
             playerObjects[spawnedBy] = new List<int>();
+        }
         playerObjects[spawnedBy].Add(id);
     }
 
     private void CleanupStaleReferences()
     {
-        var toRemove = new List<int>();
-        foreach (KeyValuePair<int, SpawnedTrainingObject> kvp in spawnedObjects)
+        List<int> list = new List<int>();
+        foreach (KeyValuePair<int, SpawnedTrainingObject> spawnedObject in spawnedObjects)
         {
-            if (kvp.Value.Object == null)
-                toRemove.Add(kvp.Key);
+            if (spawnedObject.Value.Object == null)
+            {
+                list.Add(spawnedObject.Key);
+            }
         }
-
-        foreach (int id in toRemove)
+        foreach (int item in list)
         {
-            spawnedObjects.Remove(id);
-            spawnRecords.Remove(id);
+            spawnedObjects.Remove(item);
+            spawnRecords.Remove(item);
         }
-
-        if (toRemove.Count > 0)
-            Debug.Log("[FlamiePrac] Cleaned up " + toRemove.Count + " stale reference(s)");
+        if (list.Count > 0)
+        {
+            FlamieLog.Info("[FlamiePrac] Cleaned up " + list.Count + " stale reference(s)");
+        }
     }
 
     private Player GetPlayerByClientId(ulong clientId)
     {
         try
         {
-            NetworkManager nm = NetworkManager.Singleton;
-            if (nm == null)
-                return null;
-
-            foreach (NetworkClient client in nm.ConnectedClientsList)
+            NetworkManager singleton = NetworkManager.Singleton;
+            if (singleton == null)
             {
-                if (client.ClientId == clientId)
-                    return client.PlayerObject?.GetComponent<Player>();
+                return null;
+            }
+            foreach (NetworkClient connectedClients in singleton.ConnectedClientsList)
+            {
+                if (connectedClients.ClientId == clientId)
+                {
+                    NetworkObject playerObject = connectedClients.PlayerObject;
+                    return (playerObject != null) ? ((Component)playerObject).GetComponent<Player>() : null;
+                }
             }
         }
-        catch { }
-
+        catch
+        {
+        }
         return null;
     }
 
     private void SendMessageToClient(ulong clientId, string message)
     {
-        if (clientId == 0)
+        if (clientId == 0L)
+        {
             return;
-
+        }
         try
         {
-            ChatManager chat = FindFirstObjectByType<ChatManager>();
-            if (chat == null)
-                return;
-
-            chat.Server_SendChatMessage(message, "#88FF88", clientId);
+            ChatManager val = Object.FindFirstObjectByType<ChatManager>();
+            if (!(val == null))
+            {
+                val.Server_SendChatMessage(message, "#88FF88", new ulong[1] { clientId });
+            }
         }
         catch (Exception ex)
         {
-            Debug.LogError("[FlamiePrac] SendMessage failed: " + ex);
+            FlamieLog.Error("[FlamiePrac] SendMessage failed: " + ex);
         }
     }
 }

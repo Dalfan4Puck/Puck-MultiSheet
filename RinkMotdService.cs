@@ -15,7 +15,7 @@ namespace PHLPracticeModPack
     {
         private const string StatusChannel = "multisheet-motd-v1";
         private const string RequestChannel = "multisheet-motd-req-v1";
-        private const byte ProtocolVersion = 2;
+        private const byte ProtocolVersion = 3;
         private const byte OpRequestShow = 0;
         private const byte OpTeleport = 1;
         private const byte OpSetRole = 2;
@@ -114,6 +114,7 @@ namespace PHLPracticeModPack
             PracticeGoalieSpawn.Reset();
             ResetLocalConnection();
             RinkMotdUI.Teardown();
+            RinkStripVote.Teardown();
             RinkScoreboardTab.Teardown();
             RinkPreview.Teardown();
         }
@@ -252,6 +253,14 @@ namespace PHLPracticeModPack
                     }
 
                     writer.WriteValueSafe(ReadLocalRoleByte(clientId));
+
+                    int stripCount = Mathf.Min(cfg.Rinks.Count, 16);
+                    writer.WriteValueSafe((byte)stripCount);
+                    for (int i = 0; i < stripCount; i++)
+                    {
+                        RinkStripMode mode = RinkStripVote.GetServerMode(i);
+                        writer.WriteValueSafe((byte)mode);
+                    }
 
                     manager.CustomMessagingManager.SendNamedMessage(
                         StatusChannel, clientId, writer, NetworkDelivery.ReliableSequenced);
@@ -428,6 +437,17 @@ namespace PHLPracticeModPack
                     payload.LocalRole = localRole > 0 ? (byte)1 : (byte)0;
                 }
 
+                if (version >= 3)
+                {
+                    reader.ReadValueSafe(out byte stripCount);
+                    for (int i = 0; i < stripCount; i++)
+                    {
+                        reader.ReadValueSafe(out byte modeByte);
+                        payload.StripModes.Add(RinkStripModeUtil.Parse(modeByte));
+                    }
+                    payload.StripVoteProgress = RinkStripVote.CurrentProgress;
+                }
+
                 // Build deferred client-side rink visuals before the MOTD/preview rig
                 // captures tiles — otherwise rinks 2+ render without cloned geometry or
                 // offset fill lights (dark thumbnails). Pass the payload so the client
@@ -435,6 +455,7 @@ namespace PHLPracticeModPack
                 CustomLevelPlugin.ConfirmPracticeServer(payload);
 
                 RinkMotdUI.OnStatusReceived(payload, show);
+                RinkScoreboardTab.OnStripModesUpdated(payload);
             }
             catch (Exception ex)
             {

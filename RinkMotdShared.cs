@@ -24,6 +24,10 @@ namespace PHLPracticeModPack
         internal readonly List<RinkStatusEntry> Rinks = new List<RinkStatusEntry>();
         /// <summary>0 = skater (attacker), 1 = goalie — this client's role choice.</summary>
         internal byte LocalRole;
+        /// <summary>Per-rink tools strip (Empty / PHL Tools). Index matches Rinks.</summary>
+        internal readonly List<RinkStripMode> StripModes = new List<RinkStripMode>();
+        /// <summary>Live strip vote for MOTD badges (server → client).</summary>
+        internal RinkStripVoteProgress StripVoteProgress;
 
         /// <summary>
         /// True when occupancy, capacity, role, or the local player's rink highlight

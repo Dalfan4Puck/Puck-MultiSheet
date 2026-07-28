@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Object = UnityEngine.Object;
 using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -54,14 +55,14 @@ public class FlamiePracTestPuckSpawn : MonoBehaviour
         PlayerManager playerManager = MonoBehaviourSingleton<PlayerManager>.Instance;
         if (puckManager == null || playerManager == null)
         {
-            Debug.LogWarning("[FlamiePrac] Test puck spawn failed: managers not ready.");
+            FlamieLog.Warn("[FlamiePrac] Test puck spawn failed: managers not ready.");
             return false;
         }
 
         Player player = playerManager.GetPlayerByClientId(clientId);
         if (player == null || !IsCharacterSpawned(player))
         {
-            Debug.LogWarning("[FlamiePrac] Test puck spawn failed: player not ready for client " + clientId);
+            FlamieLog.Warn("[FlamiePrac] Test puck spawn failed: player not ready for client " + clientId);
             return false;
         }
 
@@ -72,7 +73,7 @@ public class FlamiePracTestPuckSpawn : MonoBehaviour
         Puck puck = puckManager.Server_SpawnPuck(spawnPos, Quaternion.identity, false);
         if (puck == null)
         {
-            Debug.LogWarning("[FlamiePrac] Test puck spawn failed: Server_SpawnPuck returned null.");
+            FlamieLog.Warn("[FlamiePrac] Test puck spawn failed: Server_SpawnPuck returned null.");
             return false;
         }
 
@@ -87,7 +88,7 @@ public class FlamiePracTestPuckSpawn : MonoBehaviour
             puckRb.angularVelocity = Vector3.zero;
         }
 
-        Debug.Log("[FlamiePrac] Test puck spawned for client " + clientId + " at " + spawnPos);
+        FlamieLog.Info("[FlamiePrac] Test puck spawned for client " + clientId + " at " + spawnPos);
         return true;
     }
 

@@ -109,7 +109,7 @@ public static class MaxPracticePlugin
         }
         catch (Exception ex)
         {
-            Debug.LogWarning("[FlamiePrac] Failed to remove fake client " + clientId + ": " + ex.Message);
+            FlamieLog.Warn("[FlamiePrac] Failed to remove fake client " + clientId + ": " + ex.Message);
         }
     }
 

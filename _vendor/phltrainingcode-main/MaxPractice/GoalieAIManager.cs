@@ -4,7 +4,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.RegularExpressions;
 using HarmonyLib;
 using Unity.Collections;
 using Unity.Netcode;
@@ -40,8 +39,9 @@ namespace MaxPractice
         private static float nextEvalTime;
         private const float EvalInterval = 1.0f;
 
-        // Prevent re-entry during spawn/despawn.
+        // Prevent re-entry during spawn/despawn (GetPlayers filtering is paused while true).
         private static bool isProcessing;
+        internal static bool IsManipulatingFakePlayers => isProcessing;
 
         // When true, GetPlayers/GetSpawnedPlayers postfixes don't filter AI goalies out — needed so
         // the replay recorder captures their movement.
@@ -74,11 +74,10 @@ namespace MaxPractice
                 return (overridePos, overrideRot);
 
             bool isRed = team == PlayerTeam.Red;
-            Vector3 goalPos = isRed ? RedGoalPos : BlueGoalPos;
+            Vector3 goalPos = RinkOrigin.Apply(isRed ? RedGoalPos : BlueGoalPos);
             Vector3 pos = goalPos;
             pos.z += isRed ? 1.2f : -1.2f;
             pos.y = 0f;
-            pos.x = 0f;
             Quaternion rot = Quaternion.LookRotation(isRed ? Vector3.forward : Vector3.back);
             return (pos, rot);
         }
@@ -268,10 +267,11 @@ namespace MaxPractice
                     return false;
                 }
 
+                TrackAIGoalie(aiPlayer, team);
+
                 var (pos, rot) = GetCreasePosition(team);
                 aiPlayer.Server_SpawnCharacter(pos, rot, PlayerRole.Goalie);
 
-                TrackAIGoalie(aiPlayer, team);
                 AttachAIComponent(aiPlayer, team);
                 ConfigManager.Log($"GoalieAIManager: Spawned {botName}");
                 return true;
@@ -623,14 +623,14 @@ namespace MaxPractice
             [HarmonyPostfix]
             public static void Postfix(ref List<Player> __result)
             {
-                if (bypassFilter) return;
-                if (MaxPracticePlugin.FakePlayers.Count == 0) return;
-                // Use the HashSet directly (reference equality) rather than the
-                // broader clientId/username detector — `FakePlayers` is populated
-                // AFTER the spawn-time GetPlayerByClientId lookup that AI spawn
-                // flows depend on, so brand-new fakes correctly slip through that
-                // single lookup, then get filtered from every subsequent call.
-                __result = __result.Where(p => !MaxPracticePlugin.FakePlayers.Contains(p)).ToList();
+                if (bypassFilter || isProcessing)
+                    return;
+                if (__result == null || __result.Count == 0)
+                    return;
+
+                __result = __result
+                    .Where(p => p != null && !FakePlayerDetector.ShouldExcludeFromPopulation(p))
+                    .ToList();
             }
         }
 
@@ -640,14 +640,14 @@ namespace MaxPractice
             [HarmonyPostfix]
             public static void Postfix(ref List<Player> __result)
             {
-                if (bypassFilter) return;
-                if (MaxPracticePlugin.FakePlayers.Count == 0) return;
-                // Use the HashSet directly (reference equality) rather than the
-                // broader clientId/username detector — `FakePlayers` is populated
-                // AFTER the spawn-time GetPlayerByClientId lookup that AI spawn
-                // flows depend on, so brand-new fakes correctly slip through that
-                // single lookup, then get filtered from every subsequent call.
-                __result = __result.Where(p => !MaxPracticePlugin.FakePlayers.Contains(p)).ToList();
+                if (bypassFilter || isProcessing)
+                    return;
+                if (__result == null || __result.Count == 0)
+                    return;
+
+                __result = __result
+                    .Where(p => p != null && !FakePlayerDetector.ShouldExcludeFromPopulation(p))
+                    .ToList();
             }
         }
 
@@ -655,15 +655,7 @@ namespace MaxPractice
         /// Fix the TCP server-browser preview response: the game serializes
         /// `NetworkManager.Singleton.ConnectedClientsList.Count` for `players`, but
         /// that list still contains our fake-client-id entries for any AI goalie /
-        /// traffic dummy / passer AI in the scene — including ones whose objects
-        /// have been despawned (NetworkObject.Despawn doesn't drop the entry
-        /// because there's no transport connection to close).
-        ///
-        /// We subtract the count of fake-client-id entries directly from the live
-        /// ConnectedClientsList, so the published count matches what real players
-        /// see on the scoreboard (which uses PlayerManager.GetPlayers() — already
-        /// filtered by our patches). Uses a regex tweak on the JSON payload so we
-        /// do not need an extra JSON dependency in FlamiePrac.
+        /// traffic dummy / passer AI in the scene.
         /// </summary>
         [HarmonyPatch(typeof(TCPServer), nameof(TCPServer.SendMessageAsync))]
         public static class FixTcpPlayerCountPatch
@@ -676,28 +668,46 @@ namespace MaxPractice
 
                 try
                 {
-                    var nm = NetworkManager.Singleton;
-                    if (nm == null || nm.ConnectedClientsList == null) return;
-
-                    int fakeCount = 0;
-                    foreach (var client in nm.ConnectedClientsList)
-                    {
-                        if (FakePlayerDetector.IsAnyFakeClientId(client.ClientId))
-                            fakeCount++;
-                    }
+                    int fakeCount = FakePlayerDetector.CountFakeConnectedClients();
                     if (fakeCount == 0) return;
 
-                    message = Regex.Replace(
-                        message,
-                        "\"players\"\\s*:\\s*(\\d+)",
-                        match =>
-                        {
-                            int players = int.Parse(match.Groups[1].Value);
-                            return "\"players\":" + Math.Max(0, players - fakeCount);
-                        });
+                    TCPServerPreviewResponse response =
+                        Newtonsoft.Json.JsonConvert.DeserializeObject<TCPServerPreviewResponse>(message);
+                    if (response == null) return;
+                    response.players = Math.Max(0, response.players - fakeCount);
+                    message = Newtonsoft.Json.JsonConvert.SerializeObject(response);
                 }
                 catch { }
             }
+        }
+
+        /// <summary>
+        /// Scoreboard header N/Max uses GetPlayers().Count, which includes AI goalies until
+        /// the list filter runs. Show humans only; bots may still appear as rows.
+        /// </summary>
+        [HarmonyPatch(typeof(UIScoreboard), nameof(UIScoreboard.StyleServer))]
+        public static class FixScoreboardPlayerCountPatch
+        {
+            [HarmonyPrefix]
+            public static void Prefix(ref int playerCount) =>
+                playerCount = FakePlayerDetector.CountRealPopulationPlayers();
+        }
+
+        /// <summary>Steam friend-group size should match the human-only server count.</summary>
+        [HarmonyPatch(typeof(SteamIntegrationManager), nameof(SteamIntegrationManager.SetRichPresencePlaying))]
+        public static class FixRichPresencePlayingCountPatch
+        {
+            [HarmonyPrefix]
+            public static void Prefix(ref int playerCount) =>
+                playerCount = FakePlayerDetector.CountRealPopulationPlayers();
+        }
+
+        [HarmonyPatch(typeof(SteamIntegrationManager), nameof(SteamIntegrationManager.SetRichPresenceSpectating))]
+        public static class FixRichPresenceSpectatingCountPatch
+        {
+            [HarmonyPrefix]
+            public static void Prefix(ref int playerCount) =>
+                playerCount = FakePlayerDetector.CountRealPopulationPlayers();
         }
 
         /// <summary>
@@ -789,13 +799,15 @@ namespace MaxPractice
             [HarmonyPostfix]
             public static void Postfix(ConnectionApprovalManager __instance, ConnectionApproval connectionApproval, ref ConnectionRejectionCode? __result)
             {
-                if (__result != ConnectionRejectionCode.ServerFull) return;
+                if (__result != ConnectionRejectionCode.ServerFull)
+                    return;
                 try
                 {
                     var cfg = __instance.ServerManager.ServerConfig;
                     int realCount = NetworkManager.Singleton.ConnectedClientsList.Count(c =>
                         c.ClientId != connectionApproval.ClientID && !FakePlayerDetector.IsAnyFakeClientId(c.ClientId));
-                    if (realCount < cfg.maxPlayers) __result = null; // approve
+                    if (realCount < cfg.maxPlayers)
+                        __result = null; // approve
                 }
                 catch { }
             }

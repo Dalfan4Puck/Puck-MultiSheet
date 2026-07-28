@@ -9,6 +9,7 @@ namespace PHLPracticeModPack
         private const string HarmonyId = "PHL.PHLPracticeModPack";
         private Harmony harmony;
         private GameObject runtimeObject;
+        private MyMod.Class1 flamiePrac;
 
         public bool OnEnable()
         {
@@ -19,10 +20,15 @@ namespace PHLPracticeModPack
                 ModPatchInstaller.InstallAll(harmony);
 
                 MultiRinkConfig.LoadServerConfig();
+                TrainingObjectManager.SkipAutoStartForMultiRink = MultiRinkConfig.Current.EnableMultiRink;
                 PracticeLog.Verbose = MultiRinkConfig.Current.VerboseLogging;
+                FlamieLog.Verbose = PracticeLog.Verbose;
                 MultiSheetClientSettings.Load();
+                RadioHudUI.ShouldSuppressStandalone = () =>
+                    PracticeFlowClient.IsOnPracticeServer && !MultiSheetClientSettings.SkipScoreboardUi;
                 LargeLevelHost.TryEnable(harmony);
                 RinkMotdService.Initialize();
+                RinkStripVote.Initialize();
 
                 runtimeObject = new GameObject("PHLPracticeModPackRuntime");
                 runtimeObject.AddComponent<PHLPracticeModPackRuntime>();
@@ -33,6 +39,13 @@ namespace PHLPracticeModPack
                 }
                 UnityEngine.Object.DontDestroyOnLoad(runtimeObject);
 
+                flamiePrac = new MyMod.Class1();
+                if (!flamiePrac.OnEnable())
+                {
+                    Debug.LogError("[PHLPractice] FlamiePrac failed to enable — MultiSheet continues without training props.");
+                    flamiePrac = null;
+                }
+
                 string buildStamp = System.IO.File.GetLastWriteTime(
                     typeof(PHLPracticeModPackPlugin).Assembly.Location).ToString("yyyy-MM-dd HH:mm:ss");
                 var commandList = new System.Collections.Generic.List<string>();
@@ -41,7 +54,7 @@ namespace PHLPracticeModPack
                     if (slot != null && !string.IsNullOrEmpty(slot.Command)) commandList.Add(slot.Command);
                 }
                 Debug.Log($"[PHLPractice] Enabled role={ModRuntimeContext.RoleLabel} patches={ModPatchInstaller.InstalledCount} " +
-                          $"(build {buildStamp}, {commandList.Count} rinks). Commands: " +
+                          $"(build {buildStamp}, {commandList.Count} rinks, flamie={(flamiePrac != null)}). Commands: " +
                           string.Join(" ", commandList) + " /rinks /ep /multirink-dump");
                 return true;
             }
@@ -56,7 +69,16 @@ namespace PHLPracticeModPack
         {
             try
             {
+                if (flamiePrac != null)
+                {
+                    try { flamiePrac.OnDisable(); }
+                    catch (Exception ex) { Debug.LogWarning("[PHLPractice] FlamiePrac disable failed: " + ex.Message); }
+                    flamiePrac = null;
+                }
+
                 RinkMotdService.Teardown();
+                RinkStripVote.Teardown();
+                RadioHudUI.ShouldSuppressStandalone = null;
                 LargeLevelHost.Disable();
                 MultiRinkService.Reset();
                 PracticeFlowClient.Reset();

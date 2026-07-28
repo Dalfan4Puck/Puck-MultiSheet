@@ -1,69 +1,71 @@
 using UnityEngine;
 
-/// <summary>
-/// Slidable props sit on the Ice layer (skate/stand like rink ice for stick raycasts).
-/// Static hive props use an unused user layer so Stick can ignore them while Puck/Player/Ice still collide.
-/// </summary>
 public static class SlidableBoardCollision
 {
     private static bool configured;
 
     public static void Ensure()
     {
-        int ice = CollisionHelper.GetSlidablePropLayerIndex();
-
-        // Puck (or rink load) may re-disable Ice↔Ice after our first setup. Always reassert —
-        // otherwise beam/speakers on Ice phase through each other.
-        if (ice >= 0)
-            Physics.IgnoreLayerCollision(ice, ice, false);
+        int slidablePropLayerIndex = CollisionHelper.GetSlidablePropLayerIndex();
+        // Puck/rink load may flip Ice↔Ice off — reassert so beam/speakers block each other.
+        if (slidablePropLayerIndex >= 0)
+            Physics.IgnoreLayerCollision(slidablePropLayerIndex, slidablePropLayerIndex, false);
 
         if (configured)
             return;
 
         configured = true;
 
-        int staticTraining = CollisionHelper.GetStaticTrainingPropLayerIndex();
-        int stick = LayerMask.NameToLayer("Stick");
+        int staticTrainingPropLayerIndex = CollisionHelper.GetStaticTrainingPropLayerIndex();
+        int stickLayer = LayerMask.NameToLayer("Stick");
 
-        // Ice slidables: stick push, skate, body, puck, boards, and goal cage/netting.
-        foreach (string layerName in new[]
-                 {
-                     "Default", "Player", "Player Body", "Body", "Stick", "Puck", "Character",
-                     "Barrier", "Boards", "Goal Post",
-                     "Goal Net", "Goal Net Cloth", "Goal Frame"
-                 })
+        if (slidablePropLayerIndex >= 0)
         {
-            EnablePair(ice, LayerMask.NameToLayer(layerName));
+            foreach (string layerName in new[]
+                     {
+                         "Default", "Player", "Player Body", "Body", "Stick", "Puck", "Character",
+                         "Barrier", "Boards", "Goal Post", "Goal Net", "Goal Net Cloth", "Goal Frame"
+                     })
+            {
+                EnablePair(slidablePropLayerIndex, LayerMask.NameToLayer(layerName));
+            }
+
+            EnablePair(slidablePropLayerIndex, staticTrainingPropLayerIndex);
+            FlamieLog.Info("[FlamiePrac] Slidable Ice pairs enabled (Ice↔Ice on for prop-to-prop).");
         }
 
-        EnablePair(ice, staticTraining);
-
-        Debug.Log("[FlamiePrac] Ice↔Ice collision enabled for slidable prop interaction.");
-
-        // Static hive (cones, decor dummy, rotating sticks, tutor…): solid for puck/player/slidables,
-        // but player sticks phase through.
         foreach (string layerName in new[]
                  {
                      "Puck", "Player", "Player Body", "Body", "Character",
                      "Boards", "Goal Post", "Default"
                  })
         {
-            EnablePair(staticTraining, LayerMask.NameToLayer(layerName));
+            EnablePair(staticTrainingPropLayerIndex, LayerMask.NameToLayer(layerName));
         }
 
-        if (stick >= 0 && staticTraining >= 0)
-            Physics.IgnoreLayerCollision(stick, staticTraining, true);
+        if (stickLayer >= 0 && staticTrainingPropLayerIndex >= 0)
+            Physics.IgnoreLayerCollision(stickLayer, staticTrainingPropLayerIndex, true);
 
-        Debug.Log("[FlamiePrac] Slidable Ice=" + LayerMask.LayerToName(ice) +
-                  " staticTraining=" + staticTraining +
-                  " (Stick↔static ignored; Puck/Player/Ice still collide).");
+        EnablePair(staticTrainingPropLayerIndex, slidablePropLayerIndex);
+        FlamieLog.Info("[FlamiePrac] Slidable Ice=" + LayerMask.LayerToName(slidablePropLayerIndex) +
+                       " staticTraining=" + staticTrainingPropLayerIndex +
+                       " (Stick↔static ignored; props collide on Ice).");
     }
 
     public static bool IsBoardLayer(int layer)
     {
         string name = LayerMask.LayerToName(layer);
-        return name == "Barrier" || name == "Boards" || name == "Goal Post" ||
-               name == "Goal Net" || name == "Goal Net Cloth" || name == "Goal Frame";
+        switch (name)
+        {
+        default:
+            return name == "Goal Frame";
+        case "Barrier":
+        case "Boards":
+        case "Goal Post":
+        case "Goal Net":
+        case "Goal Net Cloth":
+            return true;
+        }
     }
 
     public static void CancelVelocityIntoBoard(Rigidbody body, Collision collision)
@@ -72,7 +74,6 @@ public static class SlidableBoardCollision
             return;
 
         Vector3 vel = body.linearVelocity;
-
         int contactCount = collision.contactCount;
         for (int i = 0; i < contactCount; i++)
         {
@@ -90,9 +91,7 @@ public static class SlidableBoardCollision
 
     private static void EnablePair(int layerA, int layerB)
     {
-        if (layerA < 0 || layerB < 0)
-            return;
-
-        Physics.IgnoreLayerCollision(layerA, layerB, false);
+        if (layerA >= 0 && layerB >= 0)
+            Physics.IgnoreLayerCollision(layerA, layerB, false);
     }
 }

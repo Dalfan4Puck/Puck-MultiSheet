@@ -30,7 +30,7 @@ public class CircularMovingTarget : MonoBehaviour
         CreateRing(0.4f, Color.white, -0.01f);  // middle
         CreateRing(0.8f, Color.blue, 0f);   // outer
 
-        // Collider for puck detection
+        // Collider for puck detection — hits via OnTriggerEnter (no per-frame scene scan).
         var col = gameObject.AddComponent<SphereCollider>();
         col.isTrigger = true;
         col.radius = 0.7f;
@@ -38,25 +38,24 @@ public class CircularMovingTarget : MonoBehaviour
 
     private void Update()
     {
-        if (simulateLocally)
-        {
-            // Sideways movement only
-            Vector3 pos = transform.position;
-            pos.x += direction * moveSpeed * Time.deltaTime;
-            if (Mathf.Abs(pos.x - startPosition.x) > moveRange)
-                direction *= -1;
-            transform.position = pos;
-        }
-
-        // Puck hits are server-authoritative.
-        if (!IsServerSide())
+        if (!simulateLocally)
             return;
 
-        foreach (var puck in GameObject.FindObjectsByType<Puck>(FindObjectsSortMode.None))
-        {
-            if (Vector3.Distance(puck.transform.position, transform.position) < 0.7f)
-                OnHit();
-        }
+        Vector3 pos = transform.position;
+        pos.x += direction * moveSpeed * Time.deltaTime;
+        if (Mathf.Abs(pos.x - startPosition.x) > moveRange)
+            direction *= -1;
+        transform.position = pos;
+    }
+
+    private void OnTriggerEnter(Collider other)
+    {
+        if (!IsServerSide() || other == null)
+            return;
+
+        Puck puck = other.GetComponentInParent<Puck>();
+        if (puck != null)
+            OnHit();
     }
 
     private static bool IsServerSide()
@@ -73,35 +72,35 @@ public class CircularMovingTarget : MonoBehaviour
     }
 
     private void OnHit()
-{
-    if (manager == null) return;
+    {
+        if (manager == null) return;
 
-    Vector3 newPos = transform.position;
+        Vector3 newPos = transform.position;
 
-    // random sideways movement
-    newPos.x = startPosition.x + Random.Range(-moveRange, moveRange);
+        // random sideways movement
+        newPos.x = startPosition.x + Random.Range(-moveRange, moveRange);
 
-    // random height
-    newPos.y = Random.Range(minHeight, maxHeight);
+        // random height
+        newPos.y = Random.Range(minHeight, maxHeight);
 
-    transform.position = newPos;
+        transform.position = newPos;
 
-    Debug.Log($"Target moved to new position: {newPos}");
-}
+        FlamieLog.Info($"Target moved to new position: {newPos}");
+    }
+
     void CreateRing(float size, Color color, float offset)
-{
-    GameObject ring = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+    {
+        GameObject ring = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
 
-    ring.transform.parent = transform;
-    ring.transform.localPosition = new Vector3(0f, 0f, offset);
-//    ring.transform.localPosition = Vector3.zero;
-    ring.transform.localScale = new Vector3(size, thickness, size);
-    ring.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+        ring.transform.parent = transform;
+        ring.transform.localPosition = new Vector3(0f, 0f, offset);
+        ring.transform.localScale = new Vector3(size, thickness, size);
+        ring.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
 
-    var renderer = ring.GetComponent<Renderer>();
-    renderer.material = new Material(Shader.Find("Universal Render Pipeline/Lit"));
-    renderer.material.color = color;
+        var renderer = ring.GetComponent<Renderer>();
+        renderer.material = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+        renderer.material.color = color;
 
-    Destroy(ring.GetComponent<Collider>()); // we only want the main collider
-}
+        Destroy(ring.GetComponent<Collider>()); // we only want the main collider
+    }
 }

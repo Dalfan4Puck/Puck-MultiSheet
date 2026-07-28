@@ -8,6 +8,7 @@ namespace PHLPracticeModPack
         private void Update()
         {
             RinkMotdService.Tick();
+            RinkStripVote.Tick();
             ChatOutbound.Tick();
             if (ModRuntimeContext.ShouldInstallClientPresentation())
                 MultiSheetClientSettings.Flush();

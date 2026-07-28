@@ -20,50 +20,44 @@ namespace PHLPracticeModPack
         private const int TextureWidth = 640;
         private const int TextureHeight = 360;
         private const float IceY = 0.03f;
-        /// <summary>Frames the rig stays enabled per capture request.</summary>
+        /// <summary>Frames each camera stays enabled per capture request.</summary>
         private const int CaptureFrames = 3;
-        /// <summary>Extra frames after client clones + lights exist so proxy draws land.</summary>
-        private const int CaptureFramesAfterBuild = 5;
+        /// <summary>Extra frames after clones / strip props land so the snap is accurate.</summary>
+        private const int CaptureFramesAfterBuild = 6;
 
         // Whole sheet from an elevated side angle (long axis horizontal).
         private const float OverviewHeight = 38f;
         private const float OverviewSide = 42f;
         private const float OverviewFov = 54f;
 
-        // --- LIVE HOVER (disabled) — re-enable with SetLiveRink + LateTick live block ---
-        // // Fixed on center ice, ~26 m of the length in frame.
-        // private const float ActionHeight = 9f;
-        // private const float ActionSide = 12f;
-        // private const float ActionFov = 52f;
-        // private static int liveIndex = -1;
-        // private static int enabledLiveIndex = -1;
-        // private static VisualElement liveTile;
-
         private static readonly List<Camera> cameras = new List<Camera>();
         private static readonly List<RenderTexture> textures = new List<RenderTexture>();
         private static readonly List<Vector3> origins = new List<Vector3>();
+        private static int[] pendingCaptureFrames;
+        private static bool captureAllRinks;
         private static bool visible;
         private static bool camerasEnabled;
+        private static bool wasCapturing;
         private static bool hooksInstalled;
         private static bool restoreLocalBody;
-        private static int pendingCaptureFrames;
         private static int censusLogsLeft;
         private static GameObject rigRoot;
 
-        /// <summary>All tiles share the rink-1 overview snap (same sheet look at each origin).</summary>
         internal static Texture GetTexture(int rinkIndex)
         {
-            return textures.Count > 0 ? textures[0] : null;
+            if (rinkIndex < 0 || rinkIndex >= textures.Count) return null;
+            return textures[rinkIndex];
         }
 
-        /// <summary>
-        /// One camera + one RT at rink 1. Every MOTD/scoreboard tile reuses that snap.
-        /// </summary>
+        /// <summary>One camera + one RT per rink tile.</summary>
         internal static void EnsureRig(RinkMotdPayload payload)
         {
             if (MultiSheetClientSettings.SkipMotdUi) return;
             if (ModRuntimeContext.IsDedicatedGameServer || payload?.Rinks == null || payload.Rinks.Count == 0) return;
-            if (rigRoot != null && cameras.Count == 1 && textures.Count == 1) return;
+
+            int count = payload.Rinks.Count;
+            if (rigRoot != null && cameras.Count == count && OriginsMatch(payload))
+                return;
 
             Teardown();
             rigRoot = new GameObject("MultiSheetRinkPreviewRig");
@@ -73,87 +67,93 @@ namespace PHLPracticeModPack
             int uiLayer = LayerMask.NameToLayer("UI");
             int mask = uiLayer >= 0 ? ~(1 << uiLayer) : ~0;
 
-            RinkStatusEntry entry = payload.Rinks[0];
-            Vector3 origin = new Vector3(entry.OriginX, IceY, entry.OriginZ);
-            origins.Add(origin);
+            pendingCaptureFrames = new int[count];
 
-            RenderTexture rt = new RenderTexture(TextureWidth, TextureHeight, 16, RenderTextureFormat.ARGB32);
-            rt.name = "MultiSheetPreview_Shared";
-            rt.Create();
-            textures.Add(rt);
+            for (int i = 0; i < count; i++)
+            {
+                RinkStatusEntry entry = payload.Rinks[i];
+                Vector3 origin = new Vector3(entry.OriginX, IceY, entry.OriginZ);
+                origins.Add(origin);
 
-            GameObject camGo = new GameObject("PreviewCam_Rink1");
-            camGo.transform.SetParent(rigRoot.transform, false);
+                RenderTexture rt = new RenderTexture(TextureWidth, TextureHeight, 16, RenderTextureFormat.ARGB32);
+                rt.name = "MultiSheetPreview_Rink" + (i + 1);
+                rt.Create();
+                textures.Add(rt);
 
-            Camera cam = camGo.AddComponent<Camera>();
-            cam.targetTexture = rt;
-            cam.nearClipPlane = 0.3f;
-            cam.farClipPlane = 300f;
-            cam.clearFlags = CameraClearFlags.SolidColor;
-            cam.backgroundColor = new Color(0.02f, 0.02f, 0.03f, 1f);
-            cam.depth = -50f;
-            cam.cullingMask = mask;
-            cam.enabled = false;
-            cameras.Add(cam);
+                GameObject camGo = new GameObject("PreviewCam_Rink" + (i + 1));
+                camGo.transform.SetParent(rigRoot.transform, false);
 
-            ApplyOverviewPose(0);
+                Camera cam = camGo.AddComponent<Camera>();
+                cam.targetTexture = rt;
+                cam.nearClipPlane = 0.3f;
+                cam.farClipPlane = 300f;
+                cam.clearFlags = CameraClearFlags.SolidColor;
+                cam.backgroundColor = new Color(0.02f, 0.02f, 0.03f, 1f);
+                cam.depth = -50f - i;
+                cam.cullingMask = mask;
+                cam.enabled = false;
+                cameras.Add(cam);
+
+                ApplyOverviewPose(i);
+            }
+
             InstallRenderHooks();
 
-            PracticeLog.Info("[PHLPractice] Rink preview rig built (shared rink-1 snap for " +
-                      payload.Rinks.Count + " tile(s)).");
+            PracticeLog.Info("[PHLPractice] Rink preview rig built (" + count + " static camera(s)).");
             censusLogsLeft = 2;
         }
 
-        /// <summary>Called by the UI when the MOTD card is shown/hidden.</summary>
+        private static bool OriginsMatch(RinkMotdPayload payload)
+        {
+            if (payload?.Rinks == null || payload.Rinks.Count != origins.Count) return false;
+            for (int i = 0; i < origins.Count; i++)
+            {
+                RinkStatusEntry entry = payload.Rinks[i];
+                if (entry == null) return false;
+                Vector3 o = new Vector3(entry.OriginX, IceY, entry.OriginZ);
+                if ((origins[i] - o).sqrMagnitude > 0.25f) return false;
+            }
+            return true;
+        }
+
         internal static void SetVisible(bool value)
         {
             visible = value;
             if (!visible)
             {
-                pendingCaptureFrames = 0;
-                // SetLiveRink(-1, null); // LIVE HOVER (disabled)
+                captureAllRinks = false;
+                ClearPendingCapture();
                 SetCamerasEnabled(false);
                 return;
             }
             RequestCapture();
         }
 
-        /// <summary>
-        /// Live-hover entry point (disabled). Tiles stay on the frozen overview snap.
-        /// Restore the body below + LateTick live block + RinkPanelBuilder hover wiring.
-        /// </summary>
-        internal static void SetLiveRink(int index, VisualElement tile)
-        {
-            // Static previews only — do not enable cameras or re-snap on hover.
-
-            // --- LIVE HOVER (disabled) ---
-            // if (index == liveIndex) return;
-            //
-            // int previous = liveIndex;
-            // liveIndex = index;
-            // liveTile = index >= 0 ? tile : null;
-            //
-            // // Leaving a tile: put the camera back on the wide framing and re-snap, so the
-            // // tile doesn't keep a stale close-up as its idle picture.
-            // if (previous >= 0)
-            // {
-            //     ApplyOverviewPose(previous);
-            //     if (visible) RequestCapture();
-            // }
-        }
-
-        /// <summary>Re-snap every tile once client-side clones and fill lights exist.</summary>
         internal static void NotifyClientBuildComplete()
         {
             if (!visible || cameras.Count == 0 || MultiSheetClientSettings.SkipMotdUi) return;
-            pendingCaptureFrames = Mathf.Max(pendingCaptureFrames, CaptureFramesAfterBuild);
+            RequestCapture(extendedFrames: true);
         }
 
-        /// <summary>Re-snap every tile — e.g. once the client-side rink clones exist.</summary>
-        internal static void RequestCapture()
+        /// <summary>Re-snap one rink or every rink (default).</summary>
+        internal static void RequestCapture(int rinkIndex = -1, bool extendedFrames = false)
         {
             if (!visible || cameras.Count == 0 || MultiSheetClientSettings.SkipMotdUi) return;
-            pendingCaptureFrames = CaptureFrames;
+            EnsurePendingArray();
+
+            int frames = extendedFrames ? CaptureFramesAfterBuild : CaptureFrames;
+            captureAllRinks = rinkIndex < 0;
+
+            if (rinkIndex < 0)
+            {
+                for (int i = 0; i < pendingCaptureFrames.Length; i++)
+                    pendingCaptureFrames[i] = Mathf.Max(pendingCaptureFrames[i], frames);
+            }
+            else if (rinkIndex < pendingCaptureFrames.Length)
+            {
+                pendingCaptureFrames[rinkIndex] = Mathf.Max(pendingCaptureFrames[rinkIndex], frames);
+            }
+
             if (censusLogsLeft > 0)
             {
                 censusLogsLeft--;
@@ -161,7 +161,6 @@ namespace PHLPracticeModPack
             }
         }
 
-        /// <summary>Runs from the plugin's LateUpdate, before the frame is rendered.</summary>
         internal static void LateTick()
         {
             if (MultiSheetClientSettings.SkipMotdUi)
@@ -171,32 +170,30 @@ namespace PHLPracticeModPack
             }
             if (cameras.Count == 0) return;
 
-            if (pendingCaptureFrames > 0)
+            EnsurePendingArray();
+            bool anyCapturing = false;
+
+            for (int i = 0; i < cameras.Count; i++)
             {
-                SetCamerasEnabled(true);
-                pendingCaptureFrames--;
-                return;
+                bool want = i < pendingCaptureFrames.Length && pendingCaptureFrames[i] > 0;
+                if (cameras[i] != null)
+                    cameras[i].enabled = want;
+                if (want)
+                {
+                    anyCapturing = true;
+                    pendingCaptureFrames[i]--;
+                }
             }
 
-            if (camerasEnabled)
+            camerasEnabled = anyCapturing;
+
+            if (wasCapturing && !anyCapturing)
             {
-                SetCamerasEnabled(false);
+                captureAllRinks = false;
                 if (visible) RinkMotdUI.RefreshPreviewTiles();
             }
 
-            // --- LIVE HOVER (disabled) — after static capture finishes ---
-            // int want = visible ? liveIndex : -1;
-            // if (want != enabledLiveIndex)
-            // {
-            //     SetCameraEnabled(enabledLiveIndex, false);
-            //     ApplyActionPose(want);
-            //     SetCameraEnabled(want, true);
-            //     enabledLiveIndex = want;
-            // }
-            //
-            // if (enabledLiveIndex < 0) return;
-            // if (liveTile != null && liveTile.panel != null)
-            //     liveTile.MarkDirtyRepaint();
+            wasCapturing = anyCapturing;
         }
 
         internal static void Teardown()
@@ -210,10 +207,9 @@ namespace PHLPracticeModPack
             RemoveRenderHooks();
             visible = false;
             camerasEnabled = false;
-            pendingCaptureFrames = 0;
-            // liveIndex = -1;
-            // enabledLiveIndex = -1;
-            // liveTile = null;
+            wasCapturing = false;
+            captureAllRinks = false;
+            ClearPendingCapture();
             cameras.Clear();
             origins.Clear();
             for (int i = 0; i < textures.Count; i++)
@@ -229,12 +225,55 @@ namespace PHLPracticeModPack
                 catch { }
             }
             textures.Clear();
+            pendingCaptureFrames = null;
             if (rigRoot != null)
             {
                 try { UnityEngine.Object.Destroy(rigRoot); } catch { }
                 rigRoot = null;
             }
         }
+
+        /// <summary>True while MOTD capture needs every cloned sheet lit (full re-snap).</summary>
+        internal static bool NeedsAllSheetLighting => camerasEnabled && captureAllRinks;
+
+        /// <summary>True when a preview camera is actively rendering this sheet origin.</summary>
+        internal static bool IsOriginInCapture(float x, float z)
+        {
+            if (!camerasEnabled) return false;
+            for (int i = 0; i < cameras.Count; i++)
+            {
+                if (cameras[i] == null || !cameras[i].enabled) continue;
+                if (i >= origins.Count) continue;
+                Vector3 o = origins[i];
+                if (ArenaLighting.SameRink(o.x, o.z, x, z)) return true;
+            }
+            return false;
+        }
+
+        internal static bool TryGetLivePreviewOrigin(out float x, out float z)
+        {
+            x = 0f;
+            z = 0f;
+            return false;
+        }
+
+        internal static bool TryGetPreviewOrigin(Camera cam, out float x, out float z)
+        {
+            x = 0f;
+            z = 0f;
+            if (cam == null) return false;
+            for (int i = 0; i < cameras.Count; i++)
+            {
+                if (cameras[i] != cam) continue;
+                if (i >= origins.Count) return false;
+                x = origins[i].x;
+                z = origins[i].z;
+                return true;
+            }
+            return false;
+        }
+
+        internal static bool IsPreviewCamera(Camera cam) => IsActivePreviewCamera(cam);
 
         private static void ApplyOverviewPose(int index)
         {
@@ -248,25 +287,20 @@ namespace PHLPracticeModPack
             cam.fieldOfView = OverviewFov;
         }
 
-        // --- LIVE HOVER (disabled) ---
-        // /// <summary>Fixed live pose: same side angle as the overview, zoomed on center ice.</summary>
-        // private static void ApplyActionPose(int index)
-        // {
-        //     if (index < 0 || index >= cameras.Count || index >= origins.Count) return;
-        //     Camera cam = cameras[index];
-        //     if (cam == null) return;
-        //
-        //     Vector3 origin = origins[index];
-        //     cam.transform.position = origin + new Vector3(-ActionSide, ActionHeight, 0f);
-        //     cam.transform.LookAt(origin + new Vector3(0f, 0.4f, 0f));
-        //     cam.fieldOfView = ActionFov;
-        // }
-        //
-        // private static void SetCameraEnabled(int index, bool value)
-        // {
-        //     if (index < 0 || index >= cameras.Count) return;
-        //     if (cameras[index] != null) cameras[index].enabled = value;
-        // }
+        private static void EnsurePendingArray()
+        {
+            if (pendingCaptureFrames == null || pendingCaptureFrames.Length != cameras.Count)
+            {
+                pendingCaptureFrames = new int[cameras.Count];
+            }
+        }
+
+        private static void ClearPendingCapture()
+        {
+            if (pendingCaptureFrames == null) return;
+            for (int i = 0; i < pendingCaptureFrames.Length; i++)
+                pendingCaptureFrames[i] = 0;
+        }
 
         private static void InstallRenderHooks()
         {
@@ -307,46 +341,6 @@ namespace PHLPracticeModPack
             restoreLocalBody = false;
         }
 
-        internal static bool IsPreviewCamera(Camera cam) => IsActivePreviewCamera(cam);
-
-        /// <summary>
-        /// Shared rink-1 snap only needs stock level geometry — never force every offset
-        /// sheet's DrawMesh/fill lights on for MOTD capture.
-        /// </summary>
-        internal static bool NeedsAllSheetLighting => false;
-
-        /// <summary>Live hover disabled — always false. Restore body below if re-enabled.</summary>
-        internal static bool TryGetLivePreviewOrigin(out float x, out float z)
-        {
-            x = 0f;
-            z = 0f;
-            return false;
-
-            // --- LIVE HOVER (disabled) ---
-            // int idx = enabledLiveIndex >= 0 ? enabledLiveIndex : liveIndex;
-            // if (idx < 0 || idx >= origins.Count) return false;
-            // x = origins[idx].x;
-            // z = origins[idx].z;
-            // return true;
-        }
-
-        /// <summary>Rink origin for a preview camera (used to draw only that sheet's proxy).</summary>
-        internal static bool TryGetPreviewOrigin(Camera cam, out float x, out float z)
-        {
-            x = 0f;
-            z = 0f;
-            if (cam == null) return false;
-            for (int i = 0; i < cameras.Count; i++)
-            {
-                if (cameras[i] != cam) continue;
-                if (i >= origins.Count) return false;
-                x = origins[i].x;
-                z = origins[i].z;
-                return true;
-            }
-            return false;
-        }
-
         private static bool IsActivePreviewCamera(Camera cam)
         {
             if (cam == null || cameras.Count == 0) return false;
@@ -372,29 +366,11 @@ namespace PHLPracticeModPack
             try
             {
                 var sb = new StringBuilder("[PHLPractice] Preview census:");
+                sb.Append(" cams=").Append(cameras.Count);
 
                 PuckManager puckManager = TryGetPuckManager();
                 List<Puck> pucks = puckManager != null ? puckManager.GetPucks() : null;
                 sb.Append(" pucks=").Append(pucks != null ? pucks.Count : -1);
-                if (pucks != null && pucks.Count > 0 && pucks[0] != null)
-                {
-                    int layer = pucks[0].gameObject.layer;
-                    sb.Append(" puckLayer=").Append(layer)
-                      .Append('/').Append(LayerMask.LayerToName(layer));
-                    int mask = cameras.Count > 0 && cameras[0] != null ? cameras[0].cullingMask : 0;
-                    sb.Append(" inMask=").Append((mask & (1 << layer)) != 0);
-                }
-
-                PlayerManager playerManager = TryGetPlayerManager();
-                List<Player> players = playerManager != null ? playerManager.GetPlayers() : null;
-                int bodies = 0;
-                if (players != null)
-                {
-                    for (int i = 0; i < players.Count; i++)
-                        if (players[i] != null && players[i].PlayerBody != null) bodies++;
-                }
-                sb.Append(" players=").Append(players != null ? players.Count : -1)
-                  .Append(" bodies=").Append(bodies);
 
                 PracticeLog.Info(sb.ToString());
             }
@@ -416,7 +392,6 @@ namespace PHLPracticeModPack
         private static void SetCamerasEnabled(bool value)
         {
             camerasEnabled = value;
-            // enabledLiveIndex = -1; // LIVE HOVER (disabled)
             for (int i = 0; i < cameras.Count; i++)
             {
                 if (cameras[i] != null) cameras[i].enabled = value;

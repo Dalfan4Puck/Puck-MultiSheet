@@ -253,6 +253,75 @@ public static class FakePlayerDetector
     {
         return IsFakePlayer(player) || IsTrafficDummy(player);
     }
+
+    /// <summary>
+    /// True for AI goalies / traffic / passers — exclude from population UI and slot counts.
+    /// </summary>
+    public static bool ShouldExcludeFromPopulation(Player player)
+    {
+        if (player == null)
+            return false;
+        if (MaxPracticePlugin.FakePlayers.Contains(player))
+            return true;
+        return IsAnyFakePlayer(player);
+    }
+
+    /// <summary>
+    /// Human-only connected clients (excludes reserved fake client IDs).
+    /// </summary>
+    public static int CountRealConnectedClients()
+    {
+        NetworkManager nm = NetworkManager.Singleton;
+        if (nm?.ConnectedClientsList == null)
+            return 0;
+
+        int n = 0;
+        foreach (NetworkClient client in nm.ConnectedClientsList)
+        {
+            if (!IsAnyFakeClientId(client.ClientId))
+                n++;
+        }
+
+        return n;
+    }
+
+    /// <summary>Fake client slots in ConnectedClientsList (browser preview / join cap).</summary>
+    public static int CountFakeConnectedClients()
+    {
+        NetworkManager nm = NetworkManager.Singleton;
+        if (nm?.ConnectedClientsList == null)
+            return 0;
+
+        int n = 0;
+        foreach (NetworkClient client in nm.ConnectedClientsList)
+        {
+            if (IsAnyFakeClientId(client.ClientId))
+                n++;
+        }
+
+        return n;
+    }
+
+    /// <summary>
+    /// Human-only player list size for scoreboard / browser population display.
+    /// Always applies fake detection even while GoalieAIManager is mid-spawn.
+    /// </summary>
+    public static int CountRealPopulationPlayers()
+    {
+        PlayerManager pm = MonoBehaviourSingleton<PlayerManager>.Instance;
+        if (pm == null)
+            return 0;
+
+        int n = 0;
+        foreach (Player player in pm.GetPlayers())
+        {
+            if (player == null || ShouldExcludeFromPopulation(player))
+                continue;
+            n++;
+        }
+
+        return n;
+    }
     
     public static bool IsAnyFakePlayerBody(object body)
     {
@@ -496,6 +565,9 @@ public static class SkipCompTweaks_PlayerBodyFixedUpdatePatch
     {
         try
         {
+            // Hot path: skip entirely when no AI goalies/dummies exist.
+            if (MaxPracticePlugin.FakePlayers == null || MaxPracticePlugin.FakePlayers.Count == 0)
+                return;
             if (!NetworkManager.Singleton.IsServer) return;
             if (__instance == null) return;
             if (!FakePlayerDetector.IsFakePlayerBody(__instance)) return;
@@ -1138,19 +1210,14 @@ public static class UIChat_AutoShow_Patch
 
 /// <summary>
 /// Patch VoteManager.Server_AddVote to (a) block /vs and /vw on practice-only
-/// servers when DisableVoting=true, and (b) reduce requiredVotes to exclude
-/// fake players (AI goalies, traffic dummies) so a vote isn't stuck waiting
-/// for non-existent humans.
-///
-/// API note: pre-b897 this was Server_CreateVote(VoteType, ref votesNeeded, ...).
-/// The new API uses string names ("start"/"warmup"/"kick"/"forfeit") and the
-/// caller pre-computes requiredVotes via Utils.GetVoteMajority. We override
-/// after counting fakes in the vote's `teams`, reusing the game's own
-/// majority formula so behavior matches what humans expect.
+/// servers when DisableVoting=true, and (b) set requiredVotes from human-only
+/// counts so AI goalies / traffic bots never inflate the threshold (solo = 1/1).
 /// </summary>
 [HarmonyPatch(typeof(VoteManager), "Server_AddVote")]
 public static class VoteManager_Server_AddVote_Patch
 {
+    private const string RinkStripVoteName = "rink-strip";
+
     [HarmonyPrefix]
     [HarmonyPriority(Priority.First)]
     public static bool Prefix(string name, string title, string description, PlayerTeam[] teams, float timeout, string steamId, ref int requiredVotes, object data = null)
@@ -1162,50 +1229,66 @@ public static class VoteManager_Server_AddVote_Patch
 
             if (ConfigManager.Config.DisableVoting && (name == "start" || name == "warmup"))
             {
-                Debug.Log($"[MaxPractice] Blocked {name} vote (DisableVoting=true)");
+                FlamieLog.Info($"[MaxPractice] Blocked {name} vote (DisableVoting=true)");
                 return false;
             }
-
-            if (MaxPracticePlugin.FakePlayers.Count == 0)
-                return true;
 
             var playerManager = MonoBehaviourSingleton<PlayerManager>.Instance;
             if (playerManager == null)
                 return true;
 
-            // Match the caller's population: kick/forfeit pass a single team, start/warmup pass both.
-            var votingPlayers = teams != null && teams.Length > 0
-                ? playerManager.GetPlayersByTeams(teams)
-                : playerManager.GetPlayers(false);
+            bool serverWide = string.Equals(name, RinkStripVoteName, System.StringComparison.Ordinal);
+            int humans = serverWide
+                ? CountHumanPlayers(playerManager.GetPlayers(false))
+                : CountHumanPlayersOnTeams(playerManager, teams);
 
-            int fakeCount = 0;
-            foreach (var p in votingPlayers)
+            if (humans < 1) humans = 1;
+
+            int corrected = Utils.GetVoteMajority(humans);
+            if (corrected != requiredVotes)
             {
-                if (FakePlayerDetector.IsAnyFakePlayer(p)) fakeCount++;
+                FlamieLog.Info("[MaxPractice] " + name + " vote requiredVotes: " + requiredVotes +
+                               " → " + corrected + " (humans:" + humans + ", serverWide:" + serverWide + ")");
+                requiredVotes = corrected;
             }
-            if (fakeCount == 0)
-                return true;
-
-            int realPlayerCount = votingPlayers.Count - fakeCount;
-            if (realPlayerCount < 1) realPlayerCount = 1;
-
-            // Mirror Utils.GetVoteMajority so the threshold matches the game's own rule.
-            int corrected;
-            switch (realPlayerCount)
-            {
-                case 1: corrected = 1; break;
-                case 2: corrected = 2; break;
-                default: corrected = UnityEngine.Mathf.CeilToInt((float)(realPlayerCount - 1) * 0.75f); break;
-            }
-            if (corrected < 1) corrected = 1;
-
-            Debug.Log($"[MaxPractice] Correcting {name} vote requiredVotes: {requiredVotes} → {corrected} (real:{realPlayerCount}, fakes:{fakeCount})");
-            requiredVotes = corrected;
         }
         catch (System.Exception ex)
         {
-            Debug.LogError($"[MaxPractice] VoteManager.Server_AddVote patch error: {ex.Message}\n{ex.StackTrace}");
+            FlamieLog.Error($"[MaxPractice] VoteManager.Server_AddVote patch error: {ex.Message}\n{ex.StackTrace}");
         }
+        return true;
+    }
+
+    private static int CountHumanPlayers(System.Collections.Generic.List<Player> players)
+    {
+        if (players == null) return 0;
+        int count = 0;
+        foreach (Player p in players)
+        {
+            if (IsHumanVoter(p)) count++;
+        }
+        return count;
+    }
+
+    private static int CountHumanPlayersOnTeams(PlayerManager pm, PlayerTeam[] teams)
+    {
+        if (pm == null) return 0;
+        System.Collections.Generic.List<Player> onTeams = teams != null && teams.Length > 0
+            ? pm.GetPlayersByTeams(teams)
+            : pm.GetPlayers(false);
+        return CountHumanPlayers(onTeams);
+    }
+
+    private static bool IsHumanVoter(Player p)
+    {
+        if (p == null) return false;
+        if (FakePlayerDetector.IsAnyFakePlayer(p)) return false;
+        try
+        {
+            if (FakePlayerDetector.IsAnyFakeClientId(p.OwnerClientId)) return false;
+        }
+        catch { }
+        try { if (p.IsReplay != null && p.IsReplay.Value) return false; } catch { }
         return true;
     }
 }
@@ -1303,7 +1386,7 @@ public static class PlayerManager_GetPlayerSteamIds_Patch
         }
         catch (System.Exception ex)
         {
-            Debug.LogError($"[MaxPractice] GetPlayerSteamIds patch error: {ex.Message}");
+            FlamieLog.Error($"[MaxPractice] GetPlayerSteamIds patch error: {ex.Message}");
         }
     }
 }

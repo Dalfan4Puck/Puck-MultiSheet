@@ -19,13 +19,14 @@ namespace PHLPracticeModPack
         private const string TabBarName = "MultiSheetScoreboardTabBar";
         private const string ScoreboardTabName = "MultiSheetTabScoreboard";
         private const string MenuTabName = "MultiSheetTabRinks";
+        private const string BadgeName = "MultiSheetRinksTabVoteBadge";
         private const string PaneName = "MultiSheetRinkPane";
         internal const string StatsTooltipHarmonyId = "oomtm450_stats";
         private const float TabBarHeight = 34f;
         /// <summary>Tall enough for header + flex rink grid + Position|Lighting + perf toggles +
         /// community footer. The rink section flex-grows into this height (tiles absorb the
         /// space — do not "fix" emptiness by raising this without giving the grid flexGrow).</summary>
-        private const float MenuMinBoardHeight = 780f;
+        private const float MenuMinBoardHeight = 860f;
 
         private static readonly Color TabBarBg = new Color(0.06f, 0.06f, 0.07f, 1f);
         private static readonly Color TabIdleBg = new Color(0.10f, 0.10f, 0.11f, 1f);
@@ -33,6 +34,8 @@ namespace PHLPracticeModPack
         private static readonly Color TabBorder = new Color(0.35f, 0.35f, 0.38f, 1f);
         private static readonly Color TabText = new Color(0.92f, 0.92f, 0.92f, 1f);
         private static readonly Color TabMuted = new Color(0.65f, 0.65f, 0.68f, 1f);
+        private static readonly Color VoteBadgeBg = new Color(0.90f, 0.49f, 0.13f, 1f);
+        private static readonly Color VoteBadgeText = Color.white;
 
         private static readonly FieldInfo ScoreboardField =
             typeof(UIScoreboard).GetField("scoreboard", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -43,6 +46,8 @@ namespace PHLPracticeModPack
         private static VisualElement rinkPane;
         private static VisualElement roleSectionHost;
         private static VisualElement rinkSectionHost;
+        private static VisualElement stripSectionHost;
+        private static VisualElement radioSectionHost;
         private static Button scoreboardTabButton;
         private static Button menuTabButton;
         /// <summary>Set while we intentionally close the board so the hold-open patch lets it through.</summary>
@@ -119,6 +124,9 @@ namespace PHLPracticeModPack
                 rinkPane = board.Q(PaneName);
                 scoreboardTabButton = board.Q<Button>(ScoreboardTabName);
                 menuTabButton = board.Q<Button>(MenuTabName);
+                if (menuTabButton != null)
+                    EnsureMenuTabVoteBadge(menuTabButton);
+                ApplyVoteProgress(RinkStripVote.CurrentProgress);
                 ApplyPaneHitTesting();
                 return;
             }
@@ -157,6 +165,8 @@ namespace PHLPracticeModPack
                     if (roleSectionHost != null)
                         RinkPanelBuilder.FillRoleSection(roleSectionHost, payload, callbacks, embedded: true);
                     RinkPanelBuilder.FillRinkSection(rinkSectionHost, payload, callbacks, embedded: true);
+                    if (stripSectionHost != null)
+                        RinkPanelBuilder.FillStripSection(stripSectionHost, payload, callbacks, embedded: true);
                 }
                 else
                 {
@@ -197,8 +207,134 @@ namespace PHLPracticeModPack
                 OnSelectRole = delegate(int role)
                 {
                     RinkMotdService.ClientRequestSetRole((byte)role);
+                },
+                OnVoteStrip = delegate(int rinkIndex, RinkStripMode mode)
+                {
+                    RinkStripVote.ClientRequestVote(rinkIndex, mode);
                 }
             };
+        }
+
+        internal static void ApplyStripVoteProgress(RinkStripVoteProgress progress)
+        {
+            if (!enabled) return;
+            ApplyVoteProgress(progress);
+
+            if (!menuPaneActive) return;
+            try
+            {
+                if (!RinkMotdUI.TryGetLastPayload(out RinkMotdPayload payload) || payload == null)
+                    return;
+                payload.StripVoteProgress = progress;
+                if (stripSectionHost != null)
+                    RinkPanelBuilder.FillStripSection(
+                        stripSectionHost, payload, CreateEmbedCallbacks(), embedded: true);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[PHLPractice] Strip vote UI refresh failed: " + ex.Message);
+            }
+        }
+
+        /// <summary>Called when server status updates strip modes — refresh that rink's tile snap.</summary>
+        internal static void OnStripModesUpdated(RinkMotdPayload payload)
+        {
+            if (!enabled || payload == null) return;
+            ApplyVoteProgress(RinkStripVote.CurrentProgress);
+
+            if (!menuPaneActive) return;
+            try
+            {
+                if (rinkPane != null && rinkPane.childCount > 0 && rinkSectionHost != null)
+                {
+                    RinkPanelBuilder.Callbacks callbacks = CreateEmbedCallbacks();
+                    RinkPanelBuilder.FillRinkSection(rinkSectionHost, payload, callbacks, embedded: true);
+                    if (stripSectionHost != null)
+                        RinkPanelBuilder.FillStripSection(stripSectionHost, payload, callbacks, embedded: true);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[PHLPractice] Scoreboard strip refresh failed: " + ex.Message);
+            }
+        }
+
+        private static Label EnsureMenuTabVoteBadge(Button tab)
+        {
+            if (tab == null) return null;
+            Label badge = tab.Q<Label>(BadgeName);
+            if (badge != null) return badge;
+
+            tab.style.position = Position.Relative;
+            try { tab.style.overflow = Overflow.Visible; } catch { }
+
+            badge = new Label("")
+            {
+                name = BadgeName,
+                pickingMode = PickingMode.Ignore
+            };
+            badge.style.position = Position.Absolute;
+            badge.style.top = 2;
+            badge.style.right = 2;
+            badge.style.display = DisplayStyle.None;
+            badge.style.fontSize = 10;
+            badge.style.unityFontStyleAndWeight = FontStyle.Bold;
+            badge.style.color = VoteBadgeText;
+            badge.style.backgroundColor = VoteBadgeBg;
+            badge.style.unityTextAlign = TextAnchor.MiddleCenter;
+            badge.style.paddingLeft = 5;
+            badge.style.paddingRight = 5;
+            badge.style.paddingTop = 1;
+            badge.style.paddingBottom = 1;
+            badge.style.borderTopLeftRadius = 8;
+            badge.style.borderTopRightRadius = 8;
+            badge.style.borderBottomLeftRadius = 8;
+            badge.style.borderBottomRightRadius = 8;
+            tab.Add(badge);
+            return badge;
+        }
+
+        private static void ApplyVoteProgress(RinkStripVoteProgress progress)
+        {
+            if (menuTabButton != null)
+                StyleVoteBadge(menuTabButton, progress);
+            foreach (Button tab in FindMenuTabButtons())
+                StyleVoteBadge(tab, progress);
+        }
+
+        private static void StyleVoteBadge(Button tab, RinkStripVoteProgress progress)
+        {
+            if (tab == null) return;
+            Label badge = EnsureMenuTabVoteBadge(tab);
+            if (badge == null) return;
+
+            string text = progress.BadgeText;
+            if (progress.Active && !string.IsNullOrEmpty(text))
+            {
+                badge.text = text;
+                badge.style.display = DisplayStyle.Flex;
+                tab.tooltip = "Tools strip vote " + text;
+            }
+            else
+            {
+                badge.text = "";
+                badge.style.display = DisplayStyle.None;
+                tab.tooltip = "Rinks";
+            }
+        }
+
+        private static System.Collections.Generic.List<Button> FindMenuTabButtons()
+        {
+            var tabs = new System.Collections.Generic.List<Button>();
+            UIManager ui = MonoBehaviourSingleton<UIManager>.Instance;
+            if (ui == null) return tabs;
+            try
+            {
+                if (ui.Scoreboard != null && ui.Scoreboard.View != null)
+                    ui.Scoreboard.View.Query<Button>(MenuTabName).ForEach(t => { if (t != null) tabs.Add(t); });
+            }
+            catch { }
+            return tabs;
         }
 
         /// <summary>Esc with the Rinks tab open behaves like clicking the red X.</summary>
@@ -227,12 +363,25 @@ namespace PHLPracticeModPack
             }
         }
 
+        internal static void RefreshRadioSection()
+        {
+            if (!enabled || !menuPaneActive || radioSectionHost == null) return;
+            try { RinkPanelBuilder.FillRadioSection(radioSectionHost, embedded: true); }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[PHLPractice] Scoreboard radio refresh failed: " + ex.Message);
+            }
+        }
+
         internal static void InvalidateCardCache()
         {
+            RadioHudUI.DetachEmbedded();
             if (rinkPane == null) return;
             try { rinkPane.Clear(); } catch { }
             roleSectionHost = null;
             rinkSectionHost = null;
+            stripSectionHost = null;
+            radioSectionHost = null;
         }
 
         internal static void OnScoreboardHidden()
@@ -294,6 +443,8 @@ namespace PHLPracticeModPack
             boardPositionApplied = false;
             appliedMarginTop = -1f;
             rinkSectionHost = null;
+            stripSectionHost = null;
+            radioSectionHost = null;
             scoreboardTabButton = null;
             menuTabButton = null;
             rinkPane = null;
@@ -344,6 +495,8 @@ namespace PHLPracticeModPack
 
             bar.Add(scoreboardTabButton);
             bar.Add(menuTabButton);
+            EnsureMenuTabVoteBadge(menuTabButton);
+            ApplyVoteProgress(RinkStripVote.CurrentProgress);
             return bar;
         }
 
@@ -575,6 +728,8 @@ namespace PHLPracticeModPack
                 rinkPane.Add(built.Card);
             roleSectionHost = built.RoleSectionHost;
             rinkSectionHost = built.RinkSectionHost;
+            stripSectionHost = built.StripSectionHost;
+            radioSectionHost = built.RadioSectionHost;
         }
 
         private static void StyleTabActive(Button tab, bool active)

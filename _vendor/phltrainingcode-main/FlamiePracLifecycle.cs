@@ -1,4 +1,5 @@
 using UnityEngine;
+using Object = UnityEngine.Object;
 
 /// <summary>
 /// Coordinates full mod teardown on <see cref="MyMod.Class1.OnDisable"/> so nothing outlives the plugin.
@@ -22,7 +23,7 @@ public static class FlamiePracLifecycle
 
         DestroyOrphans();
 
-        Debug.Log("[FlamiePrac] Lifecycle shutdown complete.");
+        FlamieLog.Info("[FlamiePrac] Lifecycle shutdown complete.");
     }
 
     private static void DestroyOrphans()

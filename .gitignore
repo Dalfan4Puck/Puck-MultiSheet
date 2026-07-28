@@ -1,5 +1,10 @@
 bin/
 obj/
+
+# Local scratch / decompile output (never commit).
+_tmp*/
+**/*_decompile/
+_vendor/puck_decompile/
 assets/puckobjects
 *.user
 *.suo
@@ -28,3 +33,16 @@ oldversion.dll
 dist/MultiSheet-ROLLBACK.dll
 tools/ReflectHider.cs
 tools/add_workshop_mod.py
+
+# Private radio / S3 connection (examples are committed; secrets are not).
+radio_s3.env
+config/radio_s3.json
+config/radio_client.json
+dist/config/radio_s3.json
+dist/config/radio_client.json
+radio_playlist.local.json
+**/RadioSongs/**
+!**/RadioSongs/.gitkeep
+dist/RadioSongs/
+_vendor/phltrainingcode-main/RadioSongs/
+_vendor/phltrainingcode-main/dist/RadioSongs/

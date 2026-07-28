@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net48</TargetFramework>
@@ -6,8 +6,10 @@
     <GameDir Condition="'$(GameDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Puck</GameDir>
     <GameManaged>$(GameDir)\Puck_Data\Managed</GameManaged>
     <LibsDir>$(ProjectDir)..\..\..\libs</LibsDir>
-    <DeployDir Condition="'$(DeployDir)' == ''">$(GameDir)\Plugins\FlamiePrac</DeployDir>
+    <!-- Standalone only — MultiSheet hosts Flamie. Do not auto-redeploy into Plugins\FlamiePrac. -->
+    <DeployDir Condition="'$(DeployDir)' == ''">$(ProjectDir)dist</DeployDir>
     <DistDir>$(ProjectDir)dist</DistDir>
+    <DefineConstants>$(DefineConstants);FLAMIE_STANDALONE</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
@@ -17,6 +19,11 @@
     <Compile Remove="GoalieController.cs" />
     <Compile Remove="GoalieStickController.cs" />
     <Compile Remove="TrainingGoalieLogic.cs" />
+    <!-- MultiSheet-only (need PHLPracticeModPack). Standalone uses FlamiePracStandaloneShims.cs. -->
+    <Compile Remove="FlamiePracRinkVisibility.cs" />
+    <Compile Remove="FlamiePracRinkInterest.cs" />
+    <!-- Class1 is already IPuckPlugin for blank-dedicated; avoid a second plugin type. -->
+    <Compile Remove="FlamiePracPlugin.cs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -42,6 +49,14 @@
     </Reference>
     <Reference Include="UnityEngine.UIElementsModule">
       <HintPath>$(GameManaged)\UnityEngine.UIElementsModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.TextRenderingModule">
+      <HintPath>$(GameManaged)\UnityEngine.TextRenderingModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.IMGUIModule">
+      <HintPath>$(GameManaged)\UnityEngine.IMGUIModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.UnityWebRequestModule">
@@ -149,6 +164,17 @@
           DestinationFolder="$(DistDir)"
           SkipUnchangedFiles="true"
           Condition="Exists('$(ProjectDir)README.md')" />
+
+    <MakeDir Directories="$(DeployDir)\config" />
+    <MakeDir Directories="$(DistDir)\config" />
+    <Copy SourceFiles="$(ProjectDir)config\radio_client.example.json"
+          DestinationFolder="$(DeployDir)\config"
+          SkipUnchangedFiles="true"
+          Condition="Exists('$(ProjectDir)config\radio_client.example.json')" />
+    <Copy SourceFiles="$(ProjectDir)config\radio_client.example.json"
+          DestinationFolder="$(DistDir)\config"
+          SkipUnchangedFiles="true"
+          Condition="Exists('$(ProjectDir)config\radio_client.example.json')" />
 
     <Message Importance="high" Text="Deployed $(AssemblyName).dll to $(DeployDir)" />
     <Message Importance="high" Text="Archive copy at $(DistDir)" />
