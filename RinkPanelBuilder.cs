@@ -241,23 +241,34 @@ namespace PHLPracticeModPack
             body.Add(rinkSectionHost);
             FillRinkSection(rinkSectionHost, payload, callbacks, embedded);
 
-            // Position | Lighting side-by-side — half the vertical stack of stacking them.
+            // Position | Lighting side-by-side — pushed below a flex-growing rink grid.
             VisualElement controlsRow = new VisualElement();
             controlsRow.style.flexDirection = FlexDirection.Row;
             controlsRow.style.alignItems = Align.Stretch;
             controlsRow.style.justifyContent = Justify.Center;
             controlsRow.style.flexShrink = 0;
-            controlsRow.style.marginTop = embedded ? 4 : 6;
+            controlsRow.style.marginTop = embedded ? 10 : 16;
             controlsRow.style.marginBottom = embedded ? 4 : 8;
             body.Add(controlsRow);
 
+            VisualElement roleColumnHost = new VisualElement();
+            roleColumnHost.style.flexGrow = 1;
+            roleColumnHost.style.flexShrink = 1;
+            roleColumnHost.style.flexBasis = 0;
+            roleColumnHost.style.minWidth = 0;
+            roleColumnHost.style.flexDirection = FlexDirection.Column;
+            roleColumnHost.style.minHeight = embedded ? 118 : 142;
+            controlsRow.Add(roleColumnHost);
+
             VisualElement roleSectionHost = new VisualElement();
-            roleSectionHost.style.flexGrow = 1;
-            roleSectionHost.style.flexShrink = 1;
-            roleSectionHost.style.flexBasis = 0;
-            roleSectionHost.style.minWidth = 0;
-            controlsRow.Add(roleSectionHost);
+            roleSectionHost.style.flexShrink = 0;
+            roleColumnHost.Add(roleSectionHost);
             FillRoleSection(roleSectionHost, payload, callbacks, embedded);
+
+            VisualElement stripSectionHost = new VisualElement();
+            stripSectionHost.style.flexShrink = 0;
+            roleColumnHost.Add(stripSectionHost);
+            FillStripSection(stripSectionHost, payload, callbacks, embedded);
 
             VisualElement vDivider = new VisualElement();
             vDivider.style.width = 1;
@@ -279,26 +290,6 @@ namespace PHLPracticeModPack
             lightingSectionHost.style.minWidth = 0;
             controlsRow.Add(lightingSectionHost);
             FillLightingSection(lightingSectionHost, embedded);
-
-            // Performance toggles — below Position | Lighting, outside role host so
-            // occupancy refreshes do not wipe them mid-session.
-            VisualElement perfSep = new VisualElement();
-            perfSep.style.height = 1;
-            perfSep.style.backgroundColor = ColumnRule;
-            perfSep.style.flexShrink = 0;
-            perfSep.style.marginTop = embedded ? 2 : 6;
-            perfSep.style.marginBottom = embedded ? 4 : 8;
-            body.Add(perfSep);
-
-            VisualElement perfSectionHost = new VisualElement();
-            perfSectionHost.style.flexShrink = 0;
-            body.Add(perfSectionHost);
-            FillPerfSection(perfSectionHost, lightingSectionHost, embedded);
-
-            VisualElement stripSectionHost = new VisualElement();
-            stripSectionHost.style.flexShrink = 0;
-            body.Add(stripSectionHost);
-            FillStripSection(stripSectionHost, payload, callbacks, embedded);
 
             VisualElement radioSectionHost = new VisualElement();
             radioSectionHost.style.flexShrink = 0;
@@ -418,7 +409,7 @@ namespace PHLPracticeModPack
             sep.style.marginBottom = embedded ? 6 : 8;
             host.Add(sep);
 
-            Label heading = MakeLabel("Tools Strip", embedded ? 13 : 14, MutedText, FontStyle.Bold);
+            Label heading = MakeLabel("Vote for Tools", embedded ? 13 : 14, MutedText, FontStyle.Bold);
             heading.style.unityTextAlign = TextAnchor.MiddleCenter;
             heading.style.marginBottom = 6;
             host.Add(heading);
@@ -584,7 +575,7 @@ namespace PHLPracticeModPack
             row.style.flexDirection = FlexDirection.Row;
             row.style.justifyContent = Justify.Center;
             row.style.alignItems = Align.Stretch;
-            row.style.flexGrow = 1;
+            row.style.flexGrow = 0;
             host.Add(row);
 
             row.Add(MakeRoleButton("Skater", !isGoalie, embedded, () => callbacks.OnSelectRole?.Invoke(0)));
@@ -592,20 +583,24 @@ namespace PHLPracticeModPack
         }
 
         /// <summary>
-        /// Render-scope + presentation toggles (client-only). Side by side under
-        /// Position | Lighting.
+        /// Render-scope + presentation toggles (client-only) — stacked in the lighting column.
         /// </summary>
-        internal static void FillPerfSection(
-            VisualElement host, VisualElement lightingSectionHost, bool embedded)
+        private static void AddPerformanceToggleRow(VisualElement lightingHost, bool embedded)
         {
-            if (host == null) return;
-            host.Clear();
+            if (lightingHost == null) return;
+
+            VisualElement sep = new VisualElement();
+            sep.style.height = 1;
+            sep.style.backgroundColor = ColumnRule;
+            sep.style.marginTop = embedded ? 6 : 8;
+            sep.style.marginBottom = embedded ? 4 : 6;
+            lightingHost.Add(sep);
 
             VisualElement row = new VisualElement();
             row.style.flexDirection = FlexDirection.Row;
             row.style.alignItems = Align.Stretch;
             row.style.justifyContent = Justify.Center;
-            host.Add(row);
+            lightingHost.Add(row);
 
             bool renderAll = PracticePresentation.RenderAllRinks;
             Button renderBtn = MakeRoleButton(
@@ -615,12 +610,12 @@ namespace PHLPracticeModPack
                 delegate
                 {
                     PracticePresentation.SetRenderAllRinks(!PracticePresentation.RenderAllRinks);
-                    FillPerfSection(host, lightingSectionHost, embedded);
+                    FillLightingSection(lightingHost, embedded);
                 });
             renderBtn.style.flexGrow = 1;
             renderBtn.style.flexBasis = 0;
-            renderBtn.style.minWidth = embedded ? 140 : 180;
-            renderBtn.style.maxWidth = embedded ? 280 : 340;
+            renderBtn.style.minWidth = 0;
+            renderBtn.style.marginRight = 6;
             row.Add(renderBtn);
 
             bool allowChanges = PracticePresentation.AllowRinkChanges;
@@ -631,14 +626,11 @@ namespace PHLPracticeModPack
                 delegate
                 {
                     PracticePresentation.SetAllowRinkChanges(!PracticePresentation.AllowRinkChanges);
-                    FillPerfSection(host, lightingSectionHost, embedded);
-                    if (lightingSectionHost != null)
-                        FillLightingSection(lightingSectionHost, embedded);
+                    FillLightingSection(lightingHost, embedded);
                 });
             changesBtn.style.flexGrow = 1;
             changesBtn.style.flexBasis = 0;
-            changesBtn.style.minWidth = embedded ? 140 : 180;
-            changesBtn.style.maxWidth = embedded ? 280 : 340;
+            changesBtn.style.minWidth = 0;
             row.Add(changesBtn);
         }
 
@@ -651,14 +643,14 @@ namespace PHLPracticeModPack
             if (host == null) return;
             host.Clear();
 
-            // Match the Position column height whether the cycle is on or off.
-            host.style.minHeight = embedded ? 72 : 88;
+            // Tall enough for lighting toggles + timeline slot + performance row.
+            host.style.minHeight = embedded ? 118 : 142;
 
             bool allowChanges = PracticePresentation.AllowRinkChanges;
             bool arenaOn = ArenaLighting.ArenaLightingEnabled;
             bool dayNight = ArenaLighting.DayNightEnabled;
 
-            Label heading = MakeLabel("Lighting", embedded ? 13 : 14, MutedText, FontStyle.Bold);
+            Label heading = MakeLabel("Lighting & Performance", embedded ? 13 : 14, MutedText, FontStyle.Bold);
             heading.style.unityTextAlign = TextAnchor.MiddleCenter;
             heading.style.marginTop = embedded ? 6 : 8;
             heading.style.marginBottom = 6;
@@ -770,6 +762,8 @@ namespace PHLPracticeModPack
                 clock.text = ArenaLighting.FormatHour(now);
                 auto.style.color = MutedText;
             }).Every(1000);
+
+            AddPerformanceToggleRow(host, embedded);
         }
 
         /// <summary>

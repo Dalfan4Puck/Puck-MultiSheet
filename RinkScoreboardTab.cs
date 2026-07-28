@@ -23,7 +23,7 @@ namespace PHLPracticeModPack
         private const string PaneName = "MultiSheetRinkPane";
         internal const string StatsTooltipHarmonyId = "oomtm450_stats";
         private const float TabBarHeight = 34f;
-        /// <summary>Tall enough for header + flex rink grid + Position|Lighting + perf toggles +
+        /// <summary>Tall enough for header + flex rink grid + Position|Lighting columns +
         /// community footer. The rink section flex-grows into this height (tiles absorb the
         /// space — do not "fix" emptiness by raising this without giving the grid flexGrow).</summary>
         private const float MenuMinBoardHeight = 860f;
