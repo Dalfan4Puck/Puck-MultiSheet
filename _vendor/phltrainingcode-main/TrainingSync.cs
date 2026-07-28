@@ -65,7 +65,8 @@ public sealed class TrainingSync : MonoBehaviour
         Instance = this;
         DontDestroyOnLoad(gameObject);
 
-        if (!Application.isBatchMode && GetComponent<RadioHudDriver>() == null)
+        if (!Application.isBatchMode && !FlamiePracFeatures.RadioServerDrivenOnly &&
+            GetComponent<RadioHudDriver>() == null)
             gameObject.AddComponent<RadioHudDriver>();
     }
 
@@ -90,6 +91,7 @@ public sealed class TrainingSync : MonoBehaviour
         {
             SlidableObstacleSync.TickServer();
             TrainingMotionSync.TickServer();
+            RadioSync.TickServer();
         }
 
         if (isServer && !shutDown && pendingSnapshotClients.Count > 0 && Time.time >= nextSnapshotFlushTime)
@@ -110,6 +112,7 @@ public sealed class TrainingSync : MonoBehaviour
 
         SlidableObstacleSync.TickServer();
         TrainingMotionSync.TickServer();
+        RadioSync.TickServer();
     }
 
     /// <summary>Idempotent teardown — messaging handlers, client mirrors, server spawns, radio HUD.</summary>
@@ -537,6 +540,9 @@ public sealed class TrainingSync : MonoBehaviour
 
         if (isServer)
         {
+            EnsureServerRadio();
+            if (FlamiePracFeatures.EnableRadio)
+                RadioSync.OnServerNetworkReady(this);
             EnsureServerManager();
             // Only nudge spawn if rink ice already exists (workshop mid-session enable).
             // Otherwise TrainingObjectManager's ice-wait coroutine owns first AutoStart —
@@ -666,6 +672,18 @@ public sealed class TrainingSync : MonoBehaviour
             return;
 
         QueueSnapshotToClient(clientId);
+        if (FlamiePracFeatures.EnableRadio)
+            RadioSync.SendStateToClient(clientId);
+    }
+
+    private void EnsureServerRadio()
+    {
+        if (!FlamiePracFeatures.EnableRadio || GetComponent<RadioController>() != null)
+            return;
+
+        gameObject.AddComponent<RadioController>();
+        if (!Application.isBatchMode && GetComponent<RadioHudDriver>() == null)
+            gameObject.AddComponent<RadioHudDriver>();
     }
 
     private void RequestSnapshot()
@@ -835,6 +853,12 @@ public sealed class TrainingSync : MonoBehaviour
         if (!isServer)
             return;
 
+        if (FlamiePracFeatures.RadioServerDrivenOnly || RadioSync.ServerReady)
+        {
+            RadioSync.HandleRadioRequest(senderClientId, reader);
+            return;
+        }
+
         reader.ReadValueSafe(out byte command);
         BroadcastRadioCommand(command);
     }
@@ -875,6 +899,13 @@ public sealed class TrainingSync : MonoBehaviour
         // Pure clients only — host/server already applied in BroadcastRadioCommand.
         if (!isClient || nm == null || nm.IsServer || senderClientId != NetworkManager.ServerClientId)
             return;
+
+        if (FlamiePracFeatures.RadioServerDrivenOnly || RadioSync.ServerReady)
+        {
+            RadioSync.EnsureClientRadio(this);
+            RadioSync.HandleRadioStateMessage(reader);
+            return;
+        }
 
         reader.ReadValueSafe(out byte command);
         ApplyRadioCommandLocal(command);

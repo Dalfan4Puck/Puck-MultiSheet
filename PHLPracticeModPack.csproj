@@ -103,6 +103,7 @@
     <Compile Include="$(FlamieDir)\FollowSpinningObject.cs" Link="Flamie\FollowSpinningObject.cs" />
     <Compile Include="$(FlamieDir)\PassBackBoardLock.cs" Link="Flamie\PassBackBoardLock.cs" />
     <Compile Include="$(FlamieDir)\PassBumperHitRelay.cs" Link="Flamie\PassBumperHitRelay.cs" />
+    <Compile Include="$(FlamieDir)\PlayerSitService.cs" Link="Flamie\PlayerSitService.cs" />
     <Compile Include="$(FlamieDir)\PuckPasser.cs" Link="Flamie\PuckPasser.cs" />
     <Compile Include="$(FlamieDir)\PuckSpawner.cs" Link="Flamie\PuckSpawner.cs" />
     <Compile Include="$(FlamieDir)\RadioApiUtil.cs" Link="Flamie\RadioApiUtil.cs" />

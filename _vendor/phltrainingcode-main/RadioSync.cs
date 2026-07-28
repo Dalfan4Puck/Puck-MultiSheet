@@ -166,6 +166,28 @@ public static class RadioSync
         }
     }
 
+    public static void EnsureClientRadio(MonoBehaviour host)
+    {
+        if (Application.isBatchMode || !FlamiePracFeatures.EnableRadio)
+            return;
+
+        NetworkManager nm = NetworkManager.Singleton;
+        if (nm == null || !nm.IsClient || nm.IsServer)
+            return;
+
+        if (RadioController.Instance != null)
+            return;
+
+        if (host == null)
+            host = TrainingSync.Instance;
+        if (host == null)
+            return;
+
+        host.gameObject.AddComponent<RadioController>();
+        if (host.GetComponent<RadioHudDriver>() == null)
+            host.gameObject.AddComponent<RadioHudDriver>();
+    }
+
     public static void HandleRadioStateMessage(FastBufferReader reader)
     {
         reader.ReadValueSafe(out byte msgType);
@@ -182,6 +204,8 @@ public static class RadioSync
 
         if (string.IsNullOrEmpty(trackId))
             return;
+
+        EnsureClientRadio(TrainingSync.Instance);
 
         if (RadioController.Instance != null)
             RadioController.Instance.ApplyServerState(

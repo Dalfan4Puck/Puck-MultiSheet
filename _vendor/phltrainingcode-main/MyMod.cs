@@ -324,7 +324,8 @@ namespace MyMod
                 managerObject = new GameObject("FlamiePrac_Bootstrap");
 
                 managerObject.AddComponent<TrainingSync>();
-                if (FlamiePracFeatures.EnableRadio)
+                // MultiSheet pure clients lazy-init radio when the server sends sync state.
+                if (FlamiePracFeatures.EnableRadio && !FlamiePracFeatures.RadioServerDrivenOnly)
                     managerObject.AddComponent<RadioController>();
                 managerObject.AddComponent<FlamiePracGoalieBootstrap>();
                 // MultiSheet already owns R-key puck spawn (PuckSpawnSync). Only wire

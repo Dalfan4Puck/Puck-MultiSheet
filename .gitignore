@@ -1,5 +1,6 @@
 bin/
 obj/
+.cursor/
 
 # Local scratch / decompile output (never commit).
 _tmp*/

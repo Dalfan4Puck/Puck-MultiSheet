@@ -24,8 +24,9 @@ namespace PHLPracticeModPack
                 PracticeLog.Verbose = MultiRinkConfig.Current.VerboseLogging;
                 FlamieLog.Verbose = PracticeLog.Verbose;
                 MultiSheetClientSettings.Load();
-                RadioHudUI.ShouldSuppressStandalone = () =>
-                    PracticeFlowClient.IsOnPracticeServer && !MultiSheetClientSettings.SkipScoreboardUi;
+                FlamiePracFeatures.RadioServerDrivenOnly = true;
+                // Never show the legacy top-left radio chip — Rinks tab embeds radio when ready.
+                RadioHudUI.ShouldSuppressStandalone = () => true;
                 LargeLevelHost.TryEnable(harmony);
                 RinkMotdService.Initialize();
                 RinkStripVote.Initialize();
@@ -78,6 +79,7 @@ namespace PHLPracticeModPack
 
                 RinkMotdService.Teardown();
                 RinkStripVote.Teardown();
+                FlamiePracFeatures.RadioServerDrivenOnly = false;
                 RadioHudUI.ShouldSuppressStandalone = null;
                 LargeLevelHost.Disable();
                 MultiRinkService.Reset();

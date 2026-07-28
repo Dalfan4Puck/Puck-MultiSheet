@@ -385,6 +385,7 @@ namespace PHLPracticeModPack
 
             host.Clear();
             RadioHudUI.DetachEmbedded();
+            RadioSync.EnsureClientRadio(TrainingSync.Instance);
             RadioHudUI.AttachEmbedded(host);
         }
 

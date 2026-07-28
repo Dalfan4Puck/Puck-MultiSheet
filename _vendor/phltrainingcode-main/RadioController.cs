@@ -496,6 +496,8 @@ public class RadioController : MonoBehaviour
         libraryReady = false;
     }
 
+    private bool clientBootstrapStarted;
+
     private IEnumerator Start()
     {
         if (Application.isBatchMode)
@@ -506,9 +508,21 @@ public class RadioController : MonoBehaviour
             Unity.Netcode.NetworkManager nm = Unity.Netcode.NetworkManager.Singleton;
             if (nm != null && nm.IsServer && !nm.IsClient)
                 yield break;
+
+            // MultiSheet pure clients wait for the first server radio snapshot.
+            if (FlamiePracFeatures.RadioServerDrivenOnly && nm != null && nm.IsClient && !nm.IsServer)
+            {
+                SetStatus("Waiting for server radio…");
+                yield break;
+            }
         }
         catch { }
 
+        yield return StartLocalOrSyncedRadio();
+    }
+
+    private IEnumerator StartLocalOrSyncedRadio()
+    {
         ApplyVolumeToOutputs();
         LoadClientConfig();
 
@@ -555,10 +569,19 @@ public class RadioController : MonoBehaviour
                 yield break;
             }
 
+            if (FlamiePracFeatures.RadioServerDrivenOnly)
+            {
+                SetStatus("Waiting for server radio…");
+                yield break;
+            }
+
             // Server playlist/sync idle — play locally so the rink isn't silent.
             FlamieLog.Warn("[FlamiePrac] Radio sync unavailable — falling back to local shuffle.");
             IsSyncedPlayback = false;
         }
+
+        if (FlamiePracFeatures.RadioServerDrivenOnly)
+            yield break;
 
         // Offline / no Netcode / sync timeout: local shuffle.
         IsSyncedPlayback = false;
@@ -616,6 +639,7 @@ public class RadioController : MonoBehaviour
         {
             RadioSync.PendingClientState.Store(
                 trackId, startServerTime, duration, voteCount, restartVoteCount, voteNeed);
+            EnsureClientBootstrapFromServer();
             NotifyStateChanged();
             return;
         }
@@ -657,6 +681,47 @@ public class RadioController : MonoBehaviour
 
         SetStatus(string.Empty);
         NotifyStateChanged();
+    }
+
+    private void EnsureClientBootstrapFromServer()
+    {
+        if (clientBootstrapStarted || libraryReady)
+            return;
+
+        clientBootstrapStarted = true;
+        StartCoroutine(BootstrapFromServer());
+    }
+
+    private IEnumerator BootstrapFromServer()
+    {
+        SetStatus("Loading playlist…");
+        yield return LoadPlaylist();
+
+        if (tracks == null || tracks.Length == 0)
+        {
+            FlamieLog.Error("[FlamiePrac] Radio has no tracks — phlstats /playlist unavailable.");
+            SetStatus("No radio tracks");
+            yield break;
+        }
+
+        clips = new AudioClip[tracks.Length];
+        libraryReady = true;
+        if (usingRemoteApi)
+            StartPlaylistRefreshLoop();
+
+        IsSyncedPlayback = true;
+
+        if (RadioSync.PendingClientState.Has)
+        {
+            ApplyServerState(
+                RadioSync.PendingClientState.TrackId,
+                RadioSync.PendingClientState.StartServerTime,
+                RadioSync.PendingClientState.Duration,
+                RadioSync.PendingClientState.VoteCount,
+                RadioSync.PendingClientState.RestartVoteCount,
+                RadioSync.PendingClientState.VoteNeed);
+            RadioSync.PendingClientState.Clear();
+        }
     }
 
     private IEnumerator RefreshPlaylistThenPlay(string trackId)

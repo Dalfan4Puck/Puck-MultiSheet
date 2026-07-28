@@ -546,6 +546,11 @@ public class TrainingObjectManager : MonoBehaviour
                 num = (ulong)data["clientId"];
             }
             Player playerByClientId = GetPlayerByClientId(num);
+            if (text == "/sit")
+            {
+                HandleSitCommand(playerByClientId, num);
+                return;
+            }
             if (text == null)
             {
                 return;
@@ -757,6 +762,18 @@ public class TrainingObjectManager : MonoBehaviour
         FlamiePracFeatures.SetSlidablePhysicsEnabled(flag2);
         FlamieLog.Info("[FlamiePrac] Slidable physics " + (flag2 ? "enabled" : "disabled") + " by client " + clientId);
         SendMessageToClient(clientId, "Slidable physics " + (flag2 ? "enabled" : "disabled") + ".");
+    }
+
+    private void HandleSitCommand(Player player, ulong clientId)
+    {
+        if (player == null || player.PlayerBody == null)
+        {
+            SendMessageToClient(clientId, "No player body found.");
+            return;
+        }
+
+        string message = PlayerSitService.ToggleSit(clientId, player.PlayerBody);
+        SendMessageToClient(clientId, message);
     }
 
     private static bool IsAdmin(Player player)

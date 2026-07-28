@@ -6,6 +6,11 @@ public static class FlamiePracFeatures
 
     public const bool EnableRadio = true;
 
+    /// <summary>
+    /// When true (MultiSheet), radio only starts from server sync / Rinks UI — no client bootstrap or offline shuffle.
+    /// </summary>
+    public static bool RadioServerDrivenOnly { get; set; }
+
     public static bool SlidablePhysicsEnabled { get; private set; }
 
     public static void SetSlidablePhysicsEnabled(bool enabled)

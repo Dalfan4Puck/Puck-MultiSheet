@@ -92,6 +92,8 @@ public static class RadioHudUI
         if (sectionHost == null)
             return;
 
+        RadioSync.EnsureClientRadio(TrainingSync.Instance);
+
         DetachEmbedded();
         embeddedHost = sectionHost;
         expanded = false;
