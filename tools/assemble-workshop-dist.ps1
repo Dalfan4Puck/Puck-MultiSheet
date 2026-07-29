@@ -60,6 +60,11 @@ if (Test-Path $assetsReadme) {
     Copy-Item $assetsReadme (Join-Path $dist "assets\README.md") -Force
 }
 
+$staleRamp = Join-Path $dist "assets\SkatePark_launchramp_v2_L1.123c9c4dd13c-553f-4c5e-9150-dca295ae4462"
+if (Test-Path $staleRamp) {
+    Remove-Item $staleRamp -Recurse -Force
+}
+
 # Never ship RadioSongs — radio streams from phlstats only.
 $staleRadio = Join-Path $dist "RadioSongs"
 if (Test-Path $staleRadio) {

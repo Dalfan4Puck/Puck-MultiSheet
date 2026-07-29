@@ -37,6 +37,9 @@ namespace PHLPracticeModPack
         private static bool cachedUseSyntheticFill;
         private static bool arenaLightSourcesCached;
 
+        /// <summary>True after <see cref="SpawnMultiRinkLayout"/> finishes for server or client.</summary>
+        internal static bool LayoutReady { get; private set; }
+
         internal static float IceSurfaceY =>
             float.IsNaN(cachedIceSurfaceY) ? DefaultIceSurfaceY : cachedIceSurfaceY;
 
@@ -49,6 +52,7 @@ namespace PHLPracticeModPack
             cachedArenaLightSources = null;
             arenaLightSourcesCached = false;
             cachedUseSyntheticFill = false;
+            LayoutReady = false;
         }
 
         internal static GameObject SpawnMultiRinkLayout(List<RinkSlot> rinks, MultiRinkConfig cfg, RinkCloneRole role)
@@ -163,7 +167,8 @@ namespace PHLPracticeModPack
             StickIcePassThrough.ScanSceneFloorIce(logResult: true);
             SlidableBoardCollision.ReassertSlidablePairs();
             SlidableBoardCollision.SyncStickIceLayerPolicy();
-            SlidableGroundRaycastPatch.RefreshAllStickPositioners();
+            SlidableGroundRaycastPatch.RefreshAllGroundRaycasts();
+            LayoutReady = true;
             return root;
         }
 

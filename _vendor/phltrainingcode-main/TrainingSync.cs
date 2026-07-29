@@ -24,6 +24,7 @@ public sealed class TrainingSync : MonoBehaviour
     private const byte SpawnPrefab = 1;
     private const byte SpawnPasser = 2;
     private const byte SpawnCircularTarget = 3;
+    private const byte SpawnSheet = 5;
 
     public static TrainingSync Instance { get; private set; }
 
@@ -40,6 +41,7 @@ public sealed class TrainingSync : MonoBehaviour
     private bool gameEventsRegistered;
     private bool serverHandlersRegistered;
     private bool clientHandlersRegistered;
+    private bool serverCatchUpCompleted;
     private bool clientAwaitingSnapshot;
     private float nextClientResyncTime;
     private float nextSnapshotFlushTime;
@@ -217,6 +219,18 @@ public sealed class TrainingSync : MonoBehaviour
         if (shutDown)
             return;
 
+        // Dedicated servers are never local clients — reconnect catch-up is client-only.
+        try
+        {
+            NetworkManager nm = NetworkManager.Singleton;
+            if (nm != null && nm.IsServer && !nm.IsClient)
+                return;
+        }
+        catch
+        {
+            // ignored
+        }
+
         FlamieLog.InfoOnce("client-started", "[FlamiePrac] Event_OnClientStarted — catch-up network + snapshot.");
         RestartNetworkWait("ClientStarted");
     }
@@ -275,7 +289,7 @@ public sealed class TrainingSync : MonoBehaviour
 
         SlidableBoardCollision.Ensure();
         SlidableBoardCollision.ReassertSlidablePairs();
-        SlidableGroundRaycastPatch.RefreshAllStickPositioners();
+        SlidableGroundRaycastPatch.RefreshAllGroundRaycasts();
         StickIcePassThrough.ScanSceneFloorIce(logResult: true);
         SlidableBoardCollision.SyncStickIceLayerPolicy();
 
@@ -426,6 +440,18 @@ public sealed class TrainingSync : MonoBehaviour
             nextSnapshotFlushTime = Time.time; // flush on next Update
     }
 
+    private void QueueSnapshotIfRecordsExist()
+    {
+        if (!isServer || shutDown)
+            return;
+
+        TrainingObjectManager mgr = TrainingObjectManager.Instance;
+        if (mgr == null || mgr.GetSpawnRecords().Count == 0)
+            return;
+
+        QueueSnapshotToAllClients();
+    }
+
     public void QueueSnapshotToAllClients()
     {
         if (!isServer || shutDown)
@@ -545,7 +571,7 @@ public sealed class TrainingSync : MonoBehaviour
         SlidableBoardCollision.Ensure();
         SlidableBoardCollision.ReassertSlidablePairs();
         SlidableBoardCollision.SyncStickIceLayerPolicy();
-        SlidableGroundRaycastPatch.RefreshAllStickPositioners();
+        SlidableGroundRaycastPatch.RefreshAllGroundRaycasts();
 
         FlamieLog.InfoOnce("network-ready", "[FlamiePrac] Network ready — " + FlamiePracVersion.Banner +
                   " IsServer=" + isServer + " IsClient=" + isClient +
@@ -558,11 +584,14 @@ public sealed class TrainingSync : MonoBehaviour
             if (FlamiePracFeatures.EnableRadio)
                 RadioSync.OnServerNetworkReady(this);
             EnsureServerManager();
-            // Only nudge spawn if rink ice already exists (workshop mid-session enable).
-            // Otherwise TrainingObjectManager's ice-wait coroutine owns first AutoStart —
-            // calling Ensure here too early spawned into a void and got wiped on LevelSpawned.
-            TrainingObjectManager.Instance?.EnsureTrainingRunningIfIceReady();
-            QueueSnapshotToAllClients();
+            if (!serverCatchUpCompleted)
+            {
+                serverCatchUpCompleted = true;
+                // Only nudge spawn if rink ice already exists (workshop mid-session enable).
+                // MultiSheet defers first spawn to RinkStripVote — catch-up must not wipe records.
+                TrainingObjectManager.Instance?.EnsureTrainingRunningIfIceReady();
+            }
+            QueueSnapshotIfRecordsExist();
         }
 
         if (isClient && !isServer)
@@ -987,9 +1016,9 @@ public sealed class TrainingSync : MonoBehaviour
         List<TrainingSpawnRecord> records = mgr.GetSpawnRecords();
         if (records.Count == 0)
         {
-            // Join beat AutoStart — keep retrying until hive exists.
+            // Join beat AutoStart / strip defaults — keep retrying until hive exists.
             pendingSnapshotClients.Add(clientId);
-            FlamieLog.InfoThrottled(
+            FlamieLog.ServerSyncThrottled(
                 "snapshot-deferred-" + clientId,
                 "[FlamiePrac] Snapshot deferred for client " + clientId + " — no spawn records yet.",
                 10f);
@@ -1019,7 +1048,7 @@ public sealed class TrainingSync : MonoBehaviour
                     NetworkDelivery.Reliable);
             }
 
-            FlamieLog.Setup("[FlamiePrac] Sent snapshot (" + records.Count + " object(s)) to client " + clientId);
+            FlamieLog.ServerSync("[FlamiePrac] Sent snapshot (" + records.Count + " object(s)) to client " + clientId);
         }
         catch (Exception ex)
         {
@@ -1156,6 +1185,15 @@ public sealed class TrainingSync : MonoBehaviour
                     record.SyncId,
                     TrainingObjectFactory.BuildRole.ClientVisual);
                 break;
+            case SpawnSheet:
+                obj = TrainingObjectFactory.BuildSlidableSheet(
+                    pos,
+                    record.RotationY,
+                    record.Scale.sqrMagnitude > 0.000001f ? record.Scale : TrainingObjectFactory.DefaultSheetScale,
+                    record.SyncId,
+                    TrainingObjectFactory.BuildRole.ClientVisual,
+                    positionIsFinalWorldCenter: true);
+                break;
         }
 
         if (obj != null)
@@ -1261,6 +1299,13 @@ public sealed class TrainingSync : MonoBehaviour
             writer.WriteValueSafe(record.Scale.y);
             writer.WriteValueSafe(record.Scale.z);
         }
+        else if (record.Kind == SpawnSheet)
+        {
+            writer.WriteValueSafe(record.RotationY);
+            writer.WriteValueSafe(record.Scale.x);
+            writer.WriteValueSafe(record.Scale.y);
+            writer.WriteValueSafe(record.Scale.z);
+        }
     }
 
     private static TrainingSpawnRecord ReadSpawnRecord(FastBufferReader reader)
@@ -1294,6 +1339,15 @@ public sealed class TrainingSync : MonoBehaviour
             reader.ReadValueSafe(out float sz);
             record.RotationY = rotY;
             record.PasserSpeed = speed;
+            record.Scale = new Vector3(sx, sy, sz);
+        }
+        else if (kind == SpawnSheet)
+        {
+            reader.ReadValueSafe(out float rotY);
+            reader.ReadValueSafe(out float sx);
+            reader.ReadValueSafe(out float sy);
+            reader.ReadValueSafe(out float sz);
+            record.RotationY = rotY;
             record.Scale = new Vector3(sx, sy, sz);
         }
 

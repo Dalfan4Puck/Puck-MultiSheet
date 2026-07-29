@@ -37,8 +37,10 @@ public static class SlidableObstacleSetup
     /// <summary>Grow beam height + thickness; length stays the same.</summary>
     private const float BeamCrossSectionScale = 1.5f;
     public const string PasserRelativePathPrefix = "passer";
+    public const string SheetRelativePathPrefix = "sheet";
 
     public static string PasserRelativePathFor(int syncId) => PasserRelativePathPrefix + "#" + syncId;
+    public static string SheetRelativePathFor(int syncId) => SheetRelativePathPrefix + "#" + syncId;
 
     /// <summary>
     /// Pass-back boards stay frozen at spawn. Sliding was unreliable and the solid body
@@ -132,6 +134,64 @@ public static class SlidableObstacleSetup
         SlidablePuckFilter.ConfigureForPlayerPushOnly(root);
     }
 
+    private static void EnsureSheetCollider(GameObject root, Vector3 scale)
+    {
+        foreach (Collider col in root.GetComponents<Collider>())
+        {
+            if (col != null && !col.isTrigger)
+                UnityEngine.Object.Destroy(col);
+        }
+
+        BoxCollider box = root.GetComponent<BoxCollider>();
+        if (box == null)
+            box = root.AddComponent<BoxCollider>();
+
+        float width = Mathf.Max(scale.x, 1f);
+        float height = Mathf.Max(scale.y, 0.04f);
+        float depth = Mathf.Max(scale.z, 1f);
+        box.center = Vector3.zero;
+        box.size = new Vector3(width, height, depth);
+        box.isTrigger = false;
+        CollisionHelper.SetSlidablePhysicsLayer(root);
+        SlidablePuckFilter.ConfigureForPlayerPushOnly(root);
+    }
+
+    /// <summary>Chat-spawned flat sheet: pushable blanket on the slidable prop layer.</summary>
+    public static void ConfigureSlidableSheetServer(GameObject sheetRoot, int syncId, Vector3 scale)
+    {
+        if (sheetRoot == null || !IsServerSide())
+            return;
+
+        EnsureSheetCollider(sheetRoot, scale);
+        CollisionHelper.SetSlidablePhysicsLayer(sheetRoot);
+        SlidableObstacleSetup.ApplySlideMaterial(sheetRoot);
+
+        SlidableObstacle obstacle = sheetRoot.GetComponent<SlidableObstacle>();
+        if (obstacle == null)
+            obstacle = sheetRoot.AddComponent<SlidableObstacle>();
+
+        ApplySheetPhysicsProfileFields(obstacle);
+
+        string relativePath = SheetRelativePathFor(syncId);
+        obstacle.Initialize(sheetRoot.transform, syncId, relativePath);
+        SlidableStickCollision.RegisterSlidable(sheetRoot);
+        FlamieLog.Info("[FlamiePrac] Slidable sheet ready: syncId=" + syncId + " path=" + relativePath);
+    }
+
+    public static void ConfigureSlidableSheetClient(GameObject sheetRoot, int syncId, Vector3 scale)
+    {
+        if (sheetRoot == null)
+            return;
+
+        EnsureSheetCollider(sheetRoot, scale);
+        ConfigureSlidableClient(
+            sheetRoot.transform,
+            sheetRoot.transform,
+            syncId,
+            0.08f,
+            SheetRelativePathFor(syncId));
+    }
+
     private static void ApplyPasserBodyMaterial(GameObject root)
     {
         if (root == null)
@@ -203,6 +263,23 @@ public static class SlidableObstacleSetup
         obstacle.angularDrag = BeamAngularDrag;
         obstacle.maxLinearSpeed = BeamMaxLinearSpeed;
         obstacle.maxAngularSpeed = BeamMaxAngularSpeed;
+        obstacle.stickPushForceScale = BeamStickPushScale;
+        obstacle.stickLiftForceScale = 0f;
+        obstacle.keepOnIce = true;
+        obstacle.freezePitchRoll = true;
+        obstacle.settleFlatOnIce = true;
+    }
+
+    private static void ApplySheetPhysicsProfileFields(SlidableObstacle obstacle)
+    {
+        if (obstacle == null)
+            return;
+
+        obstacle.mass = 50f;
+        obstacle.linearDrag = BeamLinearDrag;
+        obstacle.angularDrag = BeamAngularDrag * 1.5f;
+        obstacle.maxLinearSpeed = BeamMaxLinearSpeed;
+        obstacle.maxAngularSpeed = 0.5f;
         obstacle.stickPushForceScale = BeamStickPushScale;
         obstacle.stickLiftForceScale = 0f;
         obstacle.keepOnIce = true;
@@ -1098,8 +1175,52 @@ public static class SlidableObstacleSetup
 
     public static void ApplySlideMaterial(GameObject obj)
     {
-        // Ice-like: skate/jump on top without sticky wipeouts. Still slides when stick-pushed.
-        PhysicsMaterial slide = new PhysicsMaterial("FlamiePrac_SlidableIce")
+        PhysicsMaterial slide = GetIceLikeMaterial();
+
+        foreach (Collider col in obj.GetComponentsInChildren<Collider>(true))
+        {
+            if (col != null && !col.isTrigger)
+                col.material = slide;
+        }
+    }
+
+    private static PhysicsMaterial cachedIceLikeMaterial;
+
+    private static PhysicsMaterial GetIceLikeMaterial()
+    {
+        if (cachedIceLikeMaterial != null)
+            return cachedIceLikeMaterial;
+
+        int iceLayer = LayerMask.NameToLayer("Ice");
+        if (iceLayer >= 0)
+        {
+            Collider[] all = UnityEngine.Object.FindObjectsByType<Collider>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            for (int i = 0; i < all.Length; i++)
+            {
+                Collider col = all[i];
+                if (col == null || col.isTrigger || col.gameObject.layer != iceLayer)
+                    continue;
+
+                PhysicsMaterial source = col.material;
+                if (source == null)
+                    continue;
+
+                cachedIceLikeMaterial = new PhysicsMaterial("FlamiePrac_SlidableIce")
+                {
+                    dynamicFriction = source.dynamicFriction,
+                    staticFriction = source.staticFriction,
+                    bounciness = source.bounciness,
+                    frictionCombine = source.frictionCombine,
+                    bounceCombine = source.bounceCombine
+                };
+                FlamieLog.InfoOnce("slidable-ice-mat",
+                    "[FlamiePrac] Slidable slide material cloned from rink ice (μd=" +
+                    cachedIceLikeMaterial.dynamicFriction.ToString("F3") + ").");
+                return cachedIceLikeMaterial;
+            }
+        }
+
+        cachedIceLikeMaterial = new PhysicsMaterial("FlamiePrac_SlidableIce")
         {
             dynamicFriction = 0.04f,
             staticFriction = 0.04f,
@@ -1107,12 +1228,7 @@ public static class SlidableObstacleSetup
             frictionCombine = PhysicsMaterialCombine.Minimum,
             bounceCombine = PhysicsMaterialCombine.Minimum
         };
-
-        foreach (Collider col in obj.GetComponentsInChildren<Collider>(true))
-        {
-            if (col != null && !col.isTrigger)
-                col.material = slide;
-        }
+        return cachedIceLikeMaterial;
     }
 
     /// <summary>Tight axis-aligned box matched to visible mesh bounds (after pose snap).</summary>

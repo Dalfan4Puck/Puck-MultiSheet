@@ -74,6 +74,25 @@ public static class FlamieLog
         Debug.Log(message);
     }
 
+    /// <summary>Training snapshot / sync — always visible on dedicated servers.</summary>
+    public static void ServerSync(string message) => Debug.Log(message);
+
+    /// <summary>Throttled snapshot / sync — always visible on dedicated servers.</summary>
+    public static void ServerSyncThrottled(string key, string message, float intervalSeconds = 5f)
+    {
+        if (string.IsNullOrEmpty(key))
+        {
+            Debug.Log(message);
+            return;
+        }
+
+        float now = Time.unscaledTime;
+        if (NextAllowed.TryGetValue(key, out float next) && now < next)
+            return;
+        NextAllowed[key] = now + Mathf.Max(0.25f, intervalSeconds);
+        Debug.Log(message);
+    }
+
     public static void Error(string message) => Debug.LogError(message);
 
     public static void Reset()

@@ -204,7 +204,10 @@ public class TrainingObjectManager : MonoBehaviour
             {
                 FlamieLog.Error("[FlamiePrac] Failed to register chat command listener: " + ex.Message);
             }
-            this.StartCoroutine(StartTrainingModeWhenReady());
+            if (!SkipAutoStartForMultiRink)
+                this.StartCoroutine(StartTrainingModeWhenReady());
+            else
+                FlamieLog.Info("[FlamiePrac] MultiSheet per-rink strip — legacy AutoStart coroutine skipped.");
         }
     }
 
@@ -361,6 +364,11 @@ public class TrainingObjectManager : MonoBehaviour
         {
             return;
         }
+        if (SkipAutoStartForMultiRink)
+        {
+            FlamieLog.Info("[FlamiePrac] MultiSheet per-rink strip — StartTrainingMode skipped.");
+            return;
+        }
         modEnabled = true;
         FlamieLog.InfoOnce("train-start", "[FlamiePrac] Starting training mode");
         TrainingLayoutConfig.LayoutFile current = TrainingLayoutConfig.Current;
@@ -407,6 +415,33 @@ public class TrainingObjectManager : MonoBehaviour
             TrainingSync.Instance?.QueueSnapshotToAllClients();
             return;
         }
+        if (spawnRecords.Count > 0)
+        {
+            if (!flag && SkipAutoStartForMultiRink)
+            {
+                FlamieLog.ServerSyncThrottled(
+                    "catchup-records-stale-multisheet",
+                    "[FlamiePrac] Catch-up: spawn records exist but hive empty — reconciling strip spawns.",
+                    10f);
+                ReconcileEnabledRinkSpawns();
+                return;
+            }
+
+            FlamieLog.ServerSyncThrottled(
+                "catchup-records-no-live",
+                "[FlamiePrac] Catch-up: " + spawnRecords.Count + " spawn record(s) exist — queueing snapshot (not restarting).",
+                10f);
+            TrainingSync.Instance?.QueueSnapshotToAllClients();
+            return;
+        }
+        if (SkipAutoStartForMultiRink)
+        {
+            FlamieLog.ServerSyncThrottled(
+                "catchup-multisheet-wait-strip",
+                "[FlamiePrac] MultiSheet catch-up: no spawn records yet — waiting on strip defaults.",
+                10f);
+            return;
+        }
         if (forceIceCheck && !HasUsableRinkIce())
         {
             FlamieLog.Info("[FlamiePrac] Catch-up: rink ice not ready yet — AutoStart coroutine will spawn.");
@@ -429,14 +464,46 @@ public class TrainingObjectManager : MonoBehaviour
         }
         if (enabled)
         {
+            // UI / serverModes can say "tools on" while the hive was wiped (layout race).
+            if (toolsEnabledRinks.Contains(rinkIndex) && !HasLiveToolsOnRink(rinkIndex))
+                toolsEnabledRinks.Remove(rinkIndex);
+
             if (!toolsEnabledRinks.Contains(rinkIndex))
-            {
                 SpawnLayoutForRink(rinkIndex);
-            }
         }
         else if (toolsEnabledRinks.Contains(rinkIndex))
         {
             ClearRinkTools(rinkIndex);
+        }
+    }
+
+    public bool HasLiveToolsOnRink(int rinkIndex)
+    {
+        if (!objectsByRink.TryGetValue(rinkIndex, out HashSet<int> ids) || ids == null || ids.Count == 0)
+            return false;
+
+        foreach (int id in ids)
+        {
+            if (spawnedObjects.TryGetValue(id, out SpawnedTrainingObject entry) && entry.Object != null)
+                return true;
+        }
+
+        return false;
+    }
+
+    private void ReconcileEnabledRinkSpawns()
+    {
+        if (toolsEnabledRinks.Count == 0)
+            return;
+
+        List<int> rinks = toolsEnabledRinks.ToList();
+        foreach (int rinkIndex in rinks)
+        {
+            if (HasLiveToolsOnRink(rinkIndex))
+                continue;
+
+            toolsEnabledRinks.Remove(rinkIndex);
+            SpawnLayoutForRink(rinkIndex);
         }
     }
 
@@ -550,9 +617,14 @@ public class TrainingObjectManager : MonoBehaviour
                 num = (ulong)data["clientId"];
             }
             Player playerByClientId = GetPlayerByClientId(num);
-            if (text == "/sit")
+            if (text == "/nap")
             {
-                HandleSitCommand(playerByClientId, num);
+                HandleNapCommand(playerByClientId, num);
+                return;
+            }
+            if (text == "/sheet")
+            {
+                SpawnSlidableSheetAtPlayer(num);
                 return;
             }
             if (text == null)
@@ -762,7 +834,7 @@ public class TrainingObjectManager : MonoBehaviour
         SendMessageToClient(clientId, "Slidable physics " + (flag2 ? "enabled" : "disabled") + ".");
     }
 
-    private void HandleSitCommand(Player player, ulong clientId)
+    private void HandleNapCommand(Player player, ulong clientId)
     {
         if (player == null || player.PlayerBody == null)
         {
@@ -770,7 +842,7 @@ public class TrainingObjectManager : MonoBehaviour
             return;
         }
 
-        string message = PlayerSitService.ToggleSit(clientId, player.PlayerBody);
+        string message = PlayerNapService.ToggleNap(clientId, player.PlayerBody);
         SendMessageToClient(clientId, message);
     }
 
@@ -922,6 +994,63 @@ public class TrainingObjectManager : MonoBehaviour
         TrainingSync.Instance?.BroadcastSpawn(trainingSpawnRecord2);
     }
 
+    private void SpawnSlidableSheetAtPlayer(ulong clientId)
+    {
+        Player player = GetPlayerByClientId(clientId);
+        if (player?.PlayerBody == null)
+        {
+            SendMessageToClient(clientId, "Stand on the ice first — sheet needs your position.");
+            return;
+        }
+
+        Transform body = player.PlayerBody.transform;
+        Vector3 forward = body.forward;
+        forward.y = 0f;
+        if (forward.sqrMagnitude < 0.01f)
+            forward = Vector3.forward;
+        else
+            forward.Normalize();
+
+        Vector3 scale = TrainingObjectFactory.DefaultSheetScale;
+        float yRot = body.eulerAngles.y;
+        float lead = scale.z * 0.5f + 2f;
+        Vector3 pos = body.position + forward * lead;
+        pos.y = 0f;
+
+        int rinkIndex = ResolveRinkIndexFromWorld(body.position);
+        SpawnOneSheet(pos, yRot, scale, clientId, rinkIndex);
+        SendMessageToClient(clientId, "Flat sheet spawned in front of you.");
+    }
+
+    private void SpawnOneSheet(Vector3 iceSurfacePos, float yRot, Vector3 scale, ulong spawnedBy, int rinkIndex = 0)
+    {
+        int num = nextObjectId++;
+        GameObject val = TrainingObjectFactory.BuildSlidableSheet(
+            iceSurfacePos,
+            yRot,
+            scale,
+            num,
+            TrainingObjectFactory.BuildRole.ServerAuthority);
+        if (val == null)
+        {
+            SendMessageToClient(spawnedBy, "Sheet spawn failed.");
+            return;
+        }
+
+        RegisterSpawn(num, "sheet", val, spawnedBy, rinkIndex);
+        TrainingSpawnRecord trainingSpawnRecord = default(TrainingSpawnRecord);
+        trainingSpawnRecord.Kind = 5;
+        trainingSpawnRecord.SyncId = num;
+        trainingSpawnRecord.Position = val.transform.position;
+        trainingSpawnRecord.Rotation = val.transform.rotation;
+        trainingSpawnRecord.RotationY = yRot;
+        trainingSpawnRecord.Scale = scale;
+        TrainingSpawnRecord trainingSpawnRecord2 = trainingSpawnRecord;
+        spawnRecords[num] = trainingSpawnRecord2;
+        TrainingSync.Instance?.BroadcastSpawn(trainingSpawnRecord2);
+        SlidableGroundRaycastPatch.RefreshAllGroundRaycasts();
+    }
+
     public void SpawnCircularTarget(Vector3 position, int rinkIndex = 0)
     {
                                 //IL_005e: Unknown result type (might be due to invalid IL or missing references)
@@ -1030,6 +1159,17 @@ public class TrainingObjectManager : MonoBehaviour
         {
             spawnedObjects.Remove(item);
             spawnRecords.Remove(item);
+        }
+        foreach (KeyValuePair<int, HashSet<int>> kv in objectsByRink.ToList())
+        {
+            List<int> deadIds = kv.Value.Where(id => !spawnedObjects.ContainsKey(id)).ToList();
+            for (int i = 0; i < deadIds.Count; i++)
+                kv.Value.Remove(deadIds[i]);
+            if (kv.Value.Count == 0)
+            {
+                objectsByRink.Remove(kv.Key);
+                toolsEnabledRinks.Remove(kv.Key);
+            }
         }
         if (list.Count > 0)
         {

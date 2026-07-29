@@ -31,6 +31,7 @@ namespace PHLPracticeModPack
         private static bool suppressExpireAnnounce;
         private static bool defaultsApplied;
         private static float nextDefaultRetry;
+        private static float nextReconcileAt;
 
         private static readonly List<RinkStripMode> serverModes = new List<RinkStripMode>();
 
@@ -54,6 +55,7 @@ namespace PHLPracticeModPack
             if (manager != null) TryRegisterMessaging(manager);
             EnforceVoteTimeout();
             TryApplyServerDefaults();
+            TryReconcileStripSpawns();
         }
 
         internal static void Teardown()
@@ -84,6 +86,7 @@ namespace PHLPracticeModPack
             suppressExpireAnnounce = false;
             defaultsApplied = false;
             nextDefaultRetry = 0f;
+            nextReconcileAt = 0f;
             serverModes.Clear();
         }
 
@@ -260,6 +263,10 @@ namespace PHLPracticeModPack
             if (TrainingObjectManager.Instance == null) return;
             if (!MultiRinkConfig.Current.EnableMultiRink) return;
 
+            // Multi-rink geometry must exist before tools spawn — early spawns get wiped
+            // when VanillaRinkCloner finishes and leave serverModes stuck on "tools".
+            if (!VanillaRinkCloner.LayoutReady) return;
+
             int count = MultiRinkConfig.Current.Rinks?.Count ?? 0;
             if (count <= 0) count = 6;
 
@@ -272,8 +279,38 @@ namespace PHLPracticeModPack
             }
 
             defaultsApplied = true;
-            PracticeLog.Info("[PHLPractice] Strip defaults applied (Rink 1 = PHL Tools, others Empty).");
+            FlamieLog.ServerSync("[PHLPractice] Strip defaults applied (Rink 1 = PHL Tools, others Empty).");
             RinkMotdService.BroadcastStatus();
+        }
+
+        /// <summary>
+        /// Re-spawn when strip mode says tools but live hive was lost (layout race / stale refs).
+        /// </summary>
+        private static void TryReconcileStripSpawns()
+        {
+            if (!defaultsApplied) return;
+            if (Time.unscaledTime < nextReconcileAt) return;
+
+            NetworkManager nm = NetworkManager.Singleton;
+            if (nm == null || !nm.IsServer) return;
+
+            TrainingObjectManager mgr = TrainingObjectManager.Instance;
+            if (mgr == null) return;
+
+            nextReconcileAt = Time.unscaledTime + 2f;
+
+            for (int i = 0; i < serverModes.Count; i++)
+            {
+                if (serverModes[i] != RinkStripMode.PhlTools)
+                    continue;
+
+                if (mgr.HasLiveToolsOnRink(i))
+                    continue;
+
+                FlamieLog.ServerSync("[PHLPractice] Rink " + (i + 1) +
+                    " marked PHL Tools but hive empty — re-spawning strip layout.");
+                mgr.SetRinkToolsEnabled(i, true);
+            }
         }
 
         private static void ApplyStripMode(int rinkIndex, RinkStripMode mode, bool announce)
@@ -577,7 +614,7 @@ namespace PHLPracticeModPack
                 try
                 {
                     using (FastBufferWriter writer = new FastBufferWriter(
-                        1 + 4 + 4 + 4 + keyBytes.Length, Allocator.Temp))
+                        1 + 4 + 4 + 4 + 4 + keyBytes.Length, Allocator.Temp))
                     {
                         writer.WriteValueSafe(progress.Active ? (byte)1 : (byte)0);
                         writer.WriteValueSafe(progress.RinkIndex);

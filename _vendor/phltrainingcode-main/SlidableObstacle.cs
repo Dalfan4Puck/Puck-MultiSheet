@@ -1298,13 +1298,12 @@ public class SlidableObstacle : MonoBehaviour
         else
             avgNormal = Vector3.up;
 
-        if (standingOnTop)
-        {
-            // Never freeze a corner-balanced speaker under the player.
-            if (!IsRestingOnFace(0.92f))
-                return;
+        bool onTopSurface = standingOnTop || IsPlayerFeetAbovePropTop(playerBody);
 
-            if (!rb.isKinematic)
+        if (onTopSurface)
+        {
+            // Ride the prop like ice — no body shove / slip while standing or jumping off.
+            if (!rb.isKinematic && IsRestingOnFace(0.85f))
                 SetPlatformKinematic(true);
             return;
         }
@@ -1315,6 +1314,22 @@ public class SlidableObstacle : MonoBehaviour
         // Side/body check — stick authority still moves the prop; body skates should not yeet it.
         ResistPlayerBodyShove();
         TryWipePlayerFromBodyHit(playerBody, collision, avgNormal, isEnter);
+    }
+
+    private bool IsPlayerFeetAbovePropTop(PlayerBody playerBody)
+    {
+        if (playerBody == null || !TryGetCombinedColliderBounds(out Bounds bounds))
+            return false;
+
+        float topY = bounds.max.y;
+        Vector3 pos = playerBody.Rigidbody != null
+            ? playerBody.Rigidbody.position
+            : playerBody.transform.position;
+
+        // Skates sit ~0.85m below the body root; treat near-top contact as standable.
+        const float skateBelowRoot = 0.85f;
+        const float topTolerance = 0.35f;
+        return pos.y - skateBelowRoot >= topY - topTolerance;
     }
 
     private bool IsStickPushActive()
@@ -1347,6 +1362,9 @@ public class SlidableObstacle : MonoBehaviour
             return;
 
         if (playerBody.HasSlipped || playerBody.HasFallen.Value)
+            return;
+
+        if (IsPlayerFeetAbovePropTop(playerBody))
             return;
 
         Player player = playerBody.Player;

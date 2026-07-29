@@ -9,6 +9,9 @@ using UnityEngine;
 public static class TrainingObjectFactory
 {
     private static readonly Color PasserNeonGreen = new Color(0.12f, 1f, 0.18f);
+    private static readonly Color SheetWhite = Color.white;
+
+    public static readonly Vector3 DefaultSheetScale = new Vector3(16f, 0.06f, 12f);
 
     public enum BuildRole
     {
@@ -226,6 +229,54 @@ public static class TrainingObjectFactory
             frictionCombine = PhysicsMaterialCombine.Minimum
         };
         collider.material = bumper;
+    }
+
+    /// <summary>Flat pushable sheet — wide thin blanket on the slidable prop layer (~22).</summary>
+    public static GameObject BuildSlidableSheet(
+        Vector3 position,
+        float yRot,
+        Vector3 scale,
+        int syncId,
+        BuildRole role,
+        bool positionIsFinalWorldCenter = false)
+    {
+        Vector3 rootPos = position;
+        if (!positionIsFinalWorldCenter)
+            rootPos.y += Mathf.Max(scale.y, 0.01f) * 0.5f;
+
+        GameObject root = new GameObject("SlidableSheet_" + syncId);
+        root.transform.SetPositionAndRotation(rootPos, Quaternion.Euler(0f, yRot, 0f));
+
+        GameObject visual = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        visual.name = "BoardVisual";
+        visual.transform.SetParent(root.transform, false);
+        visual.transform.localPosition = Vector3.zero;
+        visual.transform.localRotation = Quaternion.identity;
+        visual.transform.localScale = scale;
+        Object.Destroy(visual.GetComponent<Collider>());
+
+        if (role == BuildRole.ClientVisual || !Application.isBatchMode)
+            TrainingMaterialFix.ApplyPrimitiveRenderer(visual, SheetWhite);
+        else
+        {
+            Renderer renderer = visual.GetComponent<Renderer>();
+            if (renderer != null)
+                renderer.enabled = false;
+        }
+
+        if (role == BuildRole.ServerAuthority)
+        {
+            if (!positionIsFinalWorldCenter)
+                SeatPasserOnRinkIce(root.transform, scale);
+
+            SlidableObstacleSetup.ConfigureSlidableSheetServer(root, syncId, scale);
+        }
+        else
+            SlidableObstacleSetup.ConfigureSlidableSheetClient(root, syncId, scale);
+
+        var marker = root.AddComponent<TrainingSyncMarker>();
+        marker.SyncId = syncId;
+        return root;
     }
 
     public static GameObject BuildCircularTarget(Vector3 position, int syncId, BuildRole role)
