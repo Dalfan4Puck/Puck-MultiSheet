@@ -161,6 +161,7 @@ namespace PHLPracticeModPack
             }
 
             StickIcePassThrough.ScanSceneFloorIce(logResult: true);
+            SlidableBoardCollision.ReassertSlidablePairs();
             SlidableBoardCollision.SyncStickIceLayerPolicy();
             return root;
         }

@@ -274,6 +274,7 @@ public sealed class TrainingSync : MonoBehaviour
             return;
 
         StickIcePassThrough.ScanSceneFloorIce(logResult: true);
+        SlidableBoardCollision.ReassertSlidablePairs();
         SlidableBoardCollision.SyncStickIceLayerPolicy();
 
         RefreshNetworkRoles();
@@ -535,6 +536,8 @@ public sealed class TrainingSync : MonoBehaviour
         isClient = nm.IsClient;
 
         SlidableBoardCollision.Ensure();
+        SlidableBoardCollision.ReassertSlidablePairs();
+        SlidableBoardCollision.SyncStickIceLayerPolicy();
 
         Debug.Log("[FlamiePrac] Network ready — " + FlamiePracVersion.Banner +
                   " IsServer=" + isServer + " IsClient=" + isClient +

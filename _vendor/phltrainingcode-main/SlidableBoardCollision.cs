@@ -5,56 +5,69 @@ public static class SlidableBoardCollision
     private static bool configured;
     private static bool? lastStickIceIgnored;
 
+    /// <summary>One-time layer setup. Safe to call from spawn paths; no-ops after first run.</summary>
     public static void Ensure()
     {
+        if (configured)
+            return;
+
+        configured = true;
+
         int slidablePropLayerIndex = CollisionHelper.GetSlidablePropLayerIndex();
-        // Puck/rink load may flip Ice↔Ice off — reassert so beam/speakers block each other.
+        int staticTrainingPropLayerIndex = CollisionHelper.GetStaticTrainingPropLayerIndex();
+
+        // Stick↔Ice is NOT enabled here — SyncStickIceLayerPolicy owns that (dip vs push).
         if (slidablePropLayerIndex >= 0)
-            Physics.IgnoreLayerCollision(slidablePropLayerIndex, slidablePropLayerIndex, false);
-
-        if (!configured)
         {
-            configured = true;
-
-            int staticTrainingPropLayerIndex = CollisionHelper.GetStaticTrainingPropLayerIndex();
-
-            // Stick↔Ice is NOT enabled here — SyncStickIceLayerPolicy owns that (dip vs push).
-            if (slidablePropLayerIndex >= 0)
-            {
-                foreach (string layerName in new[]
-                         {
-                             "Default", "Player", "Player Body", "Body", "Puck", "Character",
-                             "Barrier", "Boards", "Goal Post", "Goal Net", "Goal Net Cloth", "Goal Frame"
-                         })
-                {
-                    EnablePair(slidablePropLayerIndex, LayerMask.NameToLayer(layerName));
-                }
-
-                EnablePair(slidablePropLayerIndex, staticTrainingPropLayerIndex);
-                FlamieLog.Info("[FlamiePrac] Slidable Ice pairs enabled (Ice↔Ice on for prop-to-prop).");
-            }
-
             foreach (string layerName in new[]
                      {
-                         "Puck", "Player", "Player Body", "Body", "Character",
-                         "Boards", "Goal Post", "Default"
+                         "Default", "Player", "Player Body", "Body", "Puck", "Character",
+                         "Barrier", "Boards", "Goal Post", "Goal Net", "Goal Net Cloth", "Goal Frame"
                      })
             {
-                EnablePair(CollisionHelper.GetStaticTrainingPropLayerIndex(), LayerMask.NameToLayer(layerName));
+                EnablePair(slidablePropLayerIndex, LayerMask.NameToLayer(layerName));
             }
 
-            int stickLayer = LayerMask.NameToLayer("Stick");
-            if (stickLayer >= 0 && staticTrainingPropLayerIndex >= 0)
-                Physics.IgnoreLayerCollision(stickLayer, staticTrainingPropLayerIndex, true);
-
-            EnablePair(staticTrainingPropLayerIndex, slidablePropLayerIndex);
-            FlamieLog.Info("[FlamiePrac] Slidable Ice=" + LayerMask.LayerToName(slidablePropLayerIndex) +
-                           " staticTraining=" + staticTrainingPropLayerIndex +
-                           " (Stick↔Ice toggled with slidable physics; floor ignored per collider).");
+            EnablePair(slidablePropLayerIndex, staticTrainingPropLayerIndex);
+            FlamieLog.Info("[FlamiePrac] Slidable Ice pairs enabled (Ice↔Ice on for prop-to-prop).");
         }
 
+        foreach (string layerName in new[]
+                 {
+                     "Puck", "Player", "Player Body", "Body", "Character",
+                     "Boards", "Goal Post", "Default"
+                 })
+        {
+            EnablePair(staticTrainingPropLayerIndex, LayerMask.NameToLayer(layerName));
+        }
+
+        int stickLayer = LayerMask.NameToLayer("Stick");
+        if (stickLayer >= 0 && staticTrainingPropLayerIndex >= 0)
+            Physics.IgnoreLayerCollision(stickLayer, staticTrainingPropLayerIndex, true);
+
+        EnablePair(staticTrainingPropLayerIndex, slidablePropLayerIndex);
+        FlamieLog.Info("[FlamiePrac] Slidable Ice=" + LayerMask.LayerToName(slidablePropLayerIndex) +
+                       " staticTraining=" + staticTrainingPropLayerIndex +
+                       " (Stick↔Ice toggled with slidable physics; floor ignored per collider).");
+
         StickIcePassThrough.ScanSceneFloorIce();
-        SyncStickIceLayerPolicy();
+    }
+
+    /// <summary>
+    /// Cheap reassert after level load or toggle — Puck may flip Ice↔Ice off.
+    /// Not for SlidableObstacle FixedUpdate (benchmark never did per-frame collision work).
+    /// </summary>
+    public static void ReassertSlidablePairs()
+    {
+        int slidablePropLayerIndex = CollisionHelper.GetSlidablePropLayerIndex();
+        if (slidablePropLayerIndex < 0)
+            return;
+
+        Physics.IgnoreLayerCollision(slidablePropLayerIndex, slidablePropLayerIndex, false);
+
+        int puckLayer = LayerMask.NameToLayer("Puck");
+        if (puckLayer >= 0)
+            Physics.IgnoreLayerCollision(slidablePropLayerIndex, puckLayer, false);
     }
 
     /// <summary>

@@ -177,9 +177,6 @@ public class SlidableObstacle : MonoBehaviour
             return;
         }
 
-        // Rink/Puck may flip Ice↔Ice off after load — keep slidables solid to each other.
-        SlidableBoardCollision.Ensure();
-
         if (!isAwake)
         {
             if (Time.time < wakeTime)
