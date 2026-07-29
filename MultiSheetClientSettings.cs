@@ -39,9 +39,8 @@ namespace PHLPracticeModPack
         public bool skipChunkClient = false;
 
         /// <summary>
-        /// When true, skip MultiSheet sun/ambient/day-night and keep all clone fill lights off.
-        /// Clone lights still exist for when this is turned back on; only the active rink's
-        /// fills are enabled while arena lighting is on.
+        /// When true, keep clone fill lights off (independent of day/night sun/sky cycle).
+        /// Day/night may still drive sun, ambient, and skybox while fills stay disabled.
         /// </summary>
         public bool skipArenaLighting = false;
 

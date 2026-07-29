@@ -618,12 +618,6 @@ public class TrainingObjectManager : MonoBehaviour
                 {
                     switch (c)
                     {
-                    case 'h':
-                        if (text == "/trainhere")
-                        {
-                            HandleTrainHere(playerByClientId, num, args);
-                        }
-                        break;
                     case 'd':
                         if (text == "/traindump")
                         {
@@ -808,41 +802,43 @@ public class TrainingObjectManager : MonoBehaviour
         }
     }
 
-    private void HandleTrainHere(Player player, ulong clientId, string[] args)
+    private void SpawnPassBackBox(ulong clientId)
     {
-        //IL_005f: Unknown result type (might be due to invalid IL or missing references)
-                                //IL_00a5: Unknown result type (might be due to invalid IL or missing references)
-        //IL_00b1: Unknown result type (might be due to invalid IL or missing references)
-        //IL_00bd: Unknown result type (might be due to invalid IL or missing references)
-        if (player == null)
+        Player player = GetPlayerByClientId(clientId);
+        if (player?.PlayerBody == null)
         {
-            SendMessageToClient(clientId, "Player not found.");
+            SendMessageToClient(clientId, "Stand on the ice first — pass bump needs your position.");
             return;
         }
-        string text = ((args.Length != 0) ? args[0].ToLowerInvariant() : "trainingprefab");
-        GameObject val = Class1.Instance?.GetPrefab(text);
-        if (val == null)
-        {
-            SendMessageToClient(clientId, "Prefab not found: " + text);
-            return;
-        }
-        Vector3 position = ((Component)player).transform.position;
-        position.y = 0f;
-        if (SpawnTrainingObject(val, text, position, Quaternion.identity, clientId) >= 0)
-        {
-            TrainingLayoutConfig.AppendSpawn(new TrainingLayoutConfig.SpawnEntry
-            {
-                Type = "prefab",
-                Name = text,
-                Position = new TrainingLayoutConfig.Vec3
-                {
-                    x = position.x,
-                    y = position.y,
-                    z = position.z
-                }
-            });
-            SendMessageToClient(clientId, "Spawned + saved " + text + " at (" + position.x.ToString("F1") + ", " + position.y.ToString("F1") + ", " + position.z.ToString("F1") + ")");
-        }
+
+        Transform body = player.PlayerBody.transform;
+        Vector3 forward = body.forward;
+        forward.y = 0f;
+        if (forward.sqrMagnitude < 0.01f)
+            forward = Vector3.forward;
+        else
+            forward.Normalize();
+
+        const float spawnDistance = 5f;
+        Vector3 pos = body.position + forward * spawnDistance;
+        pos.y = 0f;
+
+        float yRot = body.eulerAngles.y;
+        float boardLength = TrainingLayoutConfig.DefaultPasserLength;
+        Vector3 scale = new Vector3(boardLength, 0.55f, 0.5f);
+        int rinkIndex = ResolveRinkIndexFromWorld(body.position);
+
+        SpawnOnePasser(pos, yRot, 14f, scale, clientId, rinkIndex);
+        SendMessageToClient(clientId, "Pass bump board spawned in front of you.");
+    }
+
+    private static int ResolveRinkIndexFromWorld(Vector3 worldPos)
+    {
+        int col = Mathf.RoundToInt(worldPos.x / RinkOrigin.SpacingX);
+        int row = Mathf.RoundToInt(worldPos.z / RinkOrigin.SpacingZ);
+        if (col < 0) col = 0;
+        if (row < 0) row = 0;
+        return row * 3 + col;
     }
 
     private void HandleTrainDump(ulong clientId)
@@ -905,18 +901,6 @@ public class TrainingObjectManager : MonoBehaviour
             SendMessageToClient(spawnedBy, "Failed to spawn: " + ex.Message);
             return -1;
         }
-    }
-
-    private void SpawnPassBackBox(ulong clientId)
-    {
-                //IL_003f: Unknown result type (might be due to invalid IL or missing references)
-                        float num = 5f;
-        float num2 = TrainingLayoutConfig.PasserCenterZ(num);
-        Vector3 scale = default(Vector3);
-        scale = new Vector3(num, 0.55f, 0.5f);
-        SpawnOnePasser(new Vector3(6f, 0f, num2), 45f, 14f, scale, clientId);
-        SpawnOnePasser(new Vector3(-6f, 0f, num2), -45f, 14f, scale, clientId);
-        SendMessageToClient(clientId, "2 puck passers spawned.");
     }
 
     private void SpawnOnePasser(Vector3 pos, float yRot, float speed, Vector3 scale, ulong spawnedBy, int rinkIndex = 0)

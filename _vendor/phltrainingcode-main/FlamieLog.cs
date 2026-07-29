@@ -5,6 +5,7 @@ using UnityEngine;
 /// Flamie logging gate. Dedicated servers stay quiet for chatty Info lines (they were
 /// drowning Puck.log / NetPerf). Warnings and errors always emit. Use InfoOnce for
 /// important one-shot lifecycle lines that should still appear on dedicated boots.
+/// Setup() is verbose-only detail (collider/slidable init). WarnOnce dedupes hot warnings.
 /// </summary>
 public static class FlamieLog
 {
@@ -56,6 +57,21 @@ public static class FlamieLog
             return;
         NextAllowed[key] = now + Mathf.Max(0.25f, intervalSeconds);
         Debug.LogWarning(message);
+    }
+
+    public static void WarnOnce(string key, string message)
+    {
+        if (string.IsNullOrEmpty(key) || !OnceKeys.Add(key))
+            return;
+        Debug.LogWarning(message);
+    }
+
+    /// <summary>Collider / slidable setup detail — only when Verbose.</summary>
+    public static void Setup(string message)
+    {
+        if (!Verbose)
+            return;
+        Debug.Log(message);
     }
 
     public static void Error(string message) => Debug.LogError(message);

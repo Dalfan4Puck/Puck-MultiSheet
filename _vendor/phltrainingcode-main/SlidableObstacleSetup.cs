@@ -50,7 +50,7 @@ public static class SlidableObstacleSetup
             return;
 
         LockPasserPose(passerRoot, syncId, scale, ownAnchor: false);
-        Debug.Log("[FlamiePrac] Passer locked at spawn: syncId=" + syncId + " (no slide sync)");
+        FlamieLog.Setup("[FlamiePrac] Passer locked at spawn: syncId=" + syncId + " (no slide sync)");
     }
 
     public static void ConfigurePasserClient(GameObject passerRoot, int syncId, Vector3 scale)
@@ -181,12 +181,16 @@ public static class SlidableObstacleSetup
         int total = beams.Count + speakerUnits;
         if (total == 0)
         {
-            Debug.Log("[FlamiePrac] No slidable beams or speakers found on '" + trainingRoot.name + "'.");
+            FlamieLog.InfoOnce(
+                "slidable-none-" + trainingRoot.name,
+                "[FlamiePrac] No slidable beams or speakers found on '" + trainingRoot.name + "'.");
             return;
         }
 
-        Debug.Log("[FlamiePrac] Configured " + beams.Count + " slidable beam(s) and " +
-                  speakerUnits + " speaker unit(s) on '" + trainingRoot.name + "'.");
+        FlamieLog.InfoOnce(
+            "slidable-configured-" + trainingRoot.name,
+            "[FlamiePrac] Configured " + beams.Count + " slidable beam(s) and " +
+            speakerUnits + " speaker unit(s) on '" + trainingRoot.name + "'.");
     }
 
     private static void ApplyBeamPhysicsProfileFields(SlidableObstacle obstacle)
@@ -258,7 +262,7 @@ public static class SlidableObstacleSetup
         }
 
         beam.localScale = Vector3.Scale(beam.localScale, mul);
-        Debug.Log("[FlamiePrac] Beam cross-section scale x" + BeamCrossSectionScale.ToString("F2") +
+        FlamieLog.Setup("[FlamiePrac] Beam cross-section scale x" + BeamCrossSectionScale.ToString("F2") +
                   " on '" + beam.name + "' localScale=" + beam.localScale.ToString("F3"));
     }
 
@@ -315,7 +319,7 @@ public static class SlidableObstacleSetup
         if (TryGetCombinedRendererBounds(target.gameObject, out Bounds bounds))
         {
             int layer = target.gameObject.layer;
-            Debug.Log("[FlamiePrac] Slidable '" + relativePath + "' name=" + target.name +
+            FlamieLog.Setup("[FlamiePrac] Slidable '" + relativePath + "' name=" + target.name +
                       " size=" + bounds.size + " layer=" + LayerMask.LayerToName(layer));
         }
     }
@@ -344,13 +348,13 @@ public static class SlidableObstacleSetup
 
         if (units.Count > 1)
         {
-            Debug.Log("[FlamiePrac] Split speaker into " + units.Count +
+            FlamieLog.Setup("[FlamiePrac] Split speaker into " + units.Count +
                       " slidable unit(s) at '" + basePath + "' (cabinet meshes only).");
         }
 
         if (attached > 0)
         {
-            Debug.Log("[FlamiePrac] Attached " + attached + " sticker(s) to speaker at '" +
+            FlamieLog.Setup("[FlamiePrac] Attached " + attached + " sticker(s) to speaker at '" +
                       basePath + "'.");
         }
 
@@ -851,7 +855,7 @@ public static class SlidableObstacleSetup
         }
 
         if (attached > 0)
-            Debug.Log("[FlamiePrac] Absorbed " + attached + " nearby mesh(es) into beam '" + beam.name + "'.");
+            FlamieLog.Setup("[FlamiePrac] Absorbed " + attached + " nearby mesh(es) into beam '" + beam.name + "'.");
 
         return attached;
     }
@@ -1134,7 +1138,7 @@ public static class SlidableObstacleSetup
         box.size = size;
         box.isTrigger = false;
         CollisionHelper.SetSlidablePhysicsLayer(go);
-        Debug.Log("[FlamiePrac] Fit box collider on '" + go.name + "' size=" + box.size.ToString("F3"));
+        FlamieLog.Setup("[FlamiePrac] Fit box collider on '" + go.name + "' size=" + box.size.ToString("F3"));
     }
 
     /// <summary>
@@ -1192,7 +1196,7 @@ public static class SlidableObstacleSetup
             Mathf.Max(Mathf.Abs(size.z), 0.12f));
         box.isTrigger = false;
         CollisionHelper.SetSlidablePhysicsLayer(go);
-        Debug.Log("[FlamiePrac] Fit beam box on '" + go.name + "' size=" + box.size.ToString("F3"));
+        FlamieLog.Setup("[FlamiePrac] Fit beam box on '" + go.name + "' size=" + box.size.ToString("F3"));
     }
 
     /// <summary>
@@ -1257,7 +1261,7 @@ public static class SlidableObstacleSetup
             Mathf.Max(Mathf.Abs(size.z), 0.12f));
         box.isTrigger = false;
         CollisionHelper.SetSlidablePhysicsLayer(go);
-        Debug.Log("[FlamiePrac] Speaker cabinet box on '" + go.name +
+        FlamieLog.Setup("[FlamiePrac] Speaker cabinet box on '" + go.name +
                   "' mesh='" + dominant.name + "' center=" + box.center.ToString("F3") +
                   " size=" + box.size.ToString("F3"));
     }
@@ -1724,7 +1728,7 @@ public static class SlidableObstacleSetup
 
         box.isTrigger = false;
         CollisionHelper.SetTrainingPhysicsLayer(go);
-        Debug.Log("[FlamiePrac] Box collider on '" + go.name + "' size=" + box.size);
+        FlamieLog.Setup("[FlamiePrac] Box collider on '" + go.name + "' size=" + box.size);
     }
 
     private static void EnsureDynamicCollider(GameObject go, float minColliderHeight = MinColliderHeight)
@@ -1761,18 +1765,18 @@ public static class SlidableObstacleSetup
 
         box.isTrigger = false;
         CollisionHelper.SetTrainingPhysicsLayer(go);
-        Debug.Log("[FlamiePrac] Box fallback collider on '" + go.name + "' size=" + box.size);
+        FlamieLog.Setup("[FlamiePrac] Box fallback collider on '" + go.name + "' size=" + box.size);
     }
 
     private static void LogShapeColliderSummary(GameObject go, int meshCount)
     {
         if (!TryGetCombinedRendererBounds(go, out Bounds bounds))
         {
-            Debug.Log("[FlamiePrac] Shape colliders on '" + go.name + "': " + meshCount + " mesh(es)");
+            FlamieLog.Setup("[FlamiePrac] Shape colliders on '" + go.name + "': " + meshCount + " mesh(es)");
             return;
         }
 
-        Debug.Log("[FlamiePrac] Shape colliders on '" + go.name + "': " + meshCount +
+        FlamieLog.Setup("[FlamiePrac] Shape colliders on '" + go.name + "': " + meshCount +
                   " mesh(es), visual bounds=" + bounds.size.ToString("F2"));
     }
 

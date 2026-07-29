@@ -180,6 +180,29 @@ namespace PHLPracticeModPack
             return count;
         }
 
+        /// <summary>True when a real human's body is nearest to the given rink index.</summary>
+        internal static bool IsHumanPlayerOnRink(Player player, MultiRinkConfig cfg, int rinkIndex)
+        {
+            if (player == null || player.PlayerBody == null || cfg?.Rinks == null) return false;
+            if (rinkIndex < 0 || rinkIndex >= cfg.Rinks.Count) return false;
+            if (FakePlayerDetector.IsAnyFakePlayer(player)) return false;
+            try
+            {
+                if (FakePlayerDetector.IsAnyFakeClientId(player.OwnerClientId)) return false;
+            }
+            catch { }
+            try { if (player.IsReplay != null && player.IsReplay.Value) return false; } catch { }
+
+            try
+            {
+                return RinkLocator.NearestRink(cfg, player.PlayerBody.transform.position) == rinkIndex;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         /// <summary>Capacity gate used by chat commands and MOTD teleports alike.</summary>
         internal static bool IsRinkFullFor(ulong clientId, RinkSlot slot, out string message)
         {
@@ -669,7 +692,7 @@ namespace PHLPracticeModPack
             return false;
         }
 
-        private static bool IsAdminPlayer(Player player)
+        internal static bool IsAdminPlayer(Player player)
         {
             if (player == null) return false;
             if (player.AdminLevel != null && player.AdminLevel.Value > 0)

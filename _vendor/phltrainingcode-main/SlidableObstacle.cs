@@ -196,7 +196,7 @@ public class SlidableObstacle : MonoBehaviour
         string boundsText = TryGetCombinedColliderBounds(out Bounds bounds)
             ? bounds.size.ToString("F2")
             : "unknown";
-        Debug.Log("[FlamiePrac] Slidable obstacle ready: " + RelativePath +
+        FlamieLog.Setup("[FlamiePrac] Slidable obstacle ready: " + RelativePath +
                   " mass=" + mass + " colliders=" + (bodyColliders?.Length ?? 0) +
                   " bounds=" + boundsText +
                   (allowStickPush ? "" : " body-push-only") +
@@ -1642,7 +1642,7 @@ public class SlidableObstacleVisual : MonoBehaviour
         {
             loggedFirstState = true;
             int renderers = GetComponentsInChildren<Renderer>(true).Length;
-            Debug.Log("[FlamiePrac] Slidable visual locked to server pose: " + RelativePath +
+            FlamieLog.Setup("[FlamiePrac] Slidable visual locked to server pose: " + RelativePath +
                       " syncId=" + ParentSyncId + " pos=" + worldPos.ToString("F2") +
                       " renderers=" + renderers);
         }

@@ -217,7 +217,7 @@ public sealed class TrainingSync : MonoBehaviour
         if (shutDown)
             return;
 
-        Debug.Log("[FlamiePrac] Event_OnClientStarted — catch-up network + snapshot.");
+        FlamieLog.InfoOnce("client-started", "[FlamiePrac] Event_OnClientStarted — catch-up network + snapshot.");
         RestartNetworkWait("ClientStarted");
     }
 
@@ -226,7 +226,7 @@ public sealed class TrainingSync : MonoBehaviour
         if (shutDown)
             return;
 
-        Debug.Log("[FlamiePrac] Event_OnClientStopped — clearing client mirrors.");
+        FlamieLog.InfoOnce("client-stopped", "[FlamiePrac] Event_OnClientStopped — clearing client mirrors.");
         ClearClientObjects();
         clientAwaitingSnapshot = false;
         clientSnapshotRetries = 0;
@@ -265,7 +265,7 @@ public sealed class TrainingSync : MonoBehaviour
             StopCoroutine(waitForNetworkCoroutine);
 
         waitForNetworkCoroutine = StartCoroutine(WaitForNetwork());
-        Debug.Log("[FlamiePrac] Network wait restarted (" + reason + ").");
+        FlamieLog.InfoThrottled("network-wait-restart", "[FlamiePrac] Network wait restarted (" + reason + ").", 5f);
     }
 
     private void OnLevelSpawned(Dictionary<string, object> data)
@@ -284,7 +284,7 @@ public sealed class TrainingSync : MonoBehaviour
         // Use live Netcode flags — stale isClient misses LevelSpawned before WaitForNetwork finishes.
         if (IsPureClient())
         {
-            Debug.Log("[FlamiePrac] Level spawned — requesting training snapshot.");
+            FlamieLog.InfoThrottled("level-spawned-snapshot", "[FlamiePrac] Level spawned — requesting training snapshot.", 2f);
             BeginClientSnapshotWait();
             ScheduleSnapshotRequest(0.2f);
             return;
@@ -305,7 +305,7 @@ public sealed class TrainingSync : MonoBehaviour
         {
             ClearClientObjects();
             clientAwaitingSnapshot = true;
-            Debug.Log("[FlamiePrac] Level despawned — cleared client training visuals.");
+            FlamieLog.InfoOnce("level-despawned", "[FlamiePrac] Level despawned — cleared client training visuals.");
         }
     }
 
@@ -320,7 +320,7 @@ public sealed class TrainingSync : MonoBehaviour
             if (clientId == NetworkManager.ServerClientId)
                 return;
 
-            Debug.Log("[FlamiePrac] Client scene sync complete — queueing snapshot for " + clientId);
+            FlamieLog.Setup("[FlamiePrac] Client scene sync complete — queueing snapshot for " + clientId);
             QueueSnapshotToClient(clientId);
         }
         catch (Exception ex)
@@ -376,7 +376,10 @@ public sealed class TrainingSync : MonoBehaviour
 
         if (clientSnapshotRetries <= 24)
         {
-            Debug.Log("[FlamiePrac] Client visuals missing — snapshot retry #" + clientSnapshotRetries);
+            FlamieLog.InfoThrottled(
+                "client-visuals-missing",
+                "[FlamiePrac] Client visuals missing — snapshot retry #" + clientSnapshotRetries,
+                2f);
             RequestSnapshot();
         }
     }
@@ -441,8 +444,10 @@ public sealed class TrainingSync : MonoBehaviour
             }
 
             nextSnapshotFlushTime = Time.time;
-            Debug.Log("[FlamiePrac] Queued training snapshot for all connected clients (" +
-                      pendingSnapshotClients.Count + ").");
+            FlamieLog.InfoOnce(
+                "queued-snapshot-all",
+                "[FlamiePrac] Queued training snapshot for all connected clients (" +
+                pendingSnapshotClients.Count + ").");
         }
         catch (Exception ex)
         {
@@ -542,7 +547,7 @@ public sealed class TrainingSync : MonoBehaviour
         SlidableBoardCollision.SyncStickIceLayerPolicy();
         SlidableGroundRaycastPatch.RefreshAllStickPositioners();
 
-        Debug.Log("[FlamiePrac] Network ready — " + FlamiePracVersion.Banner +
+        FlamieLog.InfoOnce("network-ready", "[FlamiePrac] Network ready — " + FlamiePracVersion.Banner +
                   " IsServer=" + isServer + " IsClient=" + isClient +
                   " Dedicated=" + Application.isBatchMode +
                   " (catch-up: app-start or workshop join-enable)");
@@ -650,7 +655,7 @@ public sealed class TrainingSync : MonoBehaviour
 
         nm.NetworkTickSystem.Tick += OnNetworkTick;
         tickSubscribed = true;
-        Debug.Log("[FlamiePrac] Slidable sync locked to NetworkTickSystem (" +
+        FlamieLog.InfoOnce("slidable-tick", "[FlamiePrac] Slidable sync locked to NetworkTickSystem (" +
                   (nm.NetworkConfig != null ? nm.NetworkConfig.TickRate.ToString() : "?") + " Hz).");
     }
 
@@ -672,7 +677,7 @@ public sealed class TrainingSync : MonoBehaviour
             return;
 
         gameObject.AddComponent<TrainingObjectManager>();
-        Debug.Log("[FlamiePrac] TrainingObjectManager attached on server.");
+        FlamieLog.InfoOnce("tom-attached", "[FlamiePrac] TrainingObjectManager attached on server.");
     }
 
     private void OnClientConnected(ulong clientId)
@@ -715,7 +720,10 @@ public sealed class TrainingSync : MonoBehaviour
                     NetworkDelivery.Reliable);
             }
 
-            Debug.Log("[FlamiePrac] Requested training snapshot from server.");
+            FlamieLog.InfoThrottled(
+                "request-training-snapshot",
+                "[FlamiePrac] Requested training snapshot from server.",
+                2f);
         }
         catch (Exception ex)
         {
@@ -981,8 +989,10 @@ public sealed class TrainingSync : MonoBehaviour
         {
             // Join beat AutoStart — keep retrying until hive exists.
             pendingSnapshotClients.Add(clientId);
-            Debug.Log("[FlamiePrac] Snapshot deferred for client " + clientId +
-                      " — no spawn records yet.");
+            FlamieLog.InfoThrottled(
+                "snapshot-deferred-" + clientId,
+                "[FlamiePrac] Snapshot deferred for client " + clientId + " — no spawn records yet.",
+                10f);
             return;
         }
 
@@ -1009,7 +1019,7 @@ public sealed class TrainingSync : MonoBehaviour
                     NetworkDelivery.Reliable);
             }
 
-            Debug.Log("[FlamiePrac] Sent snapshot (" + records.Count + " object(s)) to client " + clientId);
+            FlamieLog.Setup("[FlamiePrac] Sent snapshot (" + records.Count + " object(s)) to client " + clientId);
         }
         catch (Exception ex)
         {
@@ -1079,7 +1089,7 @@ public sealed class TrainingSync : MonoBehaviour
             if (live)
                 clientSnapshotRetries = 0;
 
-            Debug.Log("[FlamiePrac] Applied snapshot with " + count + " record(s), built=" +
+            FlamieLog.Setup("[FlamiePrac] Applied snapshot with " + count + " record(s), built=" +
                       built + ", live=" + live + ".");
 
             if (!live && count > 0)

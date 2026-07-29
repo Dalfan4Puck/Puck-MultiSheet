@@ -23,6 +23,7 @@ public static class FlamiePracFeatures
             SlidableBoardCollision.ReassertSlidablePairs();
             SlidableBoardCollision.SyncStickIceLayerPolicy();
             StickIcePassThrough.ScanSceneFloorIce(logResult: true);
+            SlidableGroundRaycastPatch.RefreshAllStickPositioners();
             if (enabled)
             {
                 SlidableObstacleSync.ForceBroadcastAll();

@@ -469,7 +469,7 @@ public class RadioController : MonoBehaviour
         }
 
         speakerAnchors.Add(anchor);
-        FlamieLog.Info("[FlamiePrac] Radio speaker anchor #" + speakerAnchors.Count + " '" + speakerGo.name +
+        FlamieLog.Setup("[FlamiePrac] Radio speaker anchor #" + speakerAnchors.Count + " '" + speakerGo.name +
                        "' (2D streamed playback + distance volume).");
 
         EnsurePlaybackSource();

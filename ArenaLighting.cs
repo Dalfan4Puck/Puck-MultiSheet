@@ -116,9 +116,8 @@ namespace PHLPracticeModPack
 
         /// <summary>
         /// The per-sheet realtime light rig: cloned arena fixtures plus the synthetic
-        /// overhead fills. This is the expensive half of MultiSheet lighting, so it gets
-        /// its own switch. Off = stock sun/sky/ambient and every clone light disabled.
-        /// Day/Night requires this on.
+        /// overhead fills. Independent of the day/night sun/sky cycle — either, both, or
+        /// neither may be enabled.
         /// </summary>
         internal static bool ArenaLightingEnabled => !MultiSheetClientSettings.SkipArenaLighting;
 
@@ -138,14 +137,7 @@ namespace PHLPracticeModPack
         {
             MultiSheetClientSettings.DayNightEnabled = enabled;
             MultiSheetClientSettings.Save();
-            if (!captured)
-            {
-                Apply();
-                return;
-            }
-            if (!MultiSheetClientSettings.SkipArenaLighting) DisableDayNightCycles();
-            ApplyEnvironment();
-            SyncEnforcer();
+            Apply();
         }
 
         /// <summary>Pin the hour, or pass a negative value to follow the local clock again.</summary>
@@ -172,9 +164,15 @@ namespace PHLPracticeModPack
         {
             MultiSheetClientSettings.Load();
 
-            if (MultiSheetClientSettings.SkipArenaLighting)
-            {
+            bool skipFills = MultiSheetClientSettings.SkipArenaLighting;
+            bool dayNight = DayNightEnabled;
+
+            if (skipFills)
                 SetAllRinkLightsEnabled(false);
+
+            // Neither toggle — hand sun/sky/ambient back to stock; clone fills stay off.
+            if (skipFills && !dayNight)
+            {
                 if (captured)
                 {
                     RestoreDirectionalLights();
@@ -183,7 +181,7 @@ namespace PHLPracticeModPack
                     Ambient = RenderSettings.ambientLight;
                 }
                 SyncEnforcer();
-                Debug.Log("[PHLPractice] Arena lighting skipped — stock sun/sky/ambient, clone fills off.");
+                Debug.Log("[PHLPractice] Arena lighting and day/night off — stock sun/sky/ambient, clone fills off.");
                 return;
             }
 
@@ -201,20 +199,19 @@ namespace PHLPracticeModPack
             else
             {
                 stockLook = true;
-                ApplyRinkFill(1f);
+                if (!skipFills)
+                    ApplyRinkFill(1f);
             }
 
-            // Enforcer only when auto day/night must follow the clock. Fixed indoor,
-            // Limit mode, and pinned hours are one-shot applies (UI / client build).
-            // Avoids a DontDestroy LateUpdate forever.
             SyncEnforcer();
 
             Debug.Log("[PHLPractice] Arena lighting applied — " +
                       (stockLook
                           ? "stock look (Limit Rink Changes)"
-                          : ("day/night " + (DayNightEnabled
-                              ? ("on @" + FormatHour(Hour) + (IsManualHour ? " (pinned)" : " (local clock)"))
-                              : "off (fixed indoor)"))) +
+                          : ("fills " + (skipFills ? "off" : "on") + ", " +
+                             (dayNight
+                                 ? ("day/night @" + FormatHour(Hour) + (IsManualHour ? " (pinned)" : " (local clock)"))
+                                 : "fixed indoor"))) +
                       " (" + rinkLights.Count + " light(s)), enforcer=" +
                       (enforcerObject != null));
         }
@@ -249,10 +246,9 @@ namespace PHLPracticeModPack
 
         private static void SyncEnforcer()
         {
-            // Day/Night rides on Arena Lighting — both must be on for the clock follow.
+            // Clock follow only needs day/night — not the clone fill rig.
             bool want = !stockLook
                         && MultiSheetClientSettings.AllowRinkChanges
-                        && !MultiSheetClientSettings.SkipArenaLighting
                         && DayNightEnabled
                         && !IsManualHour;
             if (want)
@@ -336,7 +332,6 @@ namespace PHLPracticeModPack
         internal static void ApplyEnvironment()
         {
             if (stockLook || !MultiSheetClientSettings.AllowRinkChanges) return;
-            if (MultiSheetClientSettings.SkipArenaLighting) return;
 
             if (!DayNightEnabled)
             {

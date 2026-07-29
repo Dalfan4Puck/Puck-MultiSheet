@@ -52,6 +52,7 @@
     <Compile Include="RinkStripMode.cs" />
     <Compile Include="RinkStripVoteProgress.cs" />
     <Compile Include="RinkStripVote.cs" />
+    <Compile Include="RinkStripVoteCastVotePatch.cs" />
     <Compile Include="RinkMotdShared.cs" />
     <Compile Include="RinkMotdService.cs" />
     <Compile Include="RinkMotdUI.cs" />

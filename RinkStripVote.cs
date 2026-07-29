@@ -8,8 +8,11 @@ using UnityEngine;
 namespace PHLPracticeModPack
 {
     /// <summary>
-    /// Server-wide votes to toggle PHL training tools per rink (VoteManager majority rules).
-    /// Defaults: rink 1 = PHL Tools, rinks 2–6 = Empty.
+    /// Per-rink votes to toggle PHL training tools.
+    /// Server admins: any tool change passes instantly.
+    /// Empty rink (0 humans): any player may flip tools instantly.
+    /// Occupied rink: only players standing on that rink may vote; threshold is
+    /// majority of humans on that rink. Solo on rink = instant.
     /// </summary>
     internal static class RinkStripVote
     {
@@ -128,6 +131,28 @@ namespace PHLPracticeModPack
             }
         }
 
+        internal static bool TryAllowStripVoteCast(string steamId, Vote vote)
+        {
+            if (vote == null || vote.Name != VoteName) return true;
+            if (!RinkStripModeUtil.TryParseVoteKey(vote.Data as string, out int rinkIndex, out _))
+                return true;
+
+            MultiRinkConfig cfg = MultiRinkConfig.Current;
+            if (RinkMotdService.CountHumanPlayersOnRink(cfg, rinkIndex) <= 0)
+                return true;
+
+            Player player = FindHumanPlayerBySteamId(steamId);
+            if (player == null) return true;
+
+            if (RinkMotdService.IsHumanPlayerOnRink(player, cfg, rinkIndex))
+                return true;
+
+            QueuePrivate(
+                player.OwnerClientId,
+                "Only players on Rink " + (rinkIndex + 1) + " can vote on this.");
+            return false;
+        }
+
         internal static void ServerHandleVoteRequest(Player player, int rinkIndex, RinkStripMode mode)
         {
             if (player == null) return;
@@ -159,6 +184,37 @@ namespace PHLPracticeModPack
             }
 
             string voteKey = RinkStripModeUtil.ToVoteKey(rinkIndex, mode);
+
+            // Admins bypass votes and rink occupancy gates.
+            if (RinkMotdService.IsAdminPlayer(player))
+            {
+                Vote open = votes.Server_GetVoteByName(VoteName);
+                if (open != null) CancelOpenVote(votes, announce: false);
+                ApplyStripMode(rinkIndex, mode, announce: true);
+                RinkMotdService.BroadcastStatus();
+                return;
+            }
+
+            MultiRinkConfig cfg = MultiRinkConfig.Current;
+            int eligible = RinkMotdService.CountHumanPlayersOnRink(cfg, rinkIndex);
+
+            // Nobody on target rink — any player may flip tools without a vote.
+            if (eligible == 0)
+            {
+                ApplyStripMode(rinkIndex, mode, announce: true);
+                RinkMotdService.BroadcastStatus();
+                return;
+            }
+
+            if (!RinkMotdService.IsHumanPlayerOnRink(player, cfg, rinkIndex))
+            {
+                QueuePrivate(
+                    player.OwnerClientId,
+                    "Only players on Rink " + (rinkIndex + 1) +
+                    " can change tools while someone is there.");
+                return;
+            }
+
             Vote existing = votes.Server_GetVoteByName(VoteName);
             if (existing != null)
             {
@@ -268,10 +324,18 @@ namespace PHLPracticeModPack
             string voteKey)
         {
             PlayerTeam[] teams = { PlayerTeam.Blue, PlayerTeam.Red };
-            int eligible = CountHumanVoters(pm);
+            int eligible = RinkMotdService.CountHumanPlayersOnRink(MultiRinkConfig.Current, rinkIndex);
+            // Caller handles eligible == 0 (instant, anyone) and rink gate before we get here.
             if (eligible < 1) eligible = 1;
 
             int required = Utils.GetVoteMajority(eligible);
+            if (required <= 1)
+            {
+                ApplyStripMode(rinkIndex, mode, announce: true);
+                RinkMotdService.BroadcastStatus();
+                return;
+            }
+
             string title = "Rink " + (rinkIndex + 1) + ": " + RinkStripModeUtil.DisplayName(mode);
             votes.Server_AddVote(
                 VoteName,
@@ -396,6 +460,29 @@ namespace PHLPracticeModPack
             }
             catch { }
             return count;
+        }
+
+        private static Player FindHumanPlayerBySteamId(string steamId)
+        {
+            if (string.IsNullOrEmpty(steamId)) return null;
+            try
+            {
+                PlayerManager pm = MonoBehaviourSingleton<PlayerManager>.Instance;
+                if (pm == null) return null;
+                foreach (Player player in pm.GetPlayers())
+                {
+                    if (player == null) continue;
+                    if (FakePlayerDetector.IsAnyFakePlayer(player)) continue;
+                    try
+                    {
+                        if (player.SteamId.Value.ToString() == steamId)
+                            return player;
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+            return null;
         }
 
         private static void EnsureVoteListener()

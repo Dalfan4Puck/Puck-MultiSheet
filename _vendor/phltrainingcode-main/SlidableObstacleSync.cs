@@ -21,7 +21,6 @@ public static class SlidableObstacleSync
     private static bool handlersRegistered;
     private static int lastBroadcastTick;
     private static float nextFallbackBroadcastTime;
-    private static float nextMissLogTime;
     private static bool loggedBroadcastOk;
 
     public static void RegisterVisual(SlidableObstacleVisual visual)
@@ -130,7 +129,7 @@ public static class SlidableObstacleSync
 
         messaging.RegisterNamedMessageHandler(ChannelSlidable, OnSlidableReceived);
         handlersRegistered = true;
-        Debug.Log("[FlamiePrac] Slidable client handler registered (" + ChannelSlidable + ").");
+        FlamieLog.InfoOnce("slidable-handler", "[FlamiePrac] Slidable client handler registered (" + ChannelSlidable + ").");
     }
 
     public static void UnregisterHandlers(CustomMessagingManager messaging)
@@ -229,8 +228,10 @@ public static class SlidableObstacleSync
                 if (!loggedBroadcastOk)
                 {
                     loggedBroadcastOk = true;
-                    Debug.Log("[FlamiePrac] Slidable sync broadcasting up to " + obstacles.Count +
-                              " prop(s) (moving every tick, idle every " + IdleBroadcastIntervalTicks + " ticks).");
+                    FlamieLog.InfoOnce(
+                        "slidable-broadcast",
+                        "[FlamiePrac] Slidable sync broadcasting up to " + obstacles.Count +
+                        " prop(s) (moving every tick, idle every " + IdleBroadcastIntervalTicks + " ticks).");
                 }
             }
         }
@@ -314,10 +315,6 @@ public static class SlidableObstacleSync
 
     private static void LogMiss(int syncId, string path)
     {
-        if (Time.time < nextMissLogTime)
-            return;
-
-        nextMissLogTime = Time.time + 3f;
         var keys = new StringBuilder();
         int n = 0;
         foreach (string key in Visuals.Keys)
@@ -333,10 +330,12 @@ public static class SlidableObstacleSync
             keys.Append(key);
         }
 
-        Debug.LogWarning("[FlamiePrac] Slidable pose miss syncId=" + syncId +
-                         " path='" + path + "' canon='" +
-                         SlidableObstacleSetup.CanonicalSlidablePath(path) +
-                         "' registered=[" + keys + "]");
+        FlamieLog.WarnOnce(
+            "slidable-pose-miss-" + syncId,
+            "[FlamiePrac] Slidable pose miss syncId=" + syncId +
+            " path='" + path + "' canon='" +
+            SlidableObstacleSetup.CanonicalSlidablePath(path) +
+            "' registered=[" + keys + "]");
     }
 
     private static int GetServerTick(NetworkManager nm)

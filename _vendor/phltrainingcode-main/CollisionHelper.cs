@@ -33,7 +33,8 @@ public static class CollisionHelper
                     Debug.LogWarning("[FlamiePrac] No suitable layer found, using Default layer");
                 }
                 _iceLayerIndex = layer;
-                Debug.Log($"[FlamiePrac] Rink Ice layer index: {layer} ({LayerMask.LayerToName(layer)})");
+                FlamieLog.InfoOnce("layer-ice", "[FlamiePrac] Rink Ice layer index: " + layer +
+                    " (" + LayerMask.LayerToName(layer) + ")");
             }
             return _iceLayerIndex.Value;
         }
@@ -57,7 +58,7 @@ public static class CollisionHelper
                 }
                 else
                 {
-                    Debug.Log("[FlamiePrac] Slidable prop layer index: " + layer +
+                    FlamieLog.InfoOnce("layer-slidable", "[FlamiePrac] Slidable prop layer index: " + layer +
                               " (Stick/Body collide; Puck ignored; Stick↔Ice unchanged).");
                 }
 
@@ -88,7 +89,7 @@ public static class CollisionHelper
                 }
                 else
                 {
-                    Debug.Log("[FlamiePrac] Static training hitbox layer index: " + layer +
+                    FlamieLog.InfoOnce("layer-static-training", "[FlamiePrac] Static training hitbox layer index: " + layer +
                               " (unused — Stick ignored, Puck/Player/Ice collide)");
                 }
                 _staticTrainingLayerIndex = layer;
@@ -119,7 +120,7 @@ public static class CollisionHelper
     /// </summary>
     public static void AddHitboxes(GameObject obj, bool serverAuthority = true)
     {
-        Debug.Log("[FlamiePrac] AddHitboxes serverAuthority=" + serverAuthority +
+        FlamieLog.Setup("[FlamiePrac] AddHitboxes serverAuthority=" + serverAuthority +
                   " batchMode=" + Application.isBatchMode);
         if (obj == null)
         {
@@ -232,7 +233,8 @@ public static class CollisionHelper
 
         ValidateVisuals(obj);
 
-        Debug.Log($"[FlamiePrac] Added hitboxes to '{obj.name}': {colliderCount} collider(s), layer={LayerMask.LayerToName(obj.layer)}");
+        FlamieLog.Setup("[FlamiePrac] Added hitboxes to '" + obj.name + "': " + colliderCount +
+            " collider(s), layer=" + LayerMask.LayerToName(obj.layer));
     }
 
     /// <summary>
@@ -338,7 +340,7 @@ public static class CollisionHelper
         }
 
         if (fixedCount > 0)
-            Debug.Log("[FlamiePrac] Rotating-stick colliders ensured: " + fixedCount + " convex/box");
+            FlamieLog.Setup("[FlamiePrac] Rotating-stick colliders ensured: " + fixedCount + " convex/box");
     }
 
     private static void ValidateVisuals(GameObject obj)
@@ -380,7 +382,10 @@ public static class CollisionHelper
 
         if (renderersWithNoMaterial > 0 || renderersWithNoMesh > 0)
         {
-            Debug.LogWarning($"[FlamiePrac] Visual issues detected on '{obj.name}': noMaterial={renderersWithNoMaterial}, noMesh={renderersWithNoMesh}, totalRenderers={renderers.Length}");
+            FlamieLog.WarnOnce(
+                "visual-issues-" + obj.name,
+                "[FlamiePrac] Visual issues detected on '" + obj.name + "': noMaterial=" + renderersWithNoMaterial +
+                ", noMesh=" + renderersWithNoMesh + ", totalRenderers=" + renderers.Length);
         }
     }
 
@@ -472,7 +477,7 @@ public static class CollisionHelper
             box.center = mesh.bounds.center;
             box.size = mesh.bounds.size;
             box.isTrigger = false;
-            Debug.Log($"[FlamiePrac] BoxCollider fallback on '{go.name}': size={mesh.bounds.size}");
+            FlamieLog.Setup("[FlamiePrac] BoxCollider fallback on '" + go.name + "': size=" + mesh.bounds.size);
         }
         catch (System.Exception ex)
         {

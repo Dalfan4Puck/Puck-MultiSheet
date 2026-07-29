@@ -41,7 +41,7 @@ namespace PHLPracticeModPack
 
             AddSpawnPuckRow(host, body, embedded);
             AddDualRow(body, embedded, "Tab = Open this menu", null);
-            AddDualRow(body, embedded, "Chat: /passer — pushable pass-back box", null);
+            AddDualRow(body, embedded, "Chat: /passer — pass bump board in front of you", null);
             AddDualRow(body, embedded, "Chat: /sheet — flat pushable sheet", null);
             AddSlidableRow(host, body, embedded);
         }

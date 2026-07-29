@@ -65,6 +65,7 @@ namespace PHLPracticeModPack
         {
             typeof(PracticePhaseLockPatch),
             typeof(PracticeWarmupTimerPatch),
+            typeof(RinkStripVoteCastVotePatch),
         };
 
         private static readonly Type[] ClientPatchTypes =

@@ -15,13 +15,18 @@ public static class SlidableBoardCollision
 
         int slidablePropLayerIndex = CollisionHelper.GetSlidablePropLayerIndex();
         int staticTrainingPropLayerIndex = CollisionHelper.GetStaticTrainingPropLayerIndex();
+        int stickLayer = LayerMask.NameToLayer("Stick");
+        int vanillaIceLayer = LayerMask.NameToLayer("Ice");
 
-        // Stick↔Ice is NOT enabled here — SyncStickIceLayerPolicy owns that (dip vs push).
+        // Benchmark: blade always dips through rink Ice; slidables live on a separate layer.
+        if (stickLayer >= 0 && vanillaIceLayer >= 0)
+            Physics.IgnoreLayerCollision(stickLayer, vanillaIceLayer, true);
+
         if (slidablePropLayerIndex >= 0)
         {
             foreach (string layerName in new[]
                      {
-                         "Default", "Player", "Player Body", "Body", "Puck", "Character",
+                         "Default", "Player", "Player Body", "Body", "Stick", "Puck", "Character",
                          "Barrier", "Boards", "Goal Post", "Goal Net", "Goal Net Cloth", "Goal Frame"
                      })
             {
@@ -29,7 +34,12 @@ public static class SlidableBoardCollision
             }
 
             EnablePair(slidablePropLayerIndex, staticTrainingPropLayerIndex);
-            FlamieLog.Info("[FlamiePrac] Slidable Ice pairs enabled (Ice↔Ice on for prop-to-prop).");
+
+            if (vanillaIceLayer >= 0)
+                Physics.IgnoreLayerCollision(slidablePropLayerIndex, vanillaIceLayer, true);
+
+            FlamieLog.Info("[FlamiePrac] Slidable prop layer=" + slidablePropLayerIndex +
+                           " (Stick↔vanilla Ice ignored; Stick↔slidable toggled with physics).");
         }
 
         foreach (string layerName in new[]
@@ -41,16 +51,15 @@ public static class SlidableBoardCollision
             EnablePair(staticTrainingPropLayerIndex, LayerMask.NameToLayer(layerName));
         }
 
-        int stickLayer = LayerMask.NameToLayer("Stick");
         if (stickLayer >= 0 && staticTrainingPropLayerIndex >= 0)
             Physics.IgnoreLayerCollision(stickLayer, staticTrainingPropLayerIndex, true);
 
         EnablePair(staticTrainingPropLayerIndex, slidablePropLayerIndex);
-        FlamieLog.Info("[FlamiePrac] Slidable Ice=" + LayerMask.LayerToName(slidablePropLayerIndex) +
-                       " staticTraining=" + staticTrainingPropLayerIndex +
-                       " (Stick↔Ice toggled with slidable physics; floor ignored per collider).");
+        FlamieLog.Info("[FlamiePrac] Static training layer=" + staticTrainingPropLayerIndex +
+                       " slidable=" + slidablePropLayerIndex + ".");
 
         StickIcePassThrough.ScanSceneFloorIce();
+        SyncStickIceLayerPolicy();
     }
 
     /// <summary>
@@ -68,33 +77,47 @@ public static class SlidableBoardCollision
         int puckLayer = LayerMask.NameToLayer("Puck");
         if (puckLayer >= 0)
             Physics.IgnoreLayerCollision(slidablePropLayerIndex, puckLayer, false);
+
+        int vanillaIceLayer = LayerMask.NameToLayer("Ice");
+        if (vanillaIceLayer >= 0)
+            Physics.IgnoreLayerCollision(slidablePropLayerIndex, vanillaIceLayer, true);
     }
 
     /// <summary>
-    /// Slidable off: vanilla Stick↔Ice ignored (blade dip). Slidable on: Stick↔Ice enabled so
-    /// beams/speakers push; rink floor still ignored per collider via StickIcePassThrough.
+    /// Slidable off: Stick↔slidable ignored (vanilla dip). Slidable on: Stick↔slidable enabled;
+    /// Stick↔vanilla Ice stays ignored; rink floor pass-through uses StickIcePassThrough.
     /// </summary>
     public static void SyncStickIceLayerPolicy()
     {
         int stickLayer = LayerMask.NameToLayer("Stick");
-        int iceLayer = CollisionHelper.GetSlidablePropLayerIndex();
-        if (stickLayer < 0 || iceLayer < 0)
+        int slidableLayer = CollisionHelper.GetSlidablePropLayerIndex();
+        int vanillaIceLayer = LayerMask.NameToLayer("Ice");
+        if (stickLayer < 0 || slidableLayer < 0)
             return;
 
-        bool ignoreStickIce = !FlamiePracFeatures.SlidablePhysicsEnabled;
-        Physics.IgnoreLayerCollision(stickLayer, iceLayer, ignoreStickIce);
+        if (vanillaIceLayer >= 0)
+            Physics.IgnoreLayerCollision(stickLayer, vanillaIceLayer, true);
 
-        bool stateChanged = !lastStickIceIgnored.HasValue || lastStickIceIgnored.Value != ignoreStickIce;
-        lastStickIceIgnored = ignoreStickIce;
+        bool ignoreStickSlidable = !FlamiePracFeatures.SlidablePhysicsEnabled;
+        Physics.IgnoreLayerCollision(stickLayer, slidableLayer, ignoreStickSlidable);
+
+        bool stateChanged = !lastStickIceIgnored.HasValue || lastStickIceIgnored.Value != ignoreStickSlidable;
+        lastStickIceIgnored = ignoreStickSlidable;
 
         if (stateChanged)
         {
-            FlamieLog.Info("[FlamiePrac] Stick↔Ice layer ignore=" + ignoreStickIce +
+            FlamieLog.Info("[FlamiePrac] Stick↔slidable layer ignore=" + ignoreStickSlidable +
                            " (slidablePhysics=" + FlamiePracFeatures.SlidablePhysicsEnabled + ").");
         }
 
-        if (!ignoreStickIce)
+        if (!ignoreStickSlidable)
             SlidableStickCollision.ReapplyAllStickPairs();
+    }
+
+    public static bool IsSlidablePropLayer(int layer)
+    {
+        int slidablePropLayerIndex = CollisionHelper.GetSlidablePropLayerIndex();
+        return slidablePropLayerIndex >= 0 && layer == slidablePropLayerIndex;
     }
 
     public static bool IsBoardLayer(int layer)

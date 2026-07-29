@@ -1212,6 +1212,8 @@ public static class UIChat_AutoShow_Patch
 /// Patch VoteManager.Server_AddVote to (a) block /vs and /vw on practice-only
 /// servers when DisableVoting=true, and (b) set requiredVotes from human-only
 /// counts so AI goalies / traffic bots never inflate the threshold (solo = 1/1).
+/// rink-strip votes are excluded — RinkStripVote already sets required from
+/// CountHumanPlayersOnRink for the target rink.
 /// </summary>
 [HarmonyPatch(typeof(VoteManager), "Server_AddVote")]
 public static class VoteManager_Server_AddVote_Patch
@@ -1233,14 +1235,15 @@ public static class VoteManager_Server_AddVote_Patch
                 return false;
             }
 
+            // Per-rink threshold is computed in RinkStripVote.StartNewVote.
+            if (string.Equals(name, RinkStripVoteName, System.StringComparison.Ordinal))
+                return true;
+
             var playerManager = MonoBehaviourSingleton<PlayerManager>.Instance;
             if (playerManager == null)
                 return true;
 
-            bool serverWide = string.Equals(name, RinkStripVoteName, System.StringComparison.Ordinal);
-            int humans = serverWide
-                ? CountHumanPlayers(playerManager.GetPlayers(false))
-                : CountHumanPlayersOnTeams(playerManager, teams);
+            int humans = CountHumanPlayersOnTeams(playerManager, teams);
 
             if (humans < 1) humans = 1;
 
@@ -1248,7 +1251,7 @@ public static class VoteManager_Server_AddVote_Patch
             if (corrected != requiredVotes)
             {
                 FlamieLog.Info("[MaxPractice] " + name + " vote requiredVotes: " + requiredVotes +
-                               " → " + corrected + " (humans:" + humans + ", serverWide:" + serverWide + ")");
+                               " → " + corrected + " (humans:" + humans + ")");
                 requiredVotes = corrected;
             }
         }

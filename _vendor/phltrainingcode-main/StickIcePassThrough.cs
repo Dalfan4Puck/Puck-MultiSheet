@@ -321,6 +321,9 @@ public static class StickIcePassThrough
         if (col == null)
             return false;
 
+        if (SlidableBoardCollision.IsSlidablePropLayer(col.gameObject.layer))
+            return true;
+
         if (col.GetComponentInParent<SlidableObstacle>() != null)
             return true;
 
