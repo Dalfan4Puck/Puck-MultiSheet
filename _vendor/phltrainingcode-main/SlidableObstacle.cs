@@ -33,6 +33,7 @@ public class SlidableObstacle : MonoBehaviour
     private GameObject ownedAnchor;
     private float wakeTime;
     private bool isAwake;
+    private bool spawnSettled;
     private bool collidersFitted;
     private bool physicsFrozen;
 
@@ -175,9 +176,11 @@ public class SlidableObstacle : MonoBehaviour
         rb.linearVelocity = Vector3.zero;
         rb.angularVelocity = Vector3.zero;
         rb.sleepThreshold = 0.05f;
+        physicsFrozen = !FlamiePracFeatures.SlidablePhysicsEnabled;
         float settle = useCabinetMeshColliders ? SpeakerJoinSettleSeconds : JoinSettleSeconds;
         wakeTime = Time.time + settle;
         isAwake = false;
+        spawnSettled = physicsFrozen;
         collidersFitted = false;
         ResetPoseBroadcast();
 
@@ -189,8 +192,6 @@ public class SlidableObstacle : MonoBehaviour
 
         if (!Active.Contains(this))
             Active.Add(this);
-
-        physicsFrozen = !FlamiePracFeatures.SlidablePhysicsEnabled;
 
         string boundsText = TryGetCombinedColliderBounds(out Bounds bounds)
             ? bounds.size.ToString("F2")
@@ -238,12 +239,17 @@ public class SlidableObstacle : MonoBehaviour
             rb.angularVelocity = Vector3.zero;
             SnapRestPose();
             Physics.SyncTransforms();
+            spawnSettled = true;
         }
         else
         {
-            isAwake = false;
-            wakeTime = Time.time + 0.05f;
-            rb.WakeUp();
+            // Stay kinematic at the current pose until stick/body contact wakes dynamic sim.
+            rb.isKinematic = true;
+            rb.linearVelocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+            Physics.SyncTransforms();
+            spawnSettled = true;
+            isAwake = true;
         }
     }
 
@@ -259,20 +265,20 @@ public class SlidableObstacle : MonoBehaviour
             return;
         }
 
-        if (!isAwake)
+        if (!spawnSettled)
         {
             if (Time.time < wakeTime)
                 return;
 
-            // Start kinematic (standable platform). Stick contact wakes dynamic briefly.
+            // One-shot spawn settle only — not when /slidable toggles back on.
             PlaceOnIceSurface(preferColliderHull: settleFlatOnIce || freezePitchRoll);
             AlignMassToColliders();
             ApplyRotationConstraints();
             Physics.SyncTransforms();
             rb.linearVelocity = Vector3.zero;
             rb.angularVelocity = Vector3.zero;
-            // Stay dynamic+sleep so beam/speakers can collide; kinematic only under a player.
             SettleQuietOnIce();
+            spawnSettled = true;
             isAwake = true;
         }
 
@@ -327,6 +333,7 @@ public class SlidableObstacle : MonoBehaviour
         if (rb == null)
             return;
 
+        isAwake = true;
         if (rb.isKinematic)
             rb.isKinematic = false;
         rb.WakeUp();
@@ -1171,7 +1178,26 @@ public class SlidableObstacle : MonoBehaviour
             CancelBoardVelocity(collision);
 
         if (IsPlayerBodyCollider(collision.collider))
+        {
             HandlePlayerBodyContact(collision, isEnter: true);
+            return;
+        }
+
+        if (allowStickPush)
+            TryWakeFromStickCollision(collision);
+    }
+
+    private bool TryWakeFromStickCollision(Collision collision)
+    {
+        Stick stick = collision.collider.GetComponentInParent<Stick>();
+        if (stick == null || stick.Rigidbody == null)
+            return false;
+
+        if (stick.Player != null && stick.Player.IsReplay.Value)
+            return false;
+
+        WakeDynamicFromStick();
+        return true;
     }
 
     private void OnCollisionStay(Collision collision)
@@ -1282,6 +1308,9 @@ public class SlidableObstacle : MonoBehaviour
                 SetPlatformKinematic(true);
             return;
         }
+
+        if (rb.isKinematic)
+            WakeDynamicFromStick();
 
         // Side/body check — stick authority still moves the prop; body skates should not yeet it.
         ResistPlayerBodyShove();
