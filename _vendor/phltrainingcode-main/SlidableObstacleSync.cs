@@ -11,6 +11,8 @@ public static class SlidableObstacleSync
 {
     private const string ChannelSlidable = "FlamiePrac_Slidable";
     private const int FallbackTickRate = 100;
+    /// <summary>Settled slidables sync ~5 Hz; moving props every network tick.</summary>
+    private const int IdleBroadcastIntervalTicks = 20;
     private const int WriterMaxSize = 64 * 1024;
 
     private static readonly Dictionary<string, SlidableObstacleVisual> Visuals =
@@ -144,6 +146,7 @@ public static class SlidableObstacleSync
     {
         lastBroadcastTick = 0;
         nextFallbackBroadcastTime = 0f;
+        SlidableObstacle.ResetAllPoseBroadcast();
         TickServer();
     }
 
@@ -179,17 +182,28 @@ public static class SlidableObstacleSync
             return;
 
         var live = new List<SlidableObstacle>(obstacles.Count);
+        float idleSeconds = IdleBroadcastIntervalTicks / (float)GetTickRate(nm);
         for (int i = 0; i < obstacles.Count; i++)
         {
-            if (obstacles[i] != null)
-                live.Add(obstacles[i]);
+            SlidableObstacle obstacle = obstacles[i];
+            if (obstacle == null)
+                continue;
+
+            if (!obstacle.ShouldBroadcastPose(tick, IdleBroadcastIntervalTicks, idleSeconds))
+                continue;
+
+            live.Add(obstacle);
         }
 
         if (live.Count == 0)
+        {
+            if (tick != 0)
+                lastBroadcastTick = tick;
+            else
+                nextFallbackBroadcastTime = Time.time + (1f / GetTickRate(nm));
             return;
+        }
 
-        // Always stream while clients are present — seated kinematic beams still need the
-        // ice-snap world pose on the wire every tick.
         if (tick != 0)
             lastBroadcastTick = tick;
         else
@@ -202,7 +216,10 @@ public static class SlidableObstacleSync
             {
                 writer.WriteValueSafe(live.Count);
                 for (int i = 0; i < live.Count; i++)
+                {
                     live[i].WriteState(writer);
+                    live[i].MarkPoseBroadcast(tick);
+                }
 
                 nm.CustomMessagingManager.SendNamedMessageToAll(
                     ChannelSlidable,
@@ -212,8 +229,8 @@ public static class SlidableObstacleSync
                 if (!loggedBroadcastOk)
                 {
                     loggedBroadcastOk = true;
-                    Debug.Log("[FlamiePrac] Slidable sync broadcasting " + live.Count +
-                              " prop(s) (world pose, every network tick).");
+                    Debug.Log("[FlamiePrac] Slidable sync broadcasting up to " + obstacles.Count +
+                              " prop(s) (moving every tick, idle every " + IdleBroadcastIntervalTicks + " ticks).");
                 }
             }
         }

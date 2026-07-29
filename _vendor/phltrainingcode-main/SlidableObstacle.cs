@@ -50,6 +50,8 @@ public class SlidableObstacle : MonoBehaviour
     private float settleQuietTime;
     private float edgeStuckTime;
     private float lastBodyWipeTime = -10f;
+    private int lastPoseBroadcastTick = -1;
+    private float lastPoseBroadcastTime = -10f;
     private static readonly List<SlidableObstacle> Active = new List<SlidableObstacle>();
     private const float EdgeSnapSeconds = 0.35f;
     private const float BodyWipeCooldown = 0.85f;
@@ -67,6 +69,84 @@ public class SlidableObstacle : MonoBehaviour
         {
             if (obstacle != null)
                 obstacle.SetPhysicsEnabled(enabled);
+        }
+    }
+
+    public static void ResetAllPoseBroadcast()
+    {
+        for (int i = 0; i < Active.Count; i++)
+        {
+            if (Active[i] != null)
+                Active[i].ResetPoseBroadcast();
+        }
+    }
+
+    /// <summary>Destroy unparented slidables tied to a hive sync id (layer ~22 props outlive hive root).</summary>
+    public static void DestroyForSyncId(int syncId)
+    {
+        if (syncId < 0)
+            return;
+
+        var toDestroy = new List<GameObject>();
+        for (int i = 0; i < Active.Count; i++)
+        {
+            SlidableObstacle obstacle = Active[i];
+            if (obstacle != null && obstacle.ParentSyncId == syncId)
+                toDestroy.Add(obstacle.gameObject);
+        }
+
+        DestroyGameObjects(toDestroy);
+    }
+
+    /// <summary>Belt-and-suspenders sweep when a rink is stripped — catches orphans with a stale sync id.</summary>
+    public static void DestroyForRinkIndex(int rinkIndex)
+    {
+        if (rinkIndex < 0)
+            return;
+
+        Vector3 origin = RinkOrigin.OriginFor(rinkIndex + 1);
+        const float maxDist = 36f;
+        float maxDistSq = maxDist * maxDist;
+
+        var toDestroy = new List<GameObject>();
+        for (int i = 0; i < Active.Count; i++)
+        {
+            SlidableObstacle obstacle = Active[i];
+            if (obstacle == null)
+                continue;
+
+            Vector3 pos = obstacle.transform.position;
+            float dx = pos.x - origin.x;
+            float dz = pos.z - origin.z;
+            if (dx * dx + dz * dz <= maxDistSq)
+                toDestroy.Add(obstacle.gameObject);
+        }
+
+        DestroyGameObjects(toDestroy);
+    }
+
+    private static void DestroyGameObjects(List<GameObject> toDestroy)
+    {
+        for (int i = 0; i < toDestroy.Count; i++)
+        {
+            if (toDestroy[i] != null)
+                UnityEngine.Object.Destroy(toDestroy[i]);
+        }
+    }
+
+    public static void DestroyAll()
+    {
+        var toDestroy = new List<GameObject>(Active.Count);
+        for (int i = 0; i < Active.Count; i++)
+        {
+            if (Active[i] != null)
+                toDestroy.Add(Active[i].gameObject);
+        }
+
+        for (int i = 0; i < toDestroy.Count; i++)
+        {
+            if (toDestroy[i] != null)
+                UnityEngine.Object.Destroy(toDestroy[i]);
         }
     }
 
@@ -99,6 +179,7 @@ public class SlidableObstacle : MonoBehaviour
         wakeTime = Time.time + settle;
         isAwake = false;
         collidersFitted = false;
+        ResetPoseBroadcast();
 
         SlidableBoardCollision.Ensure();
         SnapRestPose(forSpawn: true);
@@ -141,6 +222,7 @@ public class SlidableObstacle : MonoBehaviour
             Destroy(ownedAnchor);
 
         SlidablePuckFilter.Unregister(gameObject);
+        SlidableStickCollision.Unregister(gameObject);
     }
 
     private void SetPhysicsEnabled(bool enabled)
@@ -1424,21 +1506,41 @@ public class SlidableObstacle : MonoBehaviour
         writer.WriteValueSafe(worldAng.z);
     }
 
-    /// <summary>True when clients need high-rate pose updates for this prop.</summary>
+    /// <summary>True when the prop is sliding/spinning and needs every network tick.</summary>
     public bool IsActivelyMoving()
+    {
+        if (rb == null || !isAwake || rb.isKinematic)
+            return false;
+
+        return rb.linearVelocity.sqrMagnitude > 0.0004f ||
+               rb.angularVelocity.sqrMagnitude > 0.0004f;
+    }
+
+    public void ResetPoseBroadcast()
+    {
+        lastPoseBroadcastTick = -1;
+        lastPoseBroadcastTime = -10f;
+    }
+
+    public void MarkPoseBroadcast(int tick)
+    {
+        lastPoseBroadcastTick = tick;
+        lastPoseBroadcastTime = Time.time;
+    }
+
+    /// <summary>Moving props every tick; settled props on idleInterval (~5 Hz at 100 Hz tick).</summary>
+    public bool ShouldBroadcastPose(int tick, int idleIntervalTicks, float idleSeconds)
     {
         if (rb == null || !isAwake)
             return false;
 
-        if (!rb.isKinematic)
-        {
-            return rb.linearVelocity.sqrMagnitude > 0.0004f ||
-                   rb.angularVelocity.sqrMagnitude > 0.0004f;
-        }
+        if (IsActivelyMoving() || lastPoseBroadcastTick < 0)
+            return true;
 
-        // Kinematic seated platforms still must stream the post-snap world pose every tick;
-        // otherwise clients keep the prefab rest pose and walk through the mesh.
-        return true;
+        if (tick != 0)
+            return tick - lastPoseBroadcastTick >= idleIntervalTicks;
+
+        return Time.time - lastPoseBroadcastTime >= idleSeconds;
     }
 
     private static void WriteString(FastBufferWriter writer, string value)
@@ -1555,5 +1657,11 @@ public class SlidableObstacleVisual : MonoBehaviour
         float rotT = 1f - Mathf.Exp(-RotationLerpRate * Time.deltaTime);
         Quaternion smoothedRot = Quaternion.Slerp(transform.rotation, predictedRot, rotT);
         transform.SetPositionAndRotation(smoothed, smoothedRot);
+    }
+
+    private void OnDestroy()
+    {
+        SlidableStickCollision.Unregister(gameObject);
+        SlidableObstacleSync.UnregisterVisual(this);
     }
 }

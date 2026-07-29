@@ -273,8 +273,10 @@ public sealed class TrainingSync : MonoBehaviour
         if (shutDown)
             return;
 
-        StickIcePassThrough.ScanSceneFloorIce(logResult: true);
+        SlidableBoardCollision.Ensure();
         SlidableBoardCollision.ReassertSlidablePairs();
+        SlidableGroundRaycastPatch.RefreshAllStickPositioners();
+        StickIcePassThrough.ScanSceneFloorIce(logResult: true);
         SlidableBoardCollision.SyncStickIceLayerPolicy();
 
         RefreshNetworkRoles();
@@ -538,6 +540,7 @@ public sealed class TrainingSync : MonoBehaviour
         SlidableBoardCollision.Ensure();
         SlidableBoardCollision.ReassertSlidablePairs();
         SlidableBoardCollision.SyncStickIceLayerPolicy();
+        SlidableGroundRaycastPatch.RefreshAllStickPositioners();
 
         Debug.Log("[FlamiePrac] Network ready — " + FlamiePracVersion.Banner +
                   " IsServer=" + isServer + " IsClient=" + isClient +
@@ -1182,13 +1185,15 @@ public sealed class TrainingSync : MonoBehaviour
 
     private void ApplyClientDespawn(int syncId)
     {
+        // Unparented slidables may outlive the hive root — always tear them down by sync id,
+        // even when clientObjects lost track of the ownership root.
+        SlidableObstacleSync.DestroyVisualsForSyncId(syncId);
+        TrainingMotionSync.UnregisterSyncId(syncId);
+
         if (!clientObjects.TryGetValue(syncId, out GameObject obj))
             return;
 
         clientObjects.Remove(syncId);
-        TrainingMotionSync.UnregisterSyncId(syncId);
-        // Slidables were unparented from the hive for pose sync — destroy them explicitly.
-        SlidableObstacleSync.DestroyVisualsForSyncId(syncId);
         DestroyClientOwnedObject(obj);
     }
 

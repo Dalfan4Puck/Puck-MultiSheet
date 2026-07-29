@@ -257,6 +257,7 @@ public class TrainingObjectManager : MonoBehaviour
         TrainingPrefabRenamer.Reload();
         foreach (int item in spawnedObjects.Keys.ToList())
         {
+            SlidableObstacle.DestroyForSyncId(item);
             if (spawnedObjects.TryGetValue(item, out var value))
             {
                 if (value.Object != null)
@@ -311,6 +312,7 @@ public class TrainingObjectManager : MonoBehaviour
         playerObjects.Clear();
         activeTargets.Clear();
         TrainingMotionSync.UnregisterAll();
+        SlidableObstacle.DestroyAll();
         FlamiePracTrainingGoalie.Despawn();
         FlamieLog.Info("[FlamiePrac] TrainingObjectManager shutdown (" + list.Count + " object(s) removed).");
     }
@@ -475,6 +477,8 @@ public class TrainingObjectManager : MonoBehaviour
         {
             DespawnById(item);
         }
+        // Unparented layer-~22 props are not children of the hive — sync-id + rink sweep.
+        SlidableObstacle.DestroyForRinkIndex(rinkIndex);
         objectsByRink.Remove(rinkIndex);
         toolsEnabledRinks.Remove(rinkIndex);
         if (spawnedObjects.Count == 0)
@@ -981,6 +985,7 @@ public class TrainingObjectManager : MonoBehaviour
     private void DespawnById(int id)
     {
         int key = 0;
+        SlidableObstacle.DestroyForSyncId(id);
         if (spawnedObjects.TryGetValue(id, out var value))
         {
             key = value.RinkIndex;
