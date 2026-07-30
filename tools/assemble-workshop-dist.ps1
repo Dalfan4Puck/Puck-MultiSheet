@@ -55,14 +55,28 @@ if ((Test-Path $rinkExample) -and -not (Test-Path $rinkDest)) {
     Copy-Item $rinkExample $rinkDest -Force
 }
 
+# Never ship or keep SkatePark / launch-ramp bundles (or other loose assets).
+# dist\assets is README-only — wipe leftovers from older Workshop folders.
+function Remove-ForbiddenAssetTrees([string]$root) {
+    if (-not (Test-Path $root)) { return }
+    Get-ChildItem $root -Force -ErrorAction SilentlyContinue | ForEach-Object {
+        $n = $_.Name
+        if ($n -eq "README.md") { return }
+        if ($n -match '(?i)skatepark|launchramp') {
+            Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+            return
+        }
+        # Drop any non-readme payload under assets/ (bundles belong elsewhere or not at all).
+        Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+Remove-ForbiddenAssetTrees (Join-Path $ProjectRoot "assets")
+Remove-ForbiddenAssetTrees (Join-Path $dist "assets")
+
 $assetsReadme = Join-Path $ProjectRoot "assets\README.md"
 if (Test-Path $assetsReadme) {
     Copy-Item $assetsReadme (Join-Path $dist "assets\README.md") -Force
-}
-
-$staleRamp = Join-Path $dist "assets\SkatePark_launchramp_v2_L1.123c9c4dd13c-553f-4c5e-9150-dca295ae4462"
-if (Test-Path $staleRamp) {
-    Remove-Item $staleRamp -Recurse -Force
 }
 
 # Never ship RadioSongs — radio streams from phlstats only.

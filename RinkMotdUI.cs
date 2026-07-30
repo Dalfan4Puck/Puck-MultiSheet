@@ -32,8 +32,17 @@ namespace PHLPracticeModPack
             RinkPreview.EnsureRig(payload);
             RequestRecaptureForStripChanges(previous, payload);
 
+            int localRink = RinkPanelBuilder.GetLocalRinkIndex(payload);
+            int prevLocalRink = previous != null ? RinkPanelBuilder.GetLocalRinkIndex(previous) : -1;
+            bool tilesNeedRefresh = payload.NeedsRinkTileRefresh(previous, localRink, prevLocalRink);
+
             if (RinkScoreboardTab.IsMenuPaneActive)
-                RinkScoreboardTab.OnPayloadAvailable(payload);
+            {
+                if (tilesNeedRefresh)
+                    RinkScoreboardTab.OnPayloadAvailable(payload);
+                else
+                    RinkScoreboardTab.RefreshPreviewTiles(payload);
+            }
 
             bool forced = show == 1;
             bool welcome = show == 2;

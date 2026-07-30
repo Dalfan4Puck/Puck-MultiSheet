@@ -1,0 +1,9 @@
+OLD:
+    public static void ApplySlideMaterial(GameObject obj)
+    {
+        PhysicsMaterial slide = GetIceLikeMaterial();
+
+NEW:
+    public static void ApplySlideMaterial(GameObject obj, bool scanSceneForIceMaterial = true)
+    {
+        PhysicsMaterial slide = GetIceLikeMaterial(scanSceneForIceMaterial);

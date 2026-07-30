@@ -1,0 +1,13 @@
+[Unit]
+Description=Check Puck server_config workshop mods for Steam updates
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/puck/workshop-monitor.env
+ExecStart=/usr/bin/python3 /srv/puck-download/tools/puck_server/watch_workshop_mods.py
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

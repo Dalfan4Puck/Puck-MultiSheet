@@ -13,6 +13,7 @@
     <DeployDir>$(MSBuildProjectDirectory)\dist</DeployDir>
     <PuckLargeLevelDir>$(MSBuildProjectDirectory)\_vendor\PuckLargeLevel</PuckLargeLevelDir>
     <FlamieDir>$(MSBuildProjectDirectory)\_vendor\phltrainingcode-main</FlamieDir>
+    <PuckChasersDir>$(MSBuildProjectDirectory)\_vendor\puckchasers</PuckChasersDir>
     <IncludePuckLargeLevel>true</IncludePuckLargeLevel>
     <IncludeFlamiePrac>true</IncludeFlamiePrac>
   </PropertyGroup>
@@ -44,6 +45,7 @@
     <Compile Include="CloneDiagnostics.cs" />
     <Compile Include="CloneVisualProxy.cs" />
     <Compile Include="MultiRinkPuckSpawner.cs" />
+    <Compile Include="PracticePuckSpawn.cs" />
     <Compile Include="StockPuckHider.cs" />
     <Compile Include="EmptyPucksCommand.cs" />
     <Compile Include="MultiRinkSyncThrottle.cs" />
@@ -54,7 +56,11 @@
     <Compile Include="MinimapSessionOverride.cs" />
     <Compile Include="RinkPracticeDrills.cs" />
     <Compile Include="GoalieShotPhysics.cs" />
+    <Compile Include="GoalieThreatPuckSelector.cs" />
+    <Compile Include="GoaliePracticeLookTarget.cs" />
+    <Compile Include="GoalieTrackPuckPatch.cs" />
     <Compile Include="RinkStripMode.cs" />
+    <Compile Include="PuckChasersMode.cs" />
     <Compile Include="RinkStripVoteProgress.cs" />
     <Compile Include="RinkStripVote.cs" />
     <Compile Include="RinkStripVoteCastVotePatch.cs" />
@@ -146,6 +152,25 @@
     <Compile Include="$(FlamieDir)\MaxPractice\ModConfig.cs" Link="Flamie\MaxPractice\ModConfig.cs" />
     <Compile Include="$(FlamieDir)\MaxPractice\PracticeHelpers.cs" Link="Flamie\MaxPractice\PracticeHelpers.cs" />
     <Compile Include="$(FlamieDir)\MaxPractice\PracticePatches.cs" Link="Flamie\MaxPractice\PracticePatches.cs" />
+  </ItemGroup>
+
+  <!-- Puck Chasers strip mode — AIGoaliesStandalone skater/goalie brains (Red chase pack). -->
+  <ItemGroup>
+    <Compile Include="$(PuckChasersDir)\PuckChasersRuntime.cs" Link="PuckChasers\PuckChasersRuntime.cs" />
+    <Compile Include="$(PuckChasersDir)\CompatibilityPatches.cs" Link="PuckChasers\CompatibilityPatches.cs" />
+    <Compile Include="$(PuckChasersDir)\BotPopulationConfig.cs" Link="PuckChasers\BotPopulationConfig.cs" />
+    <Compile Include="$(PuckChasersDir)\AIGoaliesCommand.cs" Link="PuckChasers\AIGoaliesCommand.cs" />
+    <Compile Include="$(PuckChasersDir)\BotDebugTelemetry.cs" Link="PuckChasers\BotDebugTelemetry.cs" />
+    <Compile Include="$(PuckChasersDir)\BackcheckerConfig.cs" Link="PuckChasers\BackcheckerConfig.cs" />
+    <Compile Include="$(PuckChasersDir)\RinkGeometry.cs" Link="PuckChasers\RinkGeometry.cs" />
+    <Compile Include="$(PuckChasersDir)\PossessionTracker.cs" Link="PuckChasers\PossessionTracker.cs" />
+    <Compile Include="$(PuckChasersDir)\IceSituation.cs" Link="PuckChasers\IceSituation.cs" />
+    <Compile Include="$(PuckChasersDir)\SkaterRoster.cs" Link="PuckChasers\SkaterRoster.cs" />
+    <Compile Include="$(PuckChasersDir)\GoalieRoster.cs" Link="PuckChasers\GoalieRoster.cs" />
+    <Compile Include="$(PuckChasersDir)\SkaterAI.cs" Link="PuckChasers\SkaterAI.cs" />
+    <Compile Include="$(PuckChasersDir)\SkaterAIManager.cs" Link="PuckChasers\SkaterAIManager.cs" />
+    <Compile Include="$(PuckChasersDir)\GoalieAI.cs" Link="PuckChasers\GoalieAI.cs" />
+    <Compile Include="$(PuckChasersDir)\GoalieAIManager.cs" Link="PuckChasers\GoalieAIManager.cs" />
   </ItemGroup>
 
   <ItemGroup>

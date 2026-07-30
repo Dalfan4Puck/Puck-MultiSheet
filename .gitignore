@@ -7,21 +7,21 @@ _tmp*/
 **/*_decompile/
 _vendor/puck_decompile/
 assets/puckobjects
+# Never store / ship SkatePark or launch-ramp Unity assets in this mod.
+assets/SkatePark*
+assets/**/SkatePark*
+assets/**/*launchramp*
+dist/assets/SkatePark*
+dist/assets/**/SkatePark*
+dist/assets/**/*launchramp*
 *.user
 *.suo
 
-# Keep vendored source; ignore the nested git clone metadata only.
-_vendor/**/.git/
+# Private vendored source (Puck Chasers bot code, FlamiePrac, PuckLargeLevel) — local only.
+_vendor/
 
-# FlamiePrac build outputs / huge local archives (source + prefab bundle are tracked).
-_vendor/phltrainingcode-main/bin/
-_vendor/phltrainingcode-main/obj/
-_vendor/phltrainingcode-main/**/bin/
-_vendor/phltrainingcode-main/**/obj/
-_vendor/phltrainingcode-main/dist/*.dll
-_vendor/phltrainingcode-main/dist/*.pdb
-_vendor/phltrainingcode-main/*.zip
-_vendor/phltrainingcode-main/FlamieTraining-*.zip
+# Session log review dumps (never commit).
+_log_review/
 
 # Never commit infrastructure details or operator guides — those live in the private
 # guides folder outside this repo.
@@ -45,5 +45,3 @@ radio_playlist.local.json
 **/RadioSongs/**
 !**/RadioSongs/.gitkeep
 dist/RadioSongs/
-_vendor/phltrainingcode-main/RadioSongs/
-_vendor/phltrainingcode-main/dist/RadioSongs/

@@ -5,8 +5,8 @@ using UnityEngine.UIElements;
 namespace PHLPracticeModPack
 {
     /// <summary>
-    /// Minimap hide from the Rinks panel. Preference is stored in multisheet_client.json
-    /// and re-applied when joining a MultiSheet server.
+    /// Minimap show/hide (default key M on the Keybinds panel). Preference is stored in
+    /// multisheet_client.json and re-applied when joining a MultiSheet server.
     /// </summary>
     internal static class MinimapSessionOverride
     {
@@ -51,12 +51,12 @@ namespace PHLPracticeModPack
 
             if (suppressed == hide)
             {
-                ApplyToMinimap();
+                ApplyToMinimap(forceShowWhenVisible: !hide);
                 return;
             }
 
             suppressed = hide;
-            ApplyToMinimap();
+            ApplyToMinimap(forceShowWhenVisible: !hide);
         }
 
         /// <summary>Restore vanilla visibility when leaving a practice server.</summary>
@@ -66,10 +66,10 @@ namespace PHLPracticeModPack
                 return;
 
             suppressed = false;
-            ApplyToMinimap();
+            ApplyToMinimap(forceShowWhenVisible: false);
         }
 
-        private static void ApplyToMinimap()
+        private static void ApplyToMinimap(bool forceShowWhenVisible = false)
         {
             if (ModRuntimeContext.IsDedicatedGameServer)
                 return;
@@ -80,12 +80,13 @@ namespace PHLPracticeModPack
 
             if (suppressed)
             {
-                restoreVisible = IsMinimapVisible(minimap);
+                if (IsMinimapVisible(minimap))
+                    restoreVisible = true;
                 minimap.Hide();
                 return;
             }
 
-            if (restoreVisible)
+            if (forceShowWhenVisible || restoreVisible)
                 minimap.Show();
 
             restoreVisible = false;

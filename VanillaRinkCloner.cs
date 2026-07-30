@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using Unity.Netcode;
 using UnityEngine;
@@ -57,13 +58,63 @@ namespace PHLPracticeModPack
 
         internal static GameObject SpawnMultiRinkLayout(List<RinkSlot> rinks, MultiRinkConfig cfg, RinkCloneRole role)
         {
-            if (rinks == null || rinks.Count == 0) return null;
+            if (!TryBeginLayout(rinks, cfg, role, out LayoutBuildState state))
+                return null;
+
+            for (int i = 0; i < rinks.Count; i++)
+                CloneOneSlot(state, i);
+
+            return FinishLayout(state);
+        }
+
+        /// <summary>
+        /// Client join: clone one offset rink per frame so ConfirmPracticeServer does not
+        /// hitch for hundreds of ms on a single frame.
+        /// </summary>
+        internal static IEnumerator SpawnMultiRinkLayoutAsync(
+            List<RinkSlot> rinks, MultiRinkConfig cfg, RinkCloneRole role, Action<GameObject> onComplete)
+        {
+            if (!TryBeginLayout(rinks, cfg, role, out LayoutBuildState state))
+            {
+                onComplete?.Invoke(null);
+                yield break;
+            }
+
+            for (int i = 0; i < rinks.Count; i++)
+            {
+                bool cloned = CloneOneSlot(state, i);
+                // Yield after each real offset clone; rink 1 uses original geometry (no work).
+                if (cloned && role == RinkCloneRole.Client)
+                    yield return null;
+            }
+
+            onComplete?.Invoke(FinishLayout(state));
+        }
+
+        private sealed class LayoutBuildState
+        {
+            internal List<RinkSlot> Rinks;
+            internal RinkCloneRole Role;
+            internal Transform LevelRoot;
+            internal Dictionary<string, GameObject> TemplateMap;
+            internal GameObject Root;
+            internal Vector3 PrimaryOrigin;
+            internal int IceLayer;
+            internal int CloneCount;
+            internal int LightCloneCount;
+        }
+
+        private static bool TryBeginLayout(
+            List<RinkSlot> rinks, MultiRinkConfig cfg, RinkCloneRole role, out LayoutBuildState state)
+        {
+            state = null;
+            if (rinks == null || rinks.Count == 0) return false;
 
             Level level = UnityEngine.Object.FindFirstObjectByType<Level>();
             if (level == null)
             {
                 Debug.LogError("[PHLPractice] VanillaRinkCloner: Level not found.");
-                return null;
+                return false;
             }
 
             Transform levelRoot = level.transform;
@@ -79,7 +130,7 @@ namespace PHLPracticeModPack
             if (templateMap.Count == 0)
             {
                 Debug.LogError("[PHLPractice] VanillaRinkCloner: no template objects found under Level.");
-                return null;
+                return false;
             }
 
             if (PracticeLog.Verbose && role == RinkCloneRole.Client &&
@@ -98,58 +149,90 @@ namespace PHLPracticeModPack
             if (cfg != null && cfg.HideHangar && role == RinkCloneRole.Server)
                 SetActiveByName(levelRoot, "Hangar", false);
 
-            int iceLayer = LayerMask.NameToLayer("Ice");
-            int cloneCount = 0;
             combinedMeshRebakeCount = 0;
+            LayoutReady = false;
 
             if (role == RinkCloneRole.Client)
             {
                 CloneVisualProxy.Clear();
                 ArenaLighting.ClearRinkLights();
+                EnsureArenaLightSourceCache(levelRoot, primaryOrigin);
             }
 
-            for (int i = 0; i < rinks.Count; i++)
+            state = new LayoutBuildState
             {
-                RinkSlot slot = rinks[i];
-                if (slot == null) continue;
+                Rinks = rinks,
+                Role = role,
+                LevelRoot = levelRoot,
+                TemplateMap = templateMap,
+                Root = root,
+                PrimaryOrigin = primaryOrigin,
+                IceLayer = LayerMask.NameToLayer("Ice"),
+            };
+            return true;
+        }
 
-                Vector3 offset = slot.Origin - primaryOrigin;
-                if (i == 0 && offset.sqrMagnitude < 0.01f)
-                {
-                    PracticeLog.Info("[PHLPractice] Rink slot '" + slot.Id + "' uses original level geometry at " + slot.Origin);
-                    continue;
-                }
+        /// <returns>True when this slot produced at least one offset clone.</returns>
+        private static bool CloneOneSlot(LayoutBuildState state, int index)
+        {
+            if (state == null || state.Rinks == null || index < 0 || index >= state.Rinks.Count)
+                return false;
 
-                foreach (KeyValuePair<string, GameObject> kv in templateMap)
-                {
-                    GameObject src = kv.Value;
-                    if (src == null) continue;
+            RinkSlot slot = state.Rinks[index];
+            if (slot == null) return false;
 
-                    bool isRink = string.Equals(kv.Key, "Rink", StringComparison.OrdinalIgnoreCase);
-                    GameObject clone = BuildOffsetHierarchyClone(
-                        src, offset, root.transform, SanitizeCloneName(kv.Key, slot.Id),
-                        role, iceLayer, isRink, kv.Key);
-                    if (clone == null) continue;
-
-                    cloneCount++;
-                    if (PracticeLog.Verbose)
-                        PracticeLog.Info("[PHLPractice] Cloned (" + role + ") " + kv.Key + " → " + clone.name +
-                                  " offset=" + offset);
-                }
+            Vector3 offset = slot.Origin - state.PrimaryOrigin;
+            if (index == 0 && offset.sqrMagnitude < 0.01f)
+            {
+                PracticeLog.Info("[PHLPractice] Rink slot '" + slot.Id + "' uses original level geometry at " + slot.Origin);
+                return false;
             }
 
-            Debug.Log("[PHLPractice] Vanilla multi-rink " + role + " layout ready (" + cloneCount +
+            int before = state.CloneCount;
+            foreach (KeyValuePair<string, GameObject> kv in state.TemplateMap)
+            {
+                GameObject src = kv.Value;
+                if (src == null) continue;
+
+                bool isRink = string.Equals(kv.Key, "Rink", StringComparison.OrdinalIgnoreCase);
+                GameObject clone = BuildOffsetHierarchyClone(
+                    src, offset, state.Root.transform, SanitizeCloneName(kv.Key, slot.Id),
+                    state.Role, state.IceLayer, isRink, kv.Key);
+                if (clone == null) continue;
+
+                state.CloneCount++;
+                if (PracticeLog.Verbose)
+                    PracticeLog.Info("[PHLPractice] Cloned (" + state.Role + ") " + kv.Key + " → " + clone.name +
+                              " offset=" + offset);
+            }
+
+            if (state.Role == RinkCloneRole.Client && state.CloneCount > before)
+                state.LightCloneCount += CloneLightsForSlot(
+                    state.LevelRoot, state.Root.transform, slot, state.PrimaryOrigin);
+
+            return state.CloneCount > before;
+        }
+
+        private static GameObject FinishLayout(LayoutBuildState state)
+        {
+            if (state?.Root == null) return null;
+
+            Debug.Log("[PHLPractice] Vanilla multi-rink " + state.Role + " layout ready (" + state.CloneCount +
                       " clones, iceY=" + IceSurfaceY.ToString("F3") +
                       ", meshRebakes=" + combinedMeshRebakeCount + ").");
 
-            if (role == RinkCloneRole.Client)
+            if (state.Role == RinkCloneRole.Client)
             {
-                // DrawMesh clones cannot carry lightmaps. Always use the offset fill-light
-                // rig + SH ambient. An earlier lightmap-stamp attempt skipped fills and
-                // left boards pitch-black on rinks 2+.
-                CloneRinkLights(levelRoot, root.transform, rinks, primaryOrigin);
-                if (PracticeLog.Verbose) LogCloneGeometryHealth(root, rinks, primaryOrigin);
-                TrlReskinBridge.RegisterClientRoot(root);
+                // Lights are cloned per offset slot during CloneOneSlot. Log the rig summary once.
+                Debug.Log("[PHLPractice] Light clone: " +
+                          (cachedArenaLightSources != null ? cachedArenaLightSources.Count : 0) +
+                          " arena fixture(s) near rink 1 → " +
+                          (cachedUseSyntheticFill
+                              ? "synthetic overhead fill rig per offset rink"
+                              : state.LightCloneCount + " realtime clone(s) across offset rinks"));
+
+                if (PracticeLog.Verbose) LogCloneGeometryHealth(state.Root, state.Rinks, state.PrimaryOrigin);
+                TrlReskinBridge.RegisterClientRoot(state.Root);
                 if (PracticeLog.Verbose)
                 {
                     try
@@ -169,7 +252,7 @@ namespace PHLPracticeModPack
             SlidableBoardCollision.SyncStickIceLayerPolicy();
             SlidableGroundRaycastPatch.RefreshAllGroundRaycasts();
             LayoutReady = true;
-            return root;
+            return state.Root;
         }
 
         private static void ScanAndDumpCatalog(Transform levelRoot, string[] templates, RinkCloneRole role)

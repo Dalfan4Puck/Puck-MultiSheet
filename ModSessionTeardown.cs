@@ -28,6 +28,7 @@ namespace PHLPracticeModPack
 
             MinimapSessionOverride.RestoreOnDisconnect();
             MinimapSessionOverride.ResetJoinSession();
+            GoalieShotPhysics.ResetCeilingCache();
 
             RinkMotdUI.OnDisconnected();
             RinkScoreboardTab.OnDisconnected();
@@ -96,6 +97,12 @@ namespace PHLPracticeModPack
             try
             {
                 FlamiePracTrainingGoalie.Despawn();
+            }
+            catch { }
+
+            try
+            {
+                PuckChasersMode.StopAll();
             }
             catch { }
 

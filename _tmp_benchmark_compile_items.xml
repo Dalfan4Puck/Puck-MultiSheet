@@ -1,0 +1,168 @@
+    <Compile Include="AmbientProbeBlock.cs" />
+    <Compile Include="ArenaGlare.cs" />
+    <Compile Include="ArenaLighting.cs" />
+    <Compile Include="ArenaLightingEnforcer.cs" />
+    <Compile Include="ArenaRenderCatalog.cs" />
+    <Compile Include="ChatOutbound.cs" />
+    <Compile Include="CloneDiagnostics.cs" />
+    <Compile Include="CloneVisualProxy.cs" />
+    <Compile Include="CptSpawnCompat.cs" />
+    <Compile Include="CptThinSkaterOverride.cs" />
+    <Compile Include="CustomLevelBridge.cs" />
+    <Compile Include="EmptyPucksCommand.cs" />
+    <Compile Include="LargeLevelHost.cs" />
+    <Compile Include="LocalBodyShadowFix.cs" />
+    <Compile Include="LocalBodyShadowHidePatch.cs" />
+    <Compile Include="LocalBodyShadowShowPatch.cs" />
+    <Compile Include="MinimapRinkView.cs" />
+    <Compile Include="MinimapSessionOverride.cs" />
+    <Compile Include="ModPatchInstaller.cs" />
+    <Compile Include="ModRuntimeContext.cs" />
+    <Compile Include="MultiRinkCloneMeta.cs" />
+    <Compile Include="MultiRinkConfig.cs" />
+    <Compile Include="MultiRinkPuckSpawner.cs" />
+    <Compile Include="MultiRinkService.cs" />
+    <Compile Include="MultiRinkSyncThrottle.cs" />
+    <Compile Include="MultiSheetClientSettings.cs" />
+    <Compile Include="PHLPracticeModPackPlugin.cs" />
+    <Compile Include="PHLPracticeModPackRuntime.cs" />
+    <Compile Include="PracticeClockPatch.cs" />
+    <Compile Include="PracticeFlow.cs" />
+    <Compile Include="PracticeFlowClient.cs" />
+    <Compile Include="PracticeFlowServer.cs" />
+    <Compile Include="PracticeGoalieSpawn.cs" />
+    <Compile Include="PracticeLog.cs" />
+    <Compile Include="PracticeManualTeamSelectPatch.cs" />
+    <Compile Include="PracticeMotdAssets.cs" />
+    <Compile Include="PracticePauseSelectPositionPatch.cs" />
+    <Compile Include="PracticePauseSelectTeamPatch.cs" />
+    <Compile Include="PracticePhaseLabelPatch.cs" />
+    <Compile Include="PracticePhaseLockPatch.cs" />
+    <Compile Include="PracticePresentation.cs" />
+    <Compile Include="PracticeScoreboardTabCancelPatch.cs" />
+    <Compile Include="PracticeScoreboardTabTogglePatch.cs" />
+    <Compile Include="PracticeSelectScreenShowPatch.cs" />
+    <Compile Include="PracticeTeamSelectHidePatch.cs" />
+    <Compile Include="PracticeWarmupTimerPatch.cs" />
+    <Compile Include="PresentationPipeline.cs" />
+    <Compile Include="RinkCloneRole.cs" />
+    <Compile Include="RinkCommands.cs" />
+    <Compile Include="RinkLocator.cs" />
+    <Compile Include="RinkMotdPausePatch.cs" />
+    <Compile Include="RinkMotdPayload.cs" />
+    <Compile Include="RinkMotdService.cs" />
+    <Compile Include="RinkMotdUI.cs" />
+    <Compile Include="RinkPanelBuilder.cs" />
+    <Compile Include="RinkPanelCollapsible.cs" />
+    <Compile Include="RinkPreview.cs" />
+    <Compile Include="RinkRenderFocus.cs" />
+    <Compile Include="RinkScoreboardTab.cs" />
+    <Compile Include="RinkScoreboardTabHidePatch.cs" />
+    <Compile Include="RinkScoreboardTabInitializePatch.cs" />
+    <Compile Include="RinkScoreboardTabShowPatch.cs" />
+    <Compile Include="RinkSlot.cs" />
+    <Compile Include="RinkStatusEntry.cs" />
+    <Compile Include="RinkStripMode.cs" />
+    <Compile Include="RinkStripModeUtil.cs" />
+    <Compile Include="RinkStripVote.cs" />
+    <Compile Include="RinkStripVoteChatPatch.cs" />
+    <Compile Include="RinkStripVoteProgress.cs" />
+    <Compile Include="StaticBatchMeshHelper.cs" />
+    <Compile Include="StockPuckHider.cs" />
+    <Compile Include="TrlPracticeSmoothnessOverride.cs" />
+    <Compile Include="TrlReskinBridge.cs" />
+    <Compile Include="VanillaRinkCloner.cs" />
+    <Compile Include="Vec3.cs" />
+    <Compile Include="$(PuckLargeLevelDir)\ChunkCoord.cs" Link="LargeLevel\ChunkCoord.cs" />
+    <Compile Include="$(PuckLargeLevelDir)\ChunkSlot.cs" Link="LargeLevel\ChunkSlot.cs" />
+    <Compile Include="$(PuckLargeLevelDir)\CL_ChunkRegistry.cs" Link="LargeLevel\CL_ChunkRegistry.cs" />
+    <Compile Include="$(PuckLargeLevelDir)\CL_ChunkSyncClient.cs" Link="LargeLevel\CL_ChunkSyncClient.cs" />
+    <Compile Include="$(PuckLargeLevelDir)\CL_ChunkSyncServer.cs" Link="LargeLevel\CL_ChunkSyncServer.cs" />
+    <Compile Include="$(PuckLargeLevelDir)\CL_NetworkBoundsPatch.cs" Link="LargeLevel\CL_NetworkBoundsPatch.cs" />
+    <Compile Include="$(PuckLargeLevelDir)\PuckSpawnSync.cs" Link="LargeLevel\PuckSpawnSync.cs" />
+    <Compile Include="$(FlamieDir)\CircularMovingTarget.cs" Link="Flamie\CircularMovingTarget.cs" />
+    <Compile Include="$(FlamieDir)\CollisionHelper.cs" Link="Flamie\CollisionHelper.cs" />
+    <Compile Include="$(FlamieDir)\CompTweaksDetector.cs" Link="Flamie\CompTweaksDetector.cs" />
+    <Compile Include="$(FlamieDir)\ConstantMover.cs" Link="Flamie\ConstantMover.cs" />
+    <Compile Include="$(FlamieDir)\ConstantRotator.cs" Link="Flamie\ConstantRotator.cs" />
+    <Compile Include="$(FlamieDir)\FakeClientNetworkManagerCleanupPatch.cs" Link="Flamie\FakeClientNetworkManagerCleanupPatch.cs" />
+    <Compile Include="$(FlamieDir)\FakePlayerDetector.cs" Link="Flamie\FakePlayerDetector.cs" />
+    <Compile Include="$(FlamieDir)\FakePlayerStickCollisionPatch.cs" Link="Flamie\FakePlayerStickCollisionPatch.cs" />
+    <Compile Include="$(FlamieDir)\FakePlayerStickFixedUpdatePatch.cs" Link="Flamie\FakePlayerStickFixedUpdatePatch.cs" />
+    <Compile Include="$(FlamieDir)\FlamieLog.cs" Link="Flamie\FlamieLog.cs" />
+    <Compile Include="$(FlamieDir)\FlamiePracFeatures.cs" Link="Flamie\FlamiePracFeatures.cs" />
+    <Compile Include="$(FlamieDir)\FlamiePracGoalieBootstrap.cs" Link="Flamie\FlamiePracGoalieBootstrap.cs" />
+    <Compile Include="$(FlamieDir)\FlamiePracGoaliePlacement.cs" Link="Flamie\FlamiePracGoaliePlacement.cs" />
+    <Compile Include="$(FlamieDir)\FlamiePracLifecycle.cs" Link="Flamie\FlamiePracLifecycle.cs" />
+    <Compile Include="$(FlamieDir)\FlamiePracRinkInterest.cs" Link="Flamie\FlamiePracRinkInterest.cs" />
+    <Compile Include="$(FlamieDir)\FlamiePracRinkVisibility.cs" Link="Flamie\FlamiePracRinkVisibility.cs" />
+    <Compile Include="$(FlamieDir)\FlamiePracTestPuckSpawn.cs" Link="Flamie\FlamiePracTestPuckSpawn.cs" />
+    <Compile Include="$(FlamieDir)\FlamiePracTrainingGoalie.cs" Link="Flamie\FlamiePracTrainingGoalie.cs" />
+    <Compile Include="$(FlamieDir)\FlamiePracVersion.cs" Link="Flamie\FlamiePracVersion.cs" />
+    <Compile Include="$(FlamieDir)\FollowSpinningObject.cs" Link="Flamie\FollowSpinningObject.cs" />
+    <Compile Include="$(FlamieDir)\LevelDayNightCycle.cs" Link="Flamie\LevelDayNightCycle.cs" />
+    <Compile Include="$(FlamieDir)\MaxPracticePlugin.cs" Link="Flamie\MaxPracticePlugin.cs" />
+    <Compile Include="$(FlamieDir)\MyMod.cs" Link="Flamie\MyMod.cs" />
+    <Compile Include="$(FlamieDir)\PassBackBoardLock.cs" Link="Flamie\PassBackBoardLock.cs" />
+    <Compile Include="$(FlamieDir)\PassBumperHitRelay.cs" Link="Flamie\PassBumperHitRelay.cs" />
+    <Compile Include="$(FlamieDir)\PlayerSit_JumpPatch.cs" Link="Flamie\PlayerSit_JumpPatch.cs" />
+    <Compile Include="$(FlamieDir)\PlayerSit_OnNetworkDespawnPatch.cs" Link="Flamie\PlayerSit_OnNetworkDespawnPatch.cs" />
+    <Compile Include="$(FlamieDir)\PlayerSit_OnStandUpPatch.cs" Link="Flamie\PlayerSit_OnStandUpPatch.cs" />
+    <Compile Include="$(FlamieDir)\PlayerSitService.cs" Link="Flamie\PlayerSitService.cs" />
+    <Compile Include="$(FlamieDir)\PracticeStaminaPatch.cs" Link="Flamie\PracticeStaminaPatch.cs" />
+    <Compile Include="$(FlamieDir)\PuckCollisionEnterPatch.cs" Link="Flamie\PuckCollisionEnterPatch.cs" />
+    <Compile Include="$(FlamieDir)\PuckCollisionExitPatch.cs" Link="Flamie\PuckCollisionExitPatch.cs" />
+    <Compile Include="$(FlamieDir)\PuckPasser.cs" Link="Flamie\PuckPasser.cs" />
+    <Compile Include="$(FlamieDir)\PuckSpawner.cs" Link="Flamie\PuckSpawner.cs" />
+    <Compile Include="$(FlamieDir)\RadioApiUtil.cs" Link="Flamie\RadioApiUtil.cs" />
+    <Compile Include="$(FlamieDir)\RadioController.cs" Link="Flamie\RadioController.cs" />
+    <Compile Include="$(FlamieDir)\RadioHudDriver.cs" Link="Flamie\RadioHudDriver.cs" />
+    <Compile Include="$(FlamieDir)\RadioHudUI.cs" Link="Flamie\RadioHudUI.cs" />
+    <Compile Include="$(FlamieDir)\RadioSync.cs" Link="Flamie\RadioSync.cs" />
+    <Compile Include="$(FlamieDir)\ReactiveTarget.cs" Link="Flamie\ReactiveTarget.cs" />
+    <Compile Include="$(FlamieDir)\RinkOrigin.cs" Link="Flamie\RinkOrigin.cs" />
+    <Compile Include="$(FlamieDir)\SkipCompTweaks_DashLeftPatch.cs" Link="Flamie\SkipCompTweaks_DashLeftPatch.cs" />
+    <Compile Include="$(FlamieDir)\SkipCompTweaks_DashRightPatch.cs" Link="Flamie\SkipCompTweaks_DashRightPatch.cs" />
+    <Compile Include="$(FlamieDir)\SkipCompTweaks_MovementFixedUpdatePatch.cs" Link="Flamie\SkipCompTweaks_MovementFixedUpdatePatch.cs" />
+    <Compile Include="$(FlamieDir)\SkipCompTweaks_MovementStartPatch.cs" Link="Flamie\SkipCompTweaks_MovementStartPatch.cs" />
+    <Compile Include="$(FlamieDir)\SkipCompTweaks_PlayerBodyFixedUpdatePatch.cs" Link="Flamie\SkipCompTweaks_PlayerBodyFixedUpdatePatch.cs" />
+    <Compile Include="$(FlamieDir)\SkipCompTweaks_PlayerBodyOnNetworkPostSpawnPatch.cs" Link="Flamie\SkipCompTweaks_PlayerBodyOnNetworkPostSpawnPatch.cs" />
+    <Compile Include="$(FlamieDir)\SkipCompTweaks_PlayerLegPadFixedUpdatePatch.cs" Link="Flamie\SkipCompTweaks_PlayerLegPadFixedUpdatePatch.cs" />
+    <Compile Include="$(FlamieDir)\SkipCompTweaks_PlayerLegPadOnStateChangedPatch.cs" Link="Flamie\SkipCompTweaks_PlayerLegPadOnStateChangedPatch.cs" />
+    <Compile Include="$(FlamieDir)\SkipCompTweaks_PlayerServerSpawnCharacterPatch.cs" Link="Flamie\SkipCompTweaks_PlayerServerSpawnCharacterPatch.cs" />
+    <Compile Include="$(FlamieDir)\SkipCompTweaks_PuckOnNetworkPostSpawnPatch.cs" Link="Flamie\SkipCompTweaks_PuckOnNetworkPostSpawnPatch.cs" />
+    <Compile Include="$(FlamieDir)\SkipCompTweaks_StickOnNetworkDespawnPatch.cs" Link="Flamie\SkipCompTweaks_StickOnNetworkDespawnPatch.cs" />
+    <Compile Include="$(FlamieDir)\SkipCompTweaks_StickOnNetworkPostSpawnPatch.cs" Link="Flamie\SkipCompTweaks_StickOnNetworkPostSpawnPatch.cs" />
+    <Compile Include="$(FlamieDir)\SkipCompTweaks_StickPositionerFixedUpdatePatch.cs" Link="Flamie\SkipCompTweaks_StickPositionerFixedUpdatePatch.cs" />
+    <Compile Include="$(FlamieDir)\SlidableBoardCollision.cs" Link="Flamie\SlidableBoardCollision.cs" />
+    <Compile Include="$(FlamieDir)\SlidableGroundRaycastPatch.cs" Link="Flamie\SlidableGroundRaycastPatch.cs" />
+    <Compile Include="$(FlamieDir)\SlidableGroundRaycastPatch_StickPositionerSpawn.cs" Link="Flamie\SlidableGroundRaycastPatch_StickPositionerSpawn.cs" />
+    <Compile Include="$(FlamieDir)\SlidableObstacle.cs" Link="Flamie\SlidableObstacle.cs" />
+    <Compile Include="$(FlamieDir)\SlidableObstacleSetup.cs" Link="Flamie\SlidableObstacleSetup.cs" />
+    <Compile Include="$(FlamieDir)\SlidableObstacleSync.cs" Link="Flamie\SlidableObstacleSync.cs" />
+    <Compile Include="$(FlamieDir)\SlidableObstacleVisual.cs" Link="Flamie\SlidableObstacleVisual.cs" />
+    <Compile Include="$(FlamieDir)\SlidablePuckFilter.cs" Link="Flamie\SlidablePuckFilter.cs" />
+    <Compile Include="$(FlamieDir)\TerrainBasemapEnforcer.cs" Link="Flamie\TerrainBasemapEnforcer.cs" />
+    <Compile Include="$(FlamieDir)\TrainingClientChat.cs" Link="Flamie\TrainingClientChat.cs" />
+    <Compile Include="$(FlamieDir)\TrainingLayoutConfig.cs" Link="Flamie\TrainingLayoutConfig.cs" />
+    <Compile Include="$(FlamieDir)\TrainingMaterialFix.cs" Link="Flamie\TrainingMaterialFix.cs" />
+    <Compile Include="$(FlamieDir)\TrainingMotionSync.cs" Link="Flamie\TrainingMotionSync.cs" />
+    <Compile Include="$(FlamieDir)\TrainingMotionVisual.cs" Link="Flamie\TrainingMotionVisual.cs" />
+    <Compile Include="$(FlamieDir)\TrainingObjectFactory.cs" Link="Flamie\TrainingObjectFactory.cs" />
+    <Compile Include="$(FlamieDir)\TrainingObjectManager.cs" Link="Flamie\TrainingObjectManager.cs" />
+    <Compile Include="$(FlamieDir)\TrainingPrefabNames.cs" Link="Flamie\TrainingPrefabNames.cs" />
+    <Compile Include="$(FlamieDir)\TrainingPrefabRenamer.cs" Link="Flamie\TrainingPrefabRenamer.cs" />
+    <Compile Include="$(FlamieDir)\TrainingSpawnRecord.cs" Link="Flamie\TrainingSpawnRecord.cs" />
+    <Compile Include="$(FlamieDir)\TrainingSync.cs" Link="Flamie\TrainingSync.cs" />
+    <Compile Include="$(FlamieDir)\TrainingSyncMarker.cs" Link="Flamie\TrainingSyncMarker.cs" />
+    <Compile Include="$(FlamieDir)\UIChat_AutoShow_Patch.cs" Link="Flamie\UIChat_AutoShow_Patch.cs" />
+    <Compile Include="$(FlamieDir)\VoteManager_Server_AddVote_Patch.cs" Link="Flamie\VoteManager_Server_AddVote_Patch.cs" />
+    <Compile Include="$(FlamieDir)\WarmupTimerPausePatch.cs" Link="Flamie\WarmupTimerPausePatch.cs" />
+    <Compile Include="$(FlamieDir)\YoyoManager.cs" Link="Flamie\YoyoManager.cs" />
+    <Compile Include="$(FlamieDir)\MaxPractice\ConfigManager.cs" Link="Flamie\MaxPractice\ConfigManager.cs" />
+    <Compile Include="$(FlamieDir)\MaxPractice\GoalieAI.cs" Link="Flamie\MaxPractice\GoalieAI.cs" />
+    <Compile Include="$(FlamieDir)\MaxPractice\GoalieAIManager.cs" Link="Flamie\MaxPractice\GoalieAIManager.cs" />
+    <Compile Include="$(FlamieDir)\MaxPractice\GoalieVote.cs" Link="Flamie\MaxPractice\GoalieVote.cs" />
+    <Compile Include="$(FlamieDir)\MaxPractice\ModConfig.cs" Link="Flamie\MaxPractice\ModConfig.cs" />
+    <Compile Include="$(FlamieDir)\MaxPractice\PracticeConstants.cs" Link="Flamie\MaxPractice\PracticeConstants.cs" />
+    <Compile Include="$(FlamieDir)\MaxPractice\PracticeHelpers.cs" Link="Flamie\MaxPractice\PracticeHelpers.cs" />

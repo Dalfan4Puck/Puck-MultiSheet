@@ -9,11 +9,15 @@ namespace PHLPracticeModPack
         private const float ActionCooldownSeconds = 0.25f;
         private static float lastRoleToggleTime = -999f;
         private static float lastSlidableToggleTime = -999f;
+        private static float lastMinimapToggleTime = -999f;
 
         internal static void Tick()
         {
             if (ModRuntimeContext.IsDedicatedGameServer)
                 return;
+
+            if (ClientKeybindHelper.WasKeyPressedThisFrame(MultiSheetClientSettings.MinimapToggleKey))
+                TryToggleMinimap();
 
             NetworkManager nm = NetworkManager.Singleton;
             if (nm == null || !nm.IsConnectedClient)
@@ -50,6 +54,15 @@ namespace PHLPracticeModPack
             }
 
             RinkMotdService.ClientRequestSetRole(nextRole);
+        }
+
+        private static void TryToggleMinimap()
+        {
+            if (Time.unscaledTime < lastMinimapToggleTime + ActionCooldownSeconds)
+                return;
+
+            lastMinimapToggleTime = Time.unscaledTime;
+            MinimapSessionOverride.SetSuppressed(!MinimapSessionOverride.Suppressed);
         }
 
         private static void TryToggleSlidable()

@@ -9,6 +9,7 @@ namespace PHLPracticeModPack
         {
             RinkMotdService.Tick();
             RinkStripVote.Tick();
+            GoaliePracticeLookTarget.TickAttach();
             ChatOutbound.Tick();
             if (ModRuntimeContext.ShouldInstallClientPresentation())
             {

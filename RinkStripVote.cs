@@ -57,6 +57,7 @@ namespace PHLPracticeModPack
             TryApplyServerDefaults();
             TryReconcileStripSpawns();
             RinkPracticeDrills.TickReconcile();
+            PuckChasersMode.Tick();
         }
 
         internal static void Teardown()
@@ -90,6 +91,7 @@ namespace PHLPracticeModPack
             nextReconcileAt = 0f;
             serverModes.Clear();
             RinkPracticeDrills.StopAll();
+            PuckChasersMode.StopAll();
         }
 
         internal static RinkStripMode GetServerMode(int rinkIndex)
@@ -325,6 +327,7 @@ namespace PHLPracticeModPack
                 manager.SetRinkToolsEnabled(rinkIndex, mode == RinkStripMode.PhlTools);
 
             RinkPracticeDrills.ApplyMode(rinkIndex, mode);
+            PuckChasersMode.Apply(rinkIndex, mode);
 
             if (announce)
             {

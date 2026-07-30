@@ -40,9 +40,9 @@ namespace PHLPracticeModPack
         private const string TwitchUrl = "https://www.twitch.tv/puckhockeyleaguenetwork";
 
         /// <summary>Welcome overlay card sizing — reused by the scoreboard Rinks tab.</summary>
-        internal const float PanelWidthPercent = 70f;
-        internal const float PanelMaxWidth = 1020f;
-        internal const float PanelMinHeight = 720f;
+        internal const float PanelWidthPercent = 73.5f;
+        internal const float PanelMaxWidth = 1071f;
+        internal const float PanelMinHeight = 780f;
         internal const float PanelMaxHeightScreenFraction = 0.90f;
 
         internal sealed class Callbacks
@@ -429,25 +429,6 @@ namespace PHLPracticeModPack
 
             row.Add(MakeRoleButton("Skater", !isGoalie, embedded, () => callbacks.OnSelectRole?.Invoke(0)));
             row.Add(MakeRoleButton("Goalie", isGoalie, embedded, () => callbacks.OnSelectRole?.Invoke(1)));
-
-            AddControlsColumnSeparator(host, embedded);
-
-            bool minimapHidden = MinimapSessionOverride.Suppressed;
-            Button minimapBtn = MakeRoleButton(
-                minimapHidden ? "Minimap: Hidden" : "Minimap: Visible",
-                !minimapHidden,
-                embedded,
-                delegate
-                {
-                    MinimapSessionOverride.SetSuppressed(!MinimapSessionOverride.Suppressed);
-                    FillRoleSection(host, payload, callbacks, embedded);
-                });
-            minimapBtn.style.marginTop = 0;
-            minimapBtn.style.marginLeft = 4;
-            minimapBtn.style.marginRight = 4;
-            minimapBtn.style.alignSelf = Align.Stretch;
-            minimapBtn.style.width = new Length(100, LengthUnit.Percent);
-            host.Add(minimapBtn);
         }
 
         private static void AddControlsColumnSeparator(VisualElement host, bool embedded)
@@ -1008,7 +989,8 @@ namespace PHLPracticeModPack
         {
             RinkStatusEntry entry = payload.Rinks[index];
             bool isHere = index == localRink;
-            bool isFull = payload.Capacity > 0 && entry.Count >= payload.Capacity && !isHere;
+            int rinkCapacity = payload.CapacityForRink(index);
+            bool isFull = rinkCapacity > 0 && entry.Count >= rinkCapacity && !isHere;
 
             VisualElement column = new VisualElement();
             column.style.flexGrow = 1;
@@ -1019,7 +1001,8 @@ namespace PHLPracticeModPack
             column.style.flexDirection = FlexDirection.Column;
             column.style.alignItems = Align.Stretch;
 
-            VisualElement tile = BuildRinkTileSurface(payload, index, entry, isHere, isFull, callbacks, embedded, hereBannerH);
+            VisualElement tile = BuildRinkTileSurface(
+                payload, index, entry, isHere, isFull, rinkCapacity, callbacks, embedded, hereBannerH);
             column.Add(tile);
             VisualElement stripBtn = MakeRinkStripButton(payload, index, callbacks, embedded);
             stripBtn.style.marginTop = 4;
@@ -1033,10 +1016,13 @@ namespace PHLPracticeModPack
             RinkStatusEntry entry,
             bool isHere,
             bool isFull,
+            int rinkCapacity,
             Callbacks callbacks,
             bool embedded,
             int hereBannerH)
         {
+            RinkStripMode stripMode = GetStripMode(payload, index);
+            string capacityHint = RinkStripModeUtil.GetJoinCapacityHint(stripMode);
             // Full-bleed preview; tile height follows preview + strip only (no flex-grow gap).
             bool dense = payload.Rinks.Count > 6;
             int previewH = GetRinkPreviewHeight(dense, embedded);
@@ -1099,10 +1085,11 @@ namespace PHLPracticeModPack
             overlay.Add(topLeftRow);
 
             VisualElement countChip = MakeOverlayChip(
-                entry.Count + "/" + payload.Capacity,
+                entry.Count + "/" + rinkCapacity,
                 embedded ? 12 : 14,
                 countColor,
                 Align.FlexEnd);
+            countChip.name = "RinkCount_" + index;
             countChip.style.right = 6;
             countChip.style.top = 6;
             overlay.Add(countChip);
@@ -1132,8 +1119,13 @@ namespace PHLPracticeModPack
             }
 
             tile.tooltip = isFull
-                ? (entry.Label + " is full")
-                : isHere ? "Respawn at " + entry.Label : "Teleport to " + entry.Label;
+                ? (entry.Label + " is full"
+                    + (string.IsNullOrEmpty(capacityHint) ? "" : " — " + capacityHint))
+                : isHere
+                    ? "Respawn at " + entry.Label
+                    : string.IsNullOrEmpty(capacityHint)
+                        ? "Teleport to " + entry.Label
+                        : "Teleport to " + entry.Label + " (" + capacityHint + ")";
 
             // Static overview snap only — no live hover camera (FPS).
             // --- LIVE HOVER (disabled) — restore with RinkPreview live block ---
@@ -1219,7 +1211,7 @@ namespace PHLPracticeModPack
 
         private static VisualElement activeStripMenuOverlay;
 
-        private const int StripMenuRowHeight = 22;
+        private const int StripMenuRowHeight = 28;
         private const string StripMenuOverlayName = "StripPracticeMenuOverlay";
 
         private static VisualElement MakeStripPracticeDropdown(
@@ -1239,44 +1231,98 @@ namespace PHLPracticeModPack
             host.style.borderRightWidth = 1;
             host.style.borderRightColor = BorderStrong;
 
-            string label = RinkStripModeUtil.DropdownLabel(selected);
-            Color idleText = selected == RinkStripMode.Empty ? MutedText : CtaBg;
+            Color idleText = StripDropdownTextColor(selected);
             Color idleBg = Color.clear;
 
-            Button trigger = new Button(() => { }) { text = label };
+            VisualElement trigger = new VisualElement();
             trigger.name = "StripDropdown_" + rinkIndex;
             trigger.style.width = new Length(100, LengthUnit.Percent);
             trigger.style.height = barH;
-            trigger.style.paddingLeft = 8;
-            trigger.style.paddingRight = 8;
-            trigger.style.fontSize = fontSize;
-            trigger.style.color = idleText;
+            trigger.style.minHeight = barH;
             trigger.style.backgroundColor = idleBg;
-            trigger.style.unityFontStyleAndWeight = FontStyle.Bold;
-            trigger.style.borderTopWidth = 0;
-            trigger.style.borderRightWidth = 0;
-            trigger.style.borderBottomWidth = 0;
-            trigger.style.borderLeftWidth = 0;
-            StyleStripBarButton(trigger);
-            trigger.clicked += delegate
+            trigger.style.flexDirection = FlexDirection.Row;
+            trigger.style.alignItems = Align.Center;
+            trigger.style.justifyContent = Justify.Center;
+            trigger.pickingMode = PickingMode.Position;
+            trigger.focusable = true;
+            trigger.tooltip = selected == RinkStripMode.Empty
+                ? "No practice mode — pick one below, then press →"
+                : "Selected: " + RinkStripModeUtil.DisplayName(selected);
+
+            Label caption = MakeStripBarCaption(
+                RinkStripModeUtil.DropdownLabel(selected),
+                fontSize,
+                idleText);
+            caption.name = "StripDropdownCaption";
+            trigger.Add(caption);
+
+            trigger.RegisterCallback<PointerDownEvent>(evt =>
             {
+                if (evt.button != 0) return;
                 ShowCompactStripMenu(trigger, fontSize, mode =>
                 {
                     onSelected?.Invoke(mode);
-                    trigger.text = RinkStripModeUtil.DropdownLabel(mode);
-                    trigger.style.color = mode == RinkStripMode.Empty ? MutedText : CtaBg;
+                    caption.text = RinkStripModeUtil.DropdownLabel(mode);
+                    caption.style.color = StripDropdownTextColor(mode);
+                    trigger.tooltip = mode == RinkStripMode.Empty
+                        ? "No practice mode — pick one below, then press →"
+                        : "Selected: " + RinkStripModeUtil.DisplayName(mode);
                 });
-            };
-            trigger.RegisterCallback<MouseEnterEvent>(delegate
-            {
-                trigger.style.backgroundColor = ButtonHover;
+                evt.StopPropagation();
             });
-            trigger.RegisterCallback<MouseLeaveEvent>(delegate
-            {
-                trigger.style.backgroundColor = idleBg;
-            });
+            trigger.RegisterCallback<MouseEnterEvent>(_ => trigger.style.backgroundColor = ButtonHover);
+            trigger.RegisterCallback<MouseLeaveEvent>(_ => trigger.style.backgroundColor = idleBg);
             host.Add(trigger);
             return host;
+        }
+
+        private static Label MakeStripBarCaption(string text, int fontSize, Color color)
+        {
+            Label label = new Label(text ?? "");
+            label.style.fontSize = fontSize;
+            label.style.color = color;
+            label.style.unityFontStyleAndWeight = FontStyle.Bold;
+            label.style.unityTextAlign = TextAnchor.MiddleCenter;
+            label.style.whiteSpace = WhiteSpace.NoWrap;
+            label.style.overflow = Overflow.Hidden;
+            label.style.textOverflow = TextOverflow.Ellipsis;
+            label.style.marginTop = 0;
+            label.style.marginBottom = 0;
+            label.style.paddingTop = 0;
+            label.style.paddingBottom = 0;
+            label.style.paddingLeft = 4;
+            label.style.paddingRight = 4;
+            label.pickingMode = PickingMode.Ignore;
+            return label;
+        }
+
+        private static Button MakeStripBarButton(string text, int barH, int fontSize, Color textColor, Color bgColor)
+        {
+            Button button = new Button(() => { }) { text = text ?? "" };
+            button.style.width = new Length(100, LengthUnit.Percent);
+            button.style.height = barH;
+            button.style.minHeight = barH;
+            button.style.fontSize = fontSize;
+            button.style.color = textColor;
+            button.style.backgroundColor = bgColor;
+            button.style.marginTop = 0;
+            button.style.marginBottom = 0;
+            button.style.marginLeft = 0;
+            button.style.marginRight = 0;
+            button.style.paddingTop = 0;
+            button.style.paddingBottom = 0;
+            button.style.paddingLeft = 4;
+            button.style.paddingRight = 4;
+            button.style.borderTopWidth = 0;
+            button.style.borderRightWidth = 0;
+            button.style.borderBottomWidth = 0;
+            button.style.borderLeftWidth = 0;
+            button.style.unityTextAlign = TextAnchor.MiddleCenter;
+            button.style.justifyContent = Justify.Center;
+            button.style.alignItems = Align.Center;
+            button.style.whiteSpace = WhiteSpace.NoWrap;
+            button.style.overflow = Overflow.Hidden;
+            return button;
         }
 
         private static void ShowCompactStripMenu(VisualElement anchor, int fontSize, Action<RinkStripMode> onPick)
@@ -1321,31 +1367,10 @@ namespace PHLPracticeModPack
             {
                 RinkStripMode mode = RinkStripModeUtil.DropdownModes[i];
                 string itemLabel = RinkStripModeUtil.DisplayName(mode);
-                Button item = new Button(() => { }) { text = itemLabel };
-                item.style.height = StripMenuRowHeight;
-                item.style.minHeight = StripMenuRowHeight;
-                item.style.maxHeight = StripMenuRowHeight;
-                item.style.marginTop = 0;
-                item.style.marginBottom = 0;
-                item.style.marginLeft = 0;
-                item.style.marginRight = 0;
-                item.style.paddingTop = 0;
-                item.style.paddingBottom = 0;
-                item.style.paddingLeft = 6;
-                item.style.paddingRight = 6;
-                item.style.fontSize = fontSize;
-                item.style.unityFontStyleAndWeight = FontStyle.Bold;
-                item.style.unityTextAlign = TextAnchor.MiddleCenter;
-                item.style.justifyContent = Justify.Center;
-                item.style.alignItems = Align.Center;
-                item.style.color = TextColor;
-                item.style.backgroundColor = ElevatedBg;
+                Button item = MakeStripBarButton(itemLabel, StripMenuRowHeight, fontSize, TextColor, ElevatedBg);
+                item.style.width = new Length(100, LengthUnit.Percent);
                 item.style.borderTopWidth = i > 0 ? 1 : 0;
-                item.style.borderRightWidth = 0;
-                item.style.borderBottomWidth = 0;
-                item.style.borderLeftWidth = 0;
                 item.style.borderTopColor = ColumnRule;
-                StyleStripBarButton(item);
                 item.RegisterCallback<MouseEnterEvent>(_ => item.style.backgroundColor = ButtonHover);
                 item.RegisterCallback<MouseLeaveEvent>(_ => item.style.backgroundColor = ElevatedBg);
                 item.clicked += delegate
@@ -1390,37 +1415,35 @@ namespace PHLPracticeModPack
 
             if (activeMode)
             {
+                string modeLabel = RinkStripModeUtil.DisplayName(current);
+                string capHint = RinkStripModeUtil.GetJoinCapacityHint(current);
+                if (!string.IsNullOrEmpty(capHint))
+                    modeLabel = modeLabel + " · " + capHint;
+                string removeLabel = RinkStripModeUtil.RemoveBarLabel(current);
+
                 Color idleBorder = votingToClear ? FullRed : CtaBg;
-                Color idleText = votingToClear ? FullRed : CtaBg;
+                Color idleText = votingToClear ? FullRed : TextColor;
                 Color idleBg = votingToClear
                     ? new Color(FullRed.r, FullRed.g, FullRed.b, 0.28f)
                     : ButtonBg;
 
-                Button remove = new Button(() => { }) { text = "Remove Tools" };
+                Button remove = MakeStripBarButton(modeLabel, barH, fontSize, idleText, idleBg);
                 remove.clicked += delegate
                 {
                     callbacks?.OnVoteStrip?.Invoke(rinkIndex, RinkStripMode.Empty);
                 };
                 remove.name = "StripRemove_" + rinkIndex;
-                remove.style.width = new Length(100, LengthUnit.Percent);
-                remove.style.height = barH;
-                remove.style.fontSize = fontSize;
-                remove.style.unityFontStyleAndWeight = FontStyle.Bold;
-                remove.style.color = idleText;
-                remove.style.backgroundColor = idleBg;
-                remove.style.borderTopWidth = 0;
-                remove.style.borderRightWidth = 0;
-                remove.style.borderBottomWidth = 0;
-                remove.style.borderLeftWidth = 0;
-                StyleStripBarButton(remove);
                 SetBorder(remove, 2, idleBorder);
                 remove.RegisterCallback<MouseEnterEvent>(delegate
                 {
-                    remove.style.backgroundColor = idleBg;
+                    remove.text = removeLabel;
+                    remove.style.color = FullRed;
+                    remove.style.backgroundColor = new Color(FullRed.r, FullRed.g, FullRed.b, 0.28f);
                     SetBorder(remove, 2, FullRed);
                 });
                 remove.RegisterCallback<MouseLeaveEvent>(delegate
                 {
+                    remove.text = modeLabel;
                     remove.style.color = idleText;
                     remove.style.backgroundColor = idleBg;
                     SetBorder(remove, 2, idleBorder);
@@ -1461,10 +1484,15 @@ namespace PHLPracticeModPack
                 delegate(RinkStripMode mode) { SetStripDropdownSelection(rinkIndex, mode); });
             bar.Add(dropdown);
 
-            Color confirmBase = votingToApply ? voteAccent : ElevatedBg;
-            Color confirmHover = votingToApply ? CtaHover : ButtonHover;
+            Color confirmBase = ElevatedBg;
+            Color confirmHover = ButtonHover;
 
-            Button confirm = new Button(() => { }) { text = "\u2713" };
+            Button confirm = MakeStripBarButton(
+                "\u2192",
+                barH,
+                fontSize + 2,
+                votingToApply ? TextColor : MutedText,
+                confirmBase);
             confirm.clicked += delegate
             {
                 if (!StripDropdownSelection.TryGetValue(rinkIndex, out RinkStripMode pending)
@@ -1476,18 +1504,6 @@ namespace PHLPracticeModPack
             confirm.style.width = embedded ? 30 : 34;
             confirm.style.minWidth = embedded ? 30 : 34;
             confirm.style.flexShrink = 0;
-            confirm.style.height = barH;
-            confirm.style.paddingLeft = 0;
-            confirm.style.paddingRight = 0;
-            confirm.style.fontSize = fontSize;
-            confirm.style.color = votingToApply ? CtaText : MutedText;
-            confirm.style.backgroundColor = confirmBase;
-            confirm.style.unityFontStyleAndWeight = FontStyle.Bold;
-            confirm.style.borderTopWidth = 0;
-            confirm.style.borderRightWidth = 0;
-            confirm.style.borderBottomWidth = 0;
-            confirm.style.borderLeftWidth = 0;
-            StyleStripBarButton(confirm);
             confirm.RegisterCallback<MouseEnterEvent>(delegate { confirm.style.backgroundColor = confirmHover; });
             confirm.RegisterCallback<MouseLeaveEvent>(delegate { confirm.style.backgroundColor = confirmBase; });
             bar.Add(confirm);
@@ -1496,6 +1512,11 @@ namespace PHLPracticeModPack
                 wrap.Add(MakeStripVoteBadge(voteProgress.BadgeText));
 
             return wrap;
+        }
+
+        private static Color StripDropdownTextColor(RinkStripMode mode)
+        {
+            return mode == RinkStripMode.Empty ? MutedText : TextColor;
         }
 
         private static Label MakeStripVoteBadge(string badgeText)
@@ -1552,7 +1573,7 @@ namespace PHLPracticeModPack
                 textInput.style.width = new Length(100, LengthUnit.Percent);
                 textInput.style.fontSize = fontSize;
                 textInput.style.unityFontStyleAndWeight = FontStyle.Bold;
-                textInput.style.unityTextAlign = TextAnchor.MiddleLeft;
+                textInput.style.unityTextAlign = TextAnchor.MiddleCenter;
             }
 
             VisualElement arrow = dropdown.Q(className: "unity-base-popup-field__arrow");
@@ -1598,9 +1619,15 @@ namespace PHLPracticeModPack
                     ? CtaBg
                     : stripMode == RinkStripMode.GoaliePractice
                         ? BadgeCyan
-                        : VoteBadgeOrange;
+                        : stripMode == RinkStripMode.PuckChasers
+                            ? new Color(0.85f, 0.35f, 0.35f, 1f)
+                            : VoteBadgeOrange;
                 row.Add(MakeFeatureBadge(badgeText, badgeColor, embedded));
             }
+
+            string capBadge = RinkStripModeUtil.GetJoinCapacityBadge(stripMode);
+            if (!string.IsNullOrEmpty(capBadge))
+                row.Add(MakeFeatureBadge(capBadge, FullRed, embedded));
         }
 
         private static VisualElement MakeInlineOverlayChip(string text, int fontSize, Color color)
@@ -1613,9 +1640,10 @@ namespace PHLPracticeModPack
             chip.style.backgroundColor = new Color(0f, 0f, 0f, 0.55f);
             chip.style.paddingLeft = 7;
             chip.style.paddingRight = 7;
-            chip.style.paddingTop = 3;
-            chip.style.paddingBottom = 3;
-            chip.style.minHeight = fontSize + 6;
+            chip.style.paddingTop = 2;
+            chip.style.paddingBottom = 2;
+            chip.style.minHeight = fontSize + 8;
+            chip.style.justifyContent = Justify.Center;
             chip.style.borderTopLeftRadius = 3;
             chip.style.borderTopRightRadius = 3;
             chip.style.borderBottomLeftRadius = 3;
@@ -1623,7 +1651,7 @@ namespace PHLPracticeModPack
             chip.pickingMode = PickingMode.Ignore;
 
             Label label = MakeLabel(text, fontSize, color, FontStyle.Bold);
-            label.style.unityTextAlign = TextAnchor.MiddleLeft;
+            StyleOverlayLabel(label, TextAnchor.MiddleLeft);
             label.style.overflow = Overflow.Hidden;
             label.style.textOverflow = TextOverflow.Ellipsis;
             label.style.whiteSpace = WhiteSpace.NoWrap;
@@ -1645,7 +1673,8 @@ namespace PHLPracticeModPack
             pill.style.paddingRight = 7;
             pill.style.paddingTop = 2;
             pill.style.paddingBottom = 2;
-            pill.style.minHeight = fontSize + 6;
+            pill.style.minHeight = fontSize + 8;
+            pill.style.justifyContent = Justify.Center;
             pill.style.backgroundColor = new Color(0f, 0f, 0f, 0.55f);
             pill.style.borderTopWidth = 1;
             pill.style.borderRightWidth = 1;
@@ -1662,7 +1691,7 @@ namespace PHLPracticeModPack
             pill.pickingMode = PickingMode.Ignore;
 
             Label label = MakeLabel(text, fontSize, accent, FontStyle.Bold);
-            label.style.unityTextAlign = TextAnchor.MiddleCenter;
+            StyleOverlayLabel(label, TextAnchor.MiddleCenter);
             label.pickingMode = PickingMode.Ignore;
             pill.Add(label);
             return pill;
@@ -1678,8 +1707,10 @@ namespace PHLPracticeModPack
             chip.style.backgroundColor = new Color(0f, 0f, 0f, 0.55f);
             chip.style.paddingLeft = 7;
             chip.style.paddingRight = 7;
-            chip.style.paddingTop = 3;
-            chip.style.paddingBottom = 3;
+            chip.style.paddingTop = 2;
+            chip.style.paddingBottom = 2;
+            chip.style.minHeight = fontSize + 8;
+            chip.style.justifyContent = Justify.Center;
             chip.style.borderTopLeftRadius = 3;
             chip.style.borderTopRightRadius = 3;
             chip.style.borderBottomLeftRadius = 3;
@@ -1687,9 +1718,9 @@ namespace PHLPracticeModPack
             chip.pickingMode = PickingMode.Ignore;
 
             Label label = MakeLabel(text, fontSize, color, FontStyle.Bold);
-            label.style.unityTextAlign = horizontal == Align.FlexEnd
+            StyleOverlayLabel(label, horizontal == Align.FlexEnd
                 ? TextAnchor.MiddleRight
-                : TextAnchor.MiddleLeft;
+                : TextAnchor.MiddleLeft);
             label.pickingMode = PickingMode.Ignore;
             chip.Add(label);
             return chip;
@@ -1730,46 +1761,16 @@ namespace PHLPracticeModPack
             element.style.borderLeftColor = color;
         }
 
-        /// <summary>Unity Button default padding offsets label text upward in short strip bars.</summary>
-        private static void StyleStripBarButton(Button button)
+        private static void StyleOverlayLabel(Label label, TextAnchor align)
         {
-            if (button == null) return;
+            if (label == null) return;
 
-            button.style.marginTop = 0;
-            button.style.marginBottom = 0;
-            button.style.paddingTop = 0;
-            button.style.paddingBottom = 0;
-            button.style.unityTextAlign = TextAnchor.MiddleCenter;
-            button.style.justifyContent = Justify.Center;
-            button.style.alignItems = Align.Center;
-            CenterButtonLabel(button);
-        }
-
-        private static void CenterButtonLabel(Button button)
-        {
-            void Apply()
-            {
-                Label label = button.Q<Label>();
-                if (label == null)
-                    return;
-
-                label.style.unityTextAlign = TextAnchor.MiddleCenter;
-                label.style.flexGrow = 1;
-                label.style.width = new Length(100, LengthUnit.Percent);
-                label.style.height = new Length(100, LengthUnit.Percent);
-                label.style.paddingLeft = 0;
-                label.style.paddingRight = 0;
-                label.style.paddingTop = 0;
-                label.style.paddingBottom = 0;
-                label.style.marginLeft = 0;
-                label.style.marginRight = 0;
-                label.style.marginTop = 0;
-                label.style.marginBottom = 0;
-                label.style.alignSelf = Align.Center;
-            }
-
-            Apply();
-            button.RegisterCallback<GeometryChangedEvent>(_ => Apply());
+            label.style.unityTextAlign = align;
+            label.style.marginTop = 0;
+            label.style.marginBottom = 0;
+            label.style.paddingTop = 0;
+            label.style.paddingBottom = 0;
+            label.style.alignSelf = Align.Center;
         }
 
         internal static Label MakeLabel(string text, int size, Color color, FontStyle style)

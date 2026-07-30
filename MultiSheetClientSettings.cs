@@ -77,6 +77,9 @@ namespace PHLPracticeModPack
         /// <summary>Key bound to toggle slidable physics (default L).</summary>
         public string slidableToggleKey = "L";
 
+        /// <summary>Key bound to show/hide the minimap (default M).</summary>
+        public string minimapToggleKey = "M";
+
         /// <summary>Hide the stock minimap while in MultiSheet (client-only).</summary>
         public bool minimapHidden = false;
 
@@ -181,6 +184,19 @@ namespace PHLPracticeModPack
             set
             {
                 Load().slidableToggleKey = string.IsNullOrWhiteSpace(value) ? "L" : value.Trim();
+            }
+        }
+
+        internal static string MinimapToggleKey
+        {
+            get
+            {
+                string key = Load().minimapToggleKey;
+                return string.IsNullOrWhiteSpace(key) ? "M" : key.Trim();
+            }
+            set
+            {
+                Load().minimapToggleKey = string.IsNullOrWhiteSpace(value) ? "M" : value.Trim();
             }
         }
 

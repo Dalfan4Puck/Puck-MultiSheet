@@ -112,7 +112,7 @@ namespace PHLPracticeModPack
             bool open = keybindsSectionOpen;
             VisualElement shell = BuildCollapsibleShell(
                 host,
-                "Keybinds",
+                "Keybinds & Commands",
                 open,
                 embedded,
                 () =>
@@ -132,13 +132,12 @@ namespace PHLPracticeModPack
                 () => MultiSheetClientSettings.SpawnPuckKey,
                 v => MultiSheetClientSettings.SpawnPuckKey = v);
             AddKeybindRow(host, body, embedded, "role",
-                "Toggle skater / goalie (in place)",
+                "Switch between Skater / Goalie",
                 () => MultiSheetClientSettings.ToggleRoleKey,
                 v => MultiSheetClientSettings.ToggleRoleKey = v);
             AddSlidableKeybindRow(host, body, embedded);
-            AddDualRow(body, embedded, "Tab = Open this menu", null);
-            AddDualRow(body, embedded, "Chat: /passer — pass bump board in front of you", null);
-            AddDualRow(body, embedded, "Chat: /sheet — flat pushable sheet", null);
+            AddMinimapKeybindRow(host, body, embedded);
+            AddDualRow(body, embedded, "Spawn Objects: /passer, /pushbeam, /sheet", null);
         }
 
         internal static void FillRadioInfoSection(VisualElement host, bool embedded)
@@ -412,7 +411,6 @@ namespace PHLPracticeModPack
 
         private static void AddSlidableKeybindRow(VisualElement sectionHost, VisualElement body, bool embedded)
         {
-            bool enabled = GetSlidablePhysicsEnabled();
             string key = ClientKeybindHelper.NormalizeDisplayKey(MultiSheetClientSettings.SlidableToggleKey);
             bool listening = body.userData is string ud && ud == "slidable";
 
@@ -426,7 +424,7 @@ namespace PHLPracticeModPack
             left.style.overflow = Overflow.Hidden;
 
             Label main = RinkPanelBuilder.MakeLabel(
-                "Slidable props (" + (enabled ? "Enabled" : "Disabled") + ") = " + key,
+                "Slidable Props!",
                 KeybindFontSize,
                 RinkPanelBuilder.TextColor,
                 FontStyle.Bold);
@@ -445,7 +443,7 @@ namespace PHLPracticeModPack
             left.Add(sticker);
 
             Label sub = RinkPanelBuilder.MakeLabel(
-                "· may cause fps dips",
+                "· may cause FPS dips",
                 KeybindFontSize,
                 RinkPanelBuilder.MutedText,
                 FontStyle.Normal);
@@ -495,6 +493,76 @@ namespace PHLPracticeModPack
             rebind.RegisterCallback<BlurEvent>(_ =>
             {
                 if (body.userData as string == "slidable")
+                {
+                    body.userData = null;
+                    FillKeybindsSection(sectionHost, embedded);
+                }
+            });
+            if (listening)
+            {
+                RinkPanelBuilder.SetBorder(rebind, 2, CyanAccent);
+                rebind.schedule.Execute(() => rebind.Focus()).ExecuteLater(1);
+            }
+            cols[1].Add(rebind);
+        }
+
+        private static void AddMinimapKeybindRow(VisualElement sectionHost, VisualElement body, bool embedded)
+        {
+            bool hidden = MinimapSessionOverride.Suppressed;
+            string key = ClientKeybindHelper.NormalizeDisplayKey(MultiSheetClientSettings.MinimapToggleKey);
+            bool listening = body.userData is string ud && ud == "minimap";
+
+            VisualElement[] cols = BuildDualRowShell(body);
+            Label left = RinkPanelBuilder.MakeLabel(
+                "Minimap (" + (hidden ? "Hidden" : "Visible") + ") = " + key,
+                KeybindFontSize,
+                RinkPanelBuilder.TextColor,
+                FontStyle.Bold);
+            left.style.unityTextAlign = TextAnchor.MiddleLeft;
+            cols[0].Add(left);
+
+            Button rebind = RinkPanelBuilder.MakeButton(
+                listening ? "…" : key,
+                RinkPanelBuilder.ButtonBg,
+                RinkPanelBuilder.ButtonHover,
+                () => { });
+            StyleKeybindButton(rebind, embedded);
+            rebind.tooltip = "Rebind minimap toggle key (default M)";
+            rebind.focusable = true;
+            rebind.RegisterCallback<ClickEvent>(evt =>
+            {
+                body.userData = "minimap";
+                rebind.text = "…";
+                rebind.Focus();
+                evt.StopPropagation();
+            });
+            rebind.RegisterCallback<KeyDownEvent>(evt =>
+            {
+                if (body.userData as string != "minimap") return;
+                if (evt.keyCode == KeyCode.Escape)
+                {
+                    body.userData = null;
+                    FillKeybindsSection(sectionHost, embedded);
+                    evt.StopPropagation();
+                    return;
+                }
+                if (evt.keyCode == KeyCode.Tab || evt.keyCode == KeyCode.LeftShift ||
+                    evt.keyCode == KeyCode.RightShift || evt.keyCode == KeyCode.LeftControl ||
+                    evt.keyCode == KeyCode.RightControl || evt.keyCode == KeyCode.LeftAlt ||
+                    evt.keyCode == KeyCode.RightAlt)
+                    return;
+
+                string pressed = evt.keyCode.ToString();
+                if (pressed.Length == 1) pressed = pressed.ToUpperInvariant();
+                MultiSheetClientSettings.MinimapToggleKey = pressed;
+                MultiSheetClientSettings.Save();
+                body.userData = null;
+                FillKeybindsSection(sectionHost, embedded);
+                evt.StopPropagation();
+            });
+            rebind.RegisterCallback<BlurEvent>(_ =>
+            {
+                if (body.userData as string == "minimap")
                 {
                     body.userData = null;
                     FillKeybindsSection(sectionHost, embedded);
@@ -558,11 +626,6 @@ namespace PHLPracticeModPack
 
             Apply();
             button.RegisterCallback<GeometryChangedEvent>(_ => Apply());
-        }
-
-        private static bool GetSlidablePhysicsEnabled()
-        {
-            return ActiveRinkResolver.IsSlidableEnabledForLocalRink();
         }
 
         private static void AddDualRow(VisualElement body, bool embedded, string text, VisualElement right)

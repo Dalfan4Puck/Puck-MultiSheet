@@ -1,0 +1,11 @@
+[Unit]
+Description=Poll Steam Workshop for Puck server mod updates (adaptive: 1m15s fast / 10min slow)
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=75s
+AccuracySec=5s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

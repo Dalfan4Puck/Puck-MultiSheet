@@ -1,8 +1,0 @@
-{
-  "SshKey": "C:\\path\\to\\id_rsa",
-  "SshHost": "your.server.ip",
-  "SshPort": 22,
-  "SshUser": "root",
-  "VpsPluginDir": "/srv/puck-download/Plugins/FlamiePrac",
-  "LocalPluginDir": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Puck\\Plugins\\FlamiePrac"
-}

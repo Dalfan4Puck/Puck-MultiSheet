@@ -208,11 +208,11 @@ namespace PHLPracticeModPack
         {
             message = null;
             MultiRinkConfig cfg = MultiRinkConfig.Current;
-            int capacity = cfg.RinkCapacity;
-            if (capacity <= 0) return false;
-
             int targetIndex = cfg.Rinks.IndexOf(slot);
             if (targetIndex < 0) return false;
+
+            int capacity = GetEffectiveCapacity(targetIndex);
+            if (capacity <= 0) return false;
 
             // Moving to the rink you are already on is always allowed (respawn).
             int currentIndex = -1;
@@ -229,10 +229,23 @@ namespace PHLPracticeModPack
             int[] counts = CountPlayersPerRink(cfg);
             if (targetIndex < counts.Length && counts[targetIndex] >= capacity)
             {
-                message = $"{slot.Label} is full ({counts[targetIndex]}/{capacity}).";
+                RinkStripMode mode = RinkStripVote.GetServerMode(targetIndex);
+                string modeHint = mode == RinkStripMode.GoaliePractice
+                    ? " (Goalie Practice: 1 player max)"
+                    : mode == RinkStripMode.TipPractice
+                        ? " (Tip Practice: 2 players max)"
+                        : "";
+                message = $"{slot.Label} is full ({counts[targetIndex]}/{capacity}){modeHint}.";
                 return true;
             }
             return false;
+        }
+
+        internal static int GetEffectiveCapacity(int rinkIndex)
+        {
+            MultiRinkConfig cfg = MultiRinkConfig.Current;
+            RinkStripMode mode = RinkStripVote.GetServerMode(rinkIndex);
+            return RinkStripModeUtil.GetJoinCapacity(mode, cfg.RinkCapacity);
         }
 
         /// <summary>Push fresh status to everyone (e.g. right after a teleport).</summary>
@@ -574,12 +587,13 @@ namespace PHLPracticeModPack
 
                 // Build deferred client-side rink visuals before the MOTD/preview rig
                 // captures tiles — otherwise rinks 2+ render without cloned geometry or
-                // offset fill lights (dark thumbnails). Pass the payload so the client
-                // clones the server's rink count/origins, not the built-in defaults.
-                CustomLevelPlugin.ConfirmPracticeServer(payload);
-
-                RinkMotdUI.OnStatusReceived(payload, show);
-                RinkScoreboardTab.OnStripModesUpdated(payload);
+                // offset fill lights (dark thumbnails). Pure clients spread clones across
+                // frames; MOTD/strip UI waits until LayoutReady.
+                CustomLevelPlugin.ConfirmPracticeServer(payload, () =>
+                {
+                    RinkMotdUI.OnStatusReceived(payload, show);
+                    RinkScoreboardTab.OnStripModesUpdated(payload);
+                });
             }
             catch (Exception ex)
             {

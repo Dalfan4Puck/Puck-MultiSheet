@@ -74,6 +74,7 @@ namespace PHLPracticeModPack
 
         private static readonly Type[] ClientPatchTypes =
         {
+            typeof(GoalieTrackPuckPatch),
             typeof(PracticeSelectScreenShowPatch),
             typeof(PracticeTeamSelectHidePatch),
             typeof(PracticeManualTeamSelectPatch),

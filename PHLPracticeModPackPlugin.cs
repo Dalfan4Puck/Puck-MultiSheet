@@ -31,6 +31,7 @@ namespace PHLPracticeModPack
                 LargeLevelHost.TryEnable(harmony);
                 RinkMotdService.Initialize();
                 RinkStripVote.Initialize();
+                GoaliePracticeLookTarget.Initialize();
 
                 runtimeObject = new GameObject("PHLPracticeModPackRuntime");
                 runtimeObject.AddComponent<PHLPracticeModPackRuntime>();
@@ -82,6 +83,7 @@ namespace PHLPracticeModPack
 
                 RinkMotdService.Teardown();
                 RinkStripVote.Teardown();
+                GoaliePracticeLookTarget.Teardown();
                 FlamiePracFeatures.RadioServerDrivenOnly = false;
                 RadioHudUI.ShouldSuppressStandalone = null;
                 LargeLevelHost.Disable();

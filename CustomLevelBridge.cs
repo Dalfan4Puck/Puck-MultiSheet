@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
@@ -21,7 +22,11 @@ public static class CustomLevelPlugin
     private static bool practiceHelperPatched;
     private static bool levelPatchesInstalled;
     private static bool clientBuildPending;
+    private static bool clientBuildStarted;
     private static bool clientBuildDone;
+    private static GameObject clientBuildHost;
+    private static Coroutine clientBuildCoroutine;
+    private static Action clientBuildWhenReady;
 
     private static readonly List<Renderer> hiddenScoreboardRenderers = new List<Renderer>();
 
@@ -30,7 +35,8 @@ public static class CustomLevelPlugin
 
     public static AssetBundle GetBundle() => bundle;
     public static bool IsGeometryLoaded => spawnedServerRoot != null || spawnedClientRoot != null;
-    public static bool IsClientLayoutReady => spawnedClientRoot != null;
+    public static bool IsClientLayoutReady =>
+        spawnedClientRoot != null && VanillaRinkCloner.LayoutReady;
 
     internal static bool TryInstall(Harmony ownerHarmony)
     {
@@ -88,7 +94,9 @@ public static class CustomLevelPlugin
         practiceHelperPatched = false;
         levelPatchesInstalled = false;
         clientBuildPending = false;
+        clientBuildStarted = false;
         clientBuildDone = false;
+        clientBuildWhenReady = null;
         harmony = null;
         ProtectedPucks.Clear();
         ChatInputActive = false;
@@ -162,7 +170,8 @@ public static class CustomLevelPlugin
             harmony.Patch(sendChat, prefix: new HarmonyMethod(typeof(CustomLevelPlugin), nameof(OnClientSendChatMessage)));
     }
 
-    public static bool MinimapShowPrefix() => false;
+    /// <summary>Legacy hook — minimap Show blocking is owned by MinimapSessionOverride.</summary>
+    public static bool MinimapShowPrefix() => !MinimapSessionOverride.Suppressed;
 
     public static void OnChatStartInput() => ChatInputActive = true;
     public static void OnChatStopInput() => ChatInputActive = false;
@@ -355,6 +364,7 @@ public static class CustomLevelPlugin
                         // runs MultiSheet (first rink-status payload). On vanilla servers
                         // nothing is ever built and the mod stays dormant.
                         clientBuildPending = true;
+                        clientBuildStarted = false;
                         clientBuildDone = false;
                         PracticeLog.Info("[PHLPractice] Client rink visuals deferred until the server confirms MultiSheet.");
                     }
@@ -418,48 +428,156 @@ public static class CustomLevelPlugin
     /// <summary>
     /// First rink-status payload arrived from the server — it definitely runs
     /// MultiSheet, so it is now safe to build the deferred client-side visuals.
+    /// Pure-client clones are spread across frames; <paramref name="whenLayoutReady"/>
+    /// runs after the build finishes (or immediately if already ready / skipped).
     /// </summary>
-    internal static void ConfirmPracticeServer(RinkMotdPayload payload = null)
+    internal static void ConfirmPracticeServer(RinkMotdPayload payload = null, Action whenLayoutReady = null)
     {
         try
         {
             NetworkManager nm = NetworkManager.Singleton;
             bool pureClient = nm != null && nm.IsClient && !nm.IsServer;
-            if (!pureClient || clientBuildDone) return;
+            if (!pureClient)
+            {
+                whenLayoutReady?.Invoke();
+                return;
+            }
+
+            if (clientBuildDone)
+            {
+                whenLayoutReady?.Invoke();
+                return;
+            }
+
+            if (clientBuildStarted)
+            {
+                // Keep the latest MOTD/strip callback; earlier status may be stale.
+                if (whenLayoutReady != null)
+                    clientBuildWhenReady = whenLayoutReady;
+                return;
+            }
 
             if (payload != null)
                 MultiRinkConfig.ApplyClientLayoutFromServer(payload);
 
             MultiRinkConfig cfg = MultiRinkConfig.Current;
-            if (!cfg.EnableMultiRink || cfg.UseAssetBundle) return;
+            if (!cfg.EnableMultiRink || cfg.UseAssetBundle)
+            {
+                whenLayoutReady?.Invoke();
+                return;
+            }
 
-            clientBuildDone = true;
+            clientBuildStarted = true;
             clientBuildPending = false;
+            clientBuildWhenReady = whenLayoutReady;
             // CPT may have finished loading after our OnEnable — re-assert thin skaters on client.
             CptThinSkaterOverride.Apply();
             TrlPracticeSmoothnessOverride.Apply();
             ArmClientChunkDecode();
+            ExpandWorldBounds(cfg.Rinks);
+
             if (MultiSheetClientSettings.SkipClientBuild)
             {
-                ExpandWorldBounds(cfg.Rinks);
+                clientBuildDone = true;
                 Debug.Log("[PHLPractice] skipClientBuild — client rink visuals skipped (FPS A/B).");
+                InvokeClientBuildWhenReady();
                 return;
             }
-            BuildClientSide(cfg);
-            ExpandWorldBounds(cfg.Rinks);
-            Debug.Log("[PHLPractice] Server confirmed MultiSheet — client layout built (" +
-                      (cfg.Rinks?.Count ?? 0) + " rink slot(s)).");
+
+            MonoBehaviour host = EnsureClientBuildHost();
+            clientBuildCoroutine = host.StartCoroutine(BuildClientSideAsync(cfg));
         }
         catch (Exception ex)
         {
             Debug.LogError("[PHLPractice] Deferred client build failed: " + ex);
+            clientBuildDone = true;
+            InvokeClientBuildWhenReady();
         }
+    }
+
+    private static void InvokeClientBuildWhenReady()
+    {
+        Action cb = clientBuildWhenReady;
+        clientBuildWhenReady = null;
+        try { cb?.Invoke(); }
+        catch (Exception ex)
+        {
+            Debug.LogWarning("[PHLPractice] Client build ready callback failed: " + ex.Message);
+        }
+    }
+
+    private static MonoBehaviour EnsureClientBuildHost()
+    {
+        if (clientBuildHost != null)
+        {
+            MonoBehaviour existing = clientBuildHost.GetComponent<ClientBuildHost>();
+            if (existing != null) return existing;
+        }
+
+        clientBuildHost = new GameObject("PHL_ClientBuildHost");
+        UnityEngine.Object.DontDestroyOnLoad(clientBuildHost);
+        clientBuildHost.hideFlags = HideFlags.HideAndDontSave;
+        return clientBuildHost.AddComponent<ClientBuildHost>();
+    }
+
+    private sealed class ClientBuildHost : MonoBehaviour { }
+
+    private static IEnumerator BuildClientSideAsync(MultiRinkConfig cfg)
+    {
+        if (spawnedClientRoot != null)
+        {
+            UnityEngine.Object.Destroy(spawnedClientRoot);
+            spawnedClientRoot = null;
+        }
+
+        GameObject root = null;
+        yield return VanillaRinkCloner.SpawnMultiRinkLayoutAsync(
+            cfg.Rinks, cfg, RinkCloneRole.Client, finished => root = finished);
+
+        if (root == null)
+        {
+            clientBuildDone = true;
+            clientBuildCoroutine = null;
+            Debug.LogWarning("[PHLPractice] Async client layout build produced no root.");
+            InvokeClientBuildWhenReady();
+            yield break;
+        }
+
+        spawnedClientRoot = root;
+        // Must run after the client root exists — ArenaLighting owns fill lights under it.
+        ArenaLighting.Apply();
+        PracticePresentation.ApplyAfterClientBuild();
+        MultiSheetClientSettings.ApplyLoadedPreferences();
+        SpawnGroundPlane(cfg.Rinks, spawnedClientRoot);
+        HideVanillaScoreboards();
+        RinkPreview.NotifyClientBuildComplete();
+        clientBuildDone = true;
+        clientBuildCoroutine = null;
+        Debug.Log("[PHLPractice] Server confirmed MultiSheet — client layout built (" +
+                  (cfg.Rinks?.Count ?? 0) + " rink slot(s), frame-spread).");
+        Debug.Log("[PHLPractice] Client layout ready.");
+        InvokeClientBuildWhenReady();
     }
 
     /// <summary>Local client left the server — re-arm the deferral for the next join.</summary>
     internal static void OnPracticeConnectionLost(bool wasHosting)
     {
+        if (clientBuildCoroutine != null && clientBuildHost != null)
+        {
+            try { clientBuildHost.GetComponent<ClientBuildHost>()?.StopCoroutine(clientBuildCoroutine); }
+            catch { }
+            clientBuildCoroutine = null;
+        }
+
+        if (clientBuildHost != null)
+        {
+            UnityEngine.Object.Destroy(clientBuildHost);
+            clientBuildHost = null;
+        }
+
+        clientBuildWhenReady = null;
         clientBuildPending = false;
+        clientBuildStarted = false;
         clientBuildDone = false;
 
         // Leave nothing behind for the next (possibly vanilla) session: the clone
@@ -797,16 +915,6 @@ public static class CustomLevelPlugin
 
     private static void HideMinimap()
     {
-        Type minimapType = typeof(LevelController).Assembly.GetType("UIMinimap");
-        if (minimapType != null)
-        {
-            MethodInfo showMethod = minimapType.GetMethod("Show",
-                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
-            if (showMethod != null)
-                new Harmony("com.testlevel.minimap").Patch(showMethod,
-                    prefix: new HarmonyMethod(typeof(CustomLevelPlugin), nameof(MinimapShowPrefix)));
-        }
-
         UIMinimap minimap = GameObject.FindFirstObjectByType<UIMinimap>();
         minimap?.Hide();
     }

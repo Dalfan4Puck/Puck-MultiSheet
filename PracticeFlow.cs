@@ -39,6 +39,15 @@ namespace PHLPracticeModPack
     internal static class PracticeFlowServer
     {
         private static readonly HashSet<ulong> autoTeamed = new HashSet<ulong>();
+        private static readonly Dictionary<ulong, RoleSwitchVelocity> pendingRoleVelocities =
+            new Dictionary<ulong, RoleSwitchVelocity>();
+
+        private struct RoleSwitchVelocity
+        {
+            internal Vector3 Linear;
+            internal Vector3 Angular;
+            internal int FramesLeft;
+        }
 
         /// <summary>Server frame tick: auto-team new joiners, respawn team-switchers.</summary>
         internal static void Tick()
@@ -49,6 +58,8 @@ namespace PHLPracticeModPack
             try { pm = MonoBehaviourSingleton<PlayerManager>.Instance; }
             catch { return; }
             if (pm == null) return;
+
+            ApplyPendingRoleSwitchVelocities(pm);
 
             foreach (Player player in pm.GetPlayers())
             {
@@ -73,6 +84,15 @@ namespace PHLPracticeModPack
                     {
                         // Back from an Esc-menu team switch: they already have a rink,
                         // so skip position select entirely and respawn them on it.
+                        RinkSlot slot = FindRinkSlot(MultiRinkConfig.Current, MultiRinkService.GetActiveRinkId(player.OwnerClientId));
+                        if (slot != null && RinkMotdService.IsRinkFullFor(player.OwnerClientId, slot, out string fullMessage))
+                        {
+                            MultiRinkService.ClearActiveRink(player.OwnerClientId);
+                            if (!string.IsNullOrEmpty(fullMessage))
+                                RinkMotdService.QueuePrivateChatForClient(player.OwnerClientId, fullMessage);
+                            continue;
+                        }
+
                         player.Server_SetGameState(PlayerPhase.Play);
                     }
                 }
@@ -85,7 +105,13 @@ namespace PHLPracticeModPack
 
         /// <summary>Spawn a positionless player at their chosen rink (center ice or crease).</summary>
         /// <param name="spawnPosition">When set with <paramref name="spawnRotation"/>, spawn here instead of rink defaults (role switches).</param>
-        internal static void SpawnPositionless(Player player, Vector3? spawnPosition = null, Quaternion? spawnRotation = null)
+        /// <param name="inheritLinearVelocity">When set, carry momentum from the despawned body (role switches).</param>
+        internal static void SpawnPositionless(
+            Player player,
+            Vector3? spawnPosition = null,
+            Quaternion? spawnRotation = null,
+            Vector3? inheritLinearVelocity = null,
+            Vector3? inheritAngularVelocity = null)
         {
             MultiRinkConfig cfg = MultiRinkConfig.Current;
             if (cfg?.Rinks == null || cfg.Rinks.Count == 0) return;
@@ -94,6 +120,18 @@ namespace PHLPracticeModPack
             if (slot == null) return;
 
             bool spawnInPlace = spawnPosition.HasValue && spawnRotation.HasValue;
+            if (!spawnInPlace && RinkMotdService.IsRinkFullFor(player.OwnerClientId, slot, out string fullMessage))
+            {
+                MultiRinkService.ClearActiveRink(player.OwnerClientId);
+                if (!string.IsNullOrEmpty(fullMessage))
+                    RinkMotdService.QueuePrivateChatForClient(player.OwnerClientId, fullMessage);
+                try
+                {
+                    player.Server_SetGameState(PlayerPhase.PositionSelect);
+                }
+                catch { }
+                return;
+            }
 
             // CPT Movement.Start compat applies from Player.Role — no marker claim.
             CptSpawnCompat.PreparePlayer(player);
@@ -119,6 +157,7 @@ namespace PHLPracticeModPack
 
                 player.Server_SpawnCharacter(position, rot, PlayerRole.Goalie);
                 MultiRinkService.RefreshChunkSlot(player.PlayerBody);
+                ApplyInheritedRoleVelocity(player, inheritLinearVelocity, inheritAngularVelocity);
                 Debug.Log("[PHLPractice] Spawned client " + player.OwnerClientId + " as " + player.Team +
                           " goalie at " + slot.Id + " pos=" + position.ToString("F2") +
                           " body=" + (player.PlayerBody != null
@@ -135,6 +174,7 @@ namespace PHLPracticeModPack
                 : MultiRinkService.GetSpawnRotation(player.Team);
             player.Server_SpawnCharacter(skaterPos, skaterRot, PlayerRole.Attacker);
             MultiRinkService.RefreshChunkSlot(player.PlayerBody);
+            ApplyInheritedRoleVelocity(player, inheritLinearVelocity, inheritAngularVelocity);
             PracticeLog.Info("[PHLPractice] Spawned client " + player.OwnerClientId + " at " + slot.Id +
                       (spawnInPlace ? " (in place)." : " center ice (positionless)."));
         }
@@ -191,11 +231,18 @@ namespace PHLPracticeModPack
             Vector3 respawnPos = default;
             Quaternion respawnRot = Quaternion.identity;
             bool respawnInPlace = false;
+            Vector3? inheritLinearVelocity = null;
+            Vector3? inheritAngularVelocity = null;
             if (player.PlayerBody != null)
             {
                 respawnPos = player.PlayerBody.transform.position;
                 respawnRot = player.PlayerBody.transform.rotation;
                 respawnInPlace = true;
+                if (TryCaptureBodyVelocity(player.PlayerBody, out Vector3 linear, out Vector3 angular))
+                {
+                    inheritLinearVelocity = linear;
+                    inheritAngularVelocity = angular;
+                }
             }
 
             RinkSlot slot = FindRinkSlot(cfg, MultiRinkService.GetActiveRinkId(clientId));
@@ -247,7 +294,7 @@ namespace PHLPracticeModPack
             try
             {
                 if (respawnInPlace)
-                    SpawnPositionless(player, respawnPos, respawnRot);
+                    SpawnPositionless(player, respawnPos, respawnRot, inheritLinearVelocity, inheritAngularVelocity);
                 else
                     SpawnPositionless(player);
             }
@@ -298,12 +345,118 @@ namespace PHLPracticeModPack
         internal static void OnClientDisconnected(ulong clientId)
         {
             autoTeamed.Remove(clientId);
+            pendingRoleVelocities.Remove(clientId);
         }
 
         internal static void Reset()
         {
             autoTeamed.Clear();
+            pendingRoleVelocities.Clear();
             CptSpawnCompat.Reset();
+        }
+
+        private static bool TryCaptureBodyVelocity(PlayerBody body, out Vector3 linear, out Vector3 angular)
+        {
+            linear = Vector3.zero;
+            angular = Vector3.zero;
+            if (body == null) return false;
+
+            Rigidbody rb = null;
+            try { rb = body.Rigidbody; }
+            catch { }
+            if (rb == null)
+            {
+                try { rb = body.GetComponent<Rigidbody>(); }
+                catch { }
+            }
+            if (rb == null) return false;
+
+            linear = rb.linearVelocity;
+            angular = rb.angularVelocity;
+            return linear.sqrMagnitude > 0.01f || angular.sqrMagnitude > 0.01f;
+        }
+
+        private static void ApplyInheritedRoleVelocity(
+            Player player,
+            Vector3? inheritLinearVelocity,
+            Vector3? inheritAngularVelocity)
+        {
+            if (!inheritLinearVelocity.HasValue || player?.PlayerBody == null)
+                return;
+
+            Vector3 linear = inheritLinearVelocity.Value;
+            Vector3 angular = inheritAngularVelocity ?? Vector3.zero;
+            if (TryApplyBodyVelocity(player.PlayerBody, linear, angular))
+                QueueRoleSwitchVelocity(player.OwnerClientId, linear, angular);
+        }
+
+        private static void QueueRoleSwitchVelocity(ulong clientId, Vector3 linear, Vector3 angular)
+        {
+            pendingRoleVelocities[clientId] = new RoleSwitchVelocity
+            {
+                Linear = linear,
+                Angular = angular,
+                FramesLeft = 4,
+            };
+        }
+
+        private static void ApplyPendingRoleSwitchVelocities(PlayerManager pm)
+        {
+            if (pendingRoleVelocities.Count == 0 || pm == null)
+                return;
+
+            List<ulong> finished = null;
+            foreach (KeyValuePair<ulong, RoleSwitchVelocity> entry in pendingRoleVelocities)
+            {
+                Player player = pm.GetPlayerByClientId(entry.Key);
+                if (player?.PlayerBody == null)
+                    continue;
+
+                if (!TryApplyBodyVelocity(player.PlayerBody, entry.Value.Linear, entry.Value.Angular))
+                    continue;
+
+                RoleSwitchVelocity next = entry.Value;
+                next.FramesLeft--;
+                if (next.FramesLeft <= 0)
+                {
+                    if (finished == null) finished = new List<ulong>();
+                    finished.Add(entry.Key);
+                }
+                else
+                {
+                    pendingRoleVelocities[entry.Key] = next;
+                }
+            }
+
+            if (finished == null) return;
+            for (int i = 0; i < finished.Count; i++)
+                pendingRoleVelocities.Remove(finished[i]);
+        }
+
+        private static bool TryApplyBodyVelocity(PlayerBody body, Vector3 linear, Vector3 angular)
+        {
+            if (body == null) return false;
+
+            Rigidbody rb = null;
+            try { rb = body.Rigidbody; }
+            catch { }
+            if (rb == null)
+            {
+                try { rb = body.GetComponent<Rigidbody>(); }
+                catch { }
+            }
+            if (rb == null) return false;
+
+            try
+            {
+                rb.linearVelocity = linear;
+                rb.angularVelocity = angular;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         /// <summary>

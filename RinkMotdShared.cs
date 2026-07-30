@@ -39,11 +39,20 @@ namespace PHLPracticeModPack
             return false;
         }
 
+        /// <summary>Join cap for one rink tile (practice modes override the server default).</summary>
+        internal int CapacityForRink(int rinkIndex)
+        {
+            RinkStripMode mode = RinkStripMode.Empty;
+            if (rinkIndex >= 0 && rinkIndex < StripModes.Count)
+                mode = StripModes[rinkIndex];
+            return RinkStripModeUtil.GetJoinCapacity(mode, Capacity);
+        }
+
         /// <summary>Deprecated v4 single flag — use <see cref="IsSlidableEnabledForRink"/>.</summary>
         internal bool SlidablePhysicsEnabled;
 
         /// <summary>
-        /// True when occupancy, capacity, role, or the local player's rink highlight
+        /// True when occupancy, capacity, strip mode, role, or the local player's rink highlight
         /// changed enough to warrant rebuilding the tile buttons (not preview textures).
         /// </summary>
         internal bool NeedsRinkTileRefresh(RinkMotdPayload other, int localRink, int otherLocalRink)
@@ -52,12 +61,19 @@ namespace PHLPracticeModPack
             if (Capacity != other.Capacity || LocalRole != other.LocalRole) return true;
             if (localRink != otherLocalRink) return true;
             if (Rinks.Count != other.Rinks.Count) return true;
+            if (StripModes.Count != other.StripModes.Count) return true;
+
             for (int i = 0; i < Rinks.Count; i++)
             {
                 RinkStatusEntry a = Rinks[i];
                 RinkStatusEntry b = other.Rinks[i];
                 if (a == null || b == null) return true;
                 if (a.Count != b.Count) return true;
+
+                RinkStripMode modeA = i < StripModes.Count ? StripModes[i] : RinkStripMode.Empty;
+                RinkStripMode modeB = i < other.StripModes.Count ? other.StripModes[i] : RinkStripMode.Empty;
+                if (modeA != modeB) return true;
+                if (CapacityForRink(i) != other.CapacityForRink(i)) return true;
             }
             return false;
         }

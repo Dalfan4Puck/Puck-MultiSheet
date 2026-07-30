@@ -17,6 +17,11 @@ namespace PHLPracticeModPack
             ActiveRinkByClient.Clear();
         }
 
+        internal static void ClearActiveRink(ulong clientId)
+        {
+            ActiveRinkByClient.Remove(clientId);
+        }
+
         internal static bool TryAssignRink(ulong clientId, RinkSlot slot, out string message)
         {
             message = null;
