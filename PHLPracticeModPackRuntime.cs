@@ -11,7 +11,12 @@ namespace PHLPracticeModPack
             RinkStripVote.Tick();
             ChatOutbound.Tick();
             if (ModRuntimeContext.ShouldInstallClientPresentation())
+            {
+                ClientKeybindRuntime.Tick();
+                MinimapSessionOverride.Tick();
+                MultiSheetClientSettings.TickDeferredJoinApply();
                 MultiSheetClientSettings.Flush();
+            }
         }
 
         private void LateUpdate()

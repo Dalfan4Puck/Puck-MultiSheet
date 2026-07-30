@@ -40,6 +40,15 @@ namespace PHLPracticeModPack
             instance.StartCoroutine(instance.MirrorWhenReady());
         }
 
+        internal static void Stop()
+        {
+            if (instance == null)
+                return;
+
+            Destroy(instance.gameObject);
+            instance = null;
+        }
+
         private IEnumerator MirrorWhenReady()
         {
             float waited = 0f;

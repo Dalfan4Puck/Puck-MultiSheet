@@ -24,6 +24,7 @@ namespace PHLPracticeModPack
                 PracticeLog.Verbose = MultiRinkConfig.Current.VerboseLogging;
                 FlamieLog.Verbose = PracticeLog.Verbose;
                 MultiSheetClientSettings.Load();
+                MultiSheetClientSettings.ApplyLoadedPreferences();
                 FlamiePracFeatures.RadioServerDrivenOnly = true;
                 // Never show the legacy top-left radio chip — Rinks tab embeds radio when ready.
                 RadioHudUI.ShouldSuppressStandalone = () => true;
@@ -41,7 +42,6 @@ namespace PHLPracticeModPack
                 UnityEngine.Object.DontDestroyOnLoad(runtimeObject);
 
                 flamiePrac = new MyMod.Class1();
-                SlidableObstacleSetup.SlickIceFrictionReapply = VanillaRinkCloner.ReapplySlickIceFriction;
                 if (!flamiePrac.OnEnable())
                 {
                     Debug.LogError("[PHLPractice] FlamiePrac failed to enable — MultiSheet continues without training props.");
@@ -71,6 +71,8 @@ namespace PHLPracticeModPack
         {
             try
             {
+                ModSessionTeardown.OnModDisable();
+
                 if (flamiePrac != null)
                 {
                     try { flamiePrac.OnDisable(); }
@@ -78,21 +80,14 @@ namespace PHLPracticeModPack
                     flamiePrac = null;
                 }
 
-                SlidableObstacleSetup.SlickIceFrictionReapply = null;
-
                 RinkMotdService.Teardown();
                 RinkStripVote.Teardown();
                 FlamiePracFeatures.RadioServerDrivenOnly = false;
                 RadioHudUI.ShouldSuppressStandalone = null;
                 LargeLevelHost.Disable();
-                MultiRinkService.Reset();
                 PracticeFlowClient.Reset();
                 PracticeFlowServer.Reset();
-                TrlReskinBridge.Clear();
-                ChatOutbound.Clear();
-                PracticeMotdAssets.Teardown();
                 ModRuntimeContext.Reset();
-                MinimapRinkView.Reset();
 
                 try { harmony?.UnpatchSelf(); }
                 catch (Exception ex) { Debug.LogWarning("[PHLPractice] UnpatchSelf failed: " + ex.Message); }

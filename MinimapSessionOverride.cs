@@ -5,9 +5,8 @@ using UnityEngine.UIElements;
 namespace PHLPracticeModPack
 {
     /// <summary>
-    /// Session-only minimap hide from the Rinks panel. Does not touch Puck settings /
-    /// PlayerPrefs — snapshots whether the minimap was visible, hides for this session,
-    /// and restores that visibility when toggled off or disconnecting.
+    /// Minimap hide from the Rinks panel. Preference is stored in multisheet_client.json
+    /// and re-applied when joining a MultiSheet server.
     /// </summary>
     internal static class MinimapSessionOverride
     {
@@ -16,10 +15,45 @@ namespace PHLPracticeModPack
 
         internal static bool Suppressed => suppressed;
 
-        internal static void SetSuppressed(bool hide)
+        internal static void ApplyPersistedPreference()
         {
-            if (suppressed == hide)
+            SetSuppressed(MultiSheetClientSettings.MinimapHidden, persist: false);
+        }
+
+        /// <summary>Re-hide after level/UI init if Show ran before the minimap existed.</summary>
+        internal static void Tick()
+        {
+            if (!suppressed || ModRuntimeContext.IsDedicatedGameServer)
                 return;
+
+            UIMinimap minimap = MonoBehaviourSingleton<UIManager>.Instance?.Minimap;
+            if (minimap == null)
+                return;
+
+            if (IsMinimapVisible(minimap))
+                minimap.Hide();
+        }
+
+        internal static void ResetJoinSession()
+        {
+            // Keep persisted MinimapHidden; only clear the in-memory restore latch so
+            // the next ApplyPersistedPreference() can hide again after disconnect showed it.
+            restoreVisible = false;
+        }
+
+        internal static void SetSuppressed(bool hide, bool persist = true)
+        {
+            if (persist)
+            {
+                MultiSheetClientSettings.MinimapHidden = hide;
+                MultiSheetClientSettings.Save();
+            }
+
+            if (suppressed == hide)
+            {
+                ApplyToMinimap();
+                return;
+            }
 
             suppressed = hide;
             ApplyToMinimap();

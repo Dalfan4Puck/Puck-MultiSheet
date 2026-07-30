@@ -11,16 +11,105 @@ namespace PHLPracticeModPack
         private const string PhlRadioLibraryUrl = "https://phlstats.com/radio";
         private const int KeybindRowHeight = 36;
         private const int KeybindRightWidth = 80;
+        private const int KeybindButtonHeight = 28;
+        private const int KeybindFontSize = 12;
+        private static bool settingsSectionOpen;
+        private static bool keybindsSectionOpen;
+        private static bool radioInfoSectionOpen;
         private static readonly Color VoteOrange = new Color(0.90f, 0.49f, 0.13f, 1f);
         private static readonly Color NewStickerBg = new Color(0.95f, 0.65f, 0.15f, 1f);
         private static readonly Color CyanAccent = new Color(0.20f, 0.75f, 0.85f, 1f);
+
+        internal static void ResetCollapsibleSections()
+        {
+            settingsSectionOpen = false;
+            keybindsSectionOpen = false;
+            radioInfoSectionOpen = false;
+        }
+
+        internal static void FillSettingsSection(
+            VisualElement host,
+            RinkMotdPayload payload,
+            RinkPanelBuilder.Callbacks callbacks,
+            bool embedded,
+            out VisualElement roleSectionHost,
+            out VisualElement lightingSectionHost)
+        {
+            if (host == null)
+            {
+                roleSectionHost = null;
+                lightingSectionHost = null;
+                return;
+            }
+
+            host.Clear();
+
+            bool open = settingsSectionOpen;
+            VisualElement shell = BuildCollapsibleShell(
+                host,
+                "Settings",
+                open,
+                embedded,
+                () =>
+                {
+                    settingsSectionOpen = !settingsSectionOpen;
+                    FillSettingsSection(host, payload, callbacks, embedded, out _, out _);
+                    RinkScoreboardTab.RefreshBoardLayout();
+                });
+
+            roleSectionHost = null;
+            lightingSectionHost = null;
+            if (!open) return;
+
+            VisualElement body = shell.Q<VisualElement>("CollapsibleBody");
+            if (body == null) return;
+
+            VisualElement controlsRow = new VisualElement();
+            controlsRow.style.flexDirection = FlexDirection.Row;
+            controlsRow.style.alignItems = Align.Stretch;
+            controlsRow.style.justifyContent = Justify.Center;
+            controlsRow.style.flexShrink = 0;
+            body.Add(controlsRow);
+
+            VisualElement roleColumnHost = new VisualElement();
+            roleColumnHost.style.flexGrow = 1;
+            roleColumnHost.style.flexShrink = 0;
+            roleColumnHost.style.flexBasis = 0;
+            roleColumnHost.style.minWidth = 0;
+            roleColumnHost.style.flexDirection = FlexDirection.Column;
+            controlsRow.Add(roleColumnHost);
+
+            roleSectionHost = new VisualElement();
+            roleSectionHost.style.flexShrink = 0;
+            roleColumnHost.Add(roleSectionHost);
+            RinkPanelBuilder.FillRoleSection(roleSectionHost, payload, callbacks, embedded);
+
+            VisualElement vDivider = new VisualElement();
+            vDivider.style.width = 1;
+            vDivider.style.alignSelf = Align.Stretch;
+            vDivider.style.backgroundColor = RinkPanelBuilder.ColumnRule;
+            vDivider.style.marginLeft = embedded ? 10 : 14;
+            vDivider.style.marginRight = embedded ? 10 : 14;
+            vDivider.style.marginTop = embedded ? 10 : 14;
+            vDivider.style.marginBottom = embedded ? 8 : 12;
+            vDivider.pickingMode = PickingMode.Ignore;
+            controlsRow.Add(vDivider);
+
+            lightingSectionHost = new VisualElement();
+            lightingSectionHost.style.flexGrow = 1;
+            lightingSectionHost.style.flexShrink = 0;
+            lightingSectionHost.style.flexBasis = 0;
+            lightingSectionHost.style.minWidth = 0;
+            controlsRow.Add(lightingSectionHost);
+            RinkPanelBuilder.FillLightingSection(lightingSectionHost, embedded);
+        }
 
         internal static void FillKeybindsSection(VisualElement host, bool embedded)
         {
             if (host == null) return;
             host.Clear();
 
-            bool open = MultiSheetClientSettings.KeybindsSectionOpen;
+            bool open = keybindsSectionOpen;
             VisualElement shell = BuildCollapsibleShell(
                 host,
                 "Keybinds",
@@ -28,8 +117,7 @@ namespace PHLPracticeModPack
                 embedded,
                 () =>
                 {
-                    MultiSheetClientSettings.KeybindsSectionOpen = !MultiSheetClientSettings.KeybindsSectionOpen;
-                    MultiSheetClientSettings.Save();
+                    keybindsSectionOpen = !keybindsSectionOpen;
                     FillKeybindsSection(host, embedded);
                     RinkScoreboardTab.RefreshBoardLayout();
                 });
@@ -39,8 +127,15 @@ namespace PHLPracticeModPack
             VisualElement body = shell.Q<VisualElement>("CollapsibleBody");
             if (body == null) return;
 
-            AddSpawnPuckRow(host, body, embedded);
-            AddSlidableRow(host, body, embedded);
+            AddKeybindRow(host, body, embedded, "spawn",
+                "Spawn puck",
+                () => MultiSheetClientSettings.SpawnPuckKey,
+                v => MultiSheetClientSettings.SpawnPuckKey = v);
+            AddKeybindRow(host, body, embedded, "role",
+                "Toggle skater / goalie (in place)",
+                () => MultiSheetClientSettings.ToggleRoleKey,
+                v => MultiSheetClientSettings.ToggleRoleKey = v);
+            AddSlidableKeybindRow(host, body, embedded);
             AddDualRow(body, embedded, "Tab = Open this menu", null);
             AddDualRow(body, embedded, "Chat: /passer — pass bump board in front of you", null);
             AddDualRow(body, embedded, "Chat: /sheet — flat pushable sheet", null);
@@ -51,7 +146,7 @@ namespace PHLPracticeModPack
             if (host == null) return;
             host.Clear();
 
-            bool open = MultiSheetClientSettings.RadioInfoSectionOpen;
+            bool open = radioInfoSectionOpen;
             VisualElement shell = BuildCollapsibleShell(
                 host,
                 "Radio",
@@ -59,8 +154,7 @@ namespace PHLPracticeModPack
                 embedded,
                 () =>
                 {
-                    MultiSheetClientSettings.RadioInfoSectionOpen = !MultiSheetClientSettings.RadioInfoSectionOpen;
-                    MultiSheetClientSettings.Save();
+                    radioInfoSectionOpen = !radioInfoSectionOpen;
                     FillRadioInfoSection(host, embedded);
                     RinkScoreboardTab.RefreshBoardLayout();
                 });
@@ -241,18 +335,22 @@ namespace PHLPracticeModPack
             return shell;
         }
 
-        private static void AddSpawnPuckRow(VisualElement sectionHost, VisualElement body, bool embedded)
+        private static void AddKeybindRow(
+            VisualElement sectionHost,
+            VisualElement body,
+            bool embedded,
+            string listenId,
+            string labelPrefix,
+            Func<string> getKey,
+            Action<string> setKey)
         {
-            string key = MultiSheetClientSettings.SpawnPuckKey;
-            if (string.IsNullOrWhiteSpace(key)) key = "R";
-            if (key.Length == 1) key = key.ToUpperInvariant();
-
-            bool listening = body.userData is string ud && ud == "spawnListening";
+            string key = ClientKeybindHelper.NormalizeDisplayKey(getKey());
+            bool listening = body.userData is string ud && ud == listenId;
 
             VisualElement[] cols = BuildDualRowShell(body);
             Label left = RinkPanelBuilder.MakeLabel(
-                "Spawn puck = " + key,
-                embedded ? 11 : 12,
+                labelPrefix + " = " + key,
+                KeybindFontSize,
                 RinkPanelBuilder.TextColor,
                 FontStyle.Bold);
             left.style.unityTextAlign = TextAnchor.MiddleLeft;
@@ -263,19 +361,18 @@ namespace PHLPracticeModPack
                 RinkPanelBuilder.ButtonBg,
                 RinkPanelBuilder.ButtonHover,
                 () => { });
-            rebind.style.width = embedded ? 72 : KeybindRightWidth;
-            rebind.style.height = 28;
+            StyleKeybindButton(rebind, embedded);
             rebind.focusable = true;
             rebind.RegisterCallback<ClickEvent>(evt =>
             {
-                body.userData = "spawnListening";
+                body.userData = listenId;
                 rebind.text = "…";
                 rebind.Focus();
                 evt.StopPropagation();
             });
             rebind.RegisterCallback<KeyDownEvent>(evt =>
             {
-                if (body.userData as string != "spawnListening") return;
+                if (body.userData as string != listenId) return;
                 if (evt.keyCode == KeyCode.Escape)
                 {
                     body.userData = null;
@@ -291,7 +388,7 @@ namespace PHLPracticeModPack
 
                 string pressed = evt.keyCode.ToString();
                 if (pressed.Length == 1) pressed = pressed.ToUpperInvariant();
-                MultiSheetClientSettings.SpawnPuckKey = pressed;
+                setKey(pressed);
                 MultiSheetClientSettings.Save();
                 body.userData = null;
                 FillKeybindsSection(sectionHost, embedded);
@@ -299,7 +396,7 @@ namespace PHLPracticeModPack
             });
             rebind.RegisterCallback<BlurEvent>(_ =>
             {
-                if (body.userData as string == "spawnListening")
+                if (body.userData as string == listenId)
                 {
                     body.userData = null;
                     FillKeybindsSection(sectionHost, embedded);
@@ -313,9 +410,12 @@ namespace PHLPracticeModPack
             cols[1].Add(rebind);
         }
 
-        private static void AddSlidableRow(VisualElement sectionHost, VisualElement body, bool embedded)
+        private static void AddSlidableKeybindRow(VisualElement sectionHost, VisualElement body, bool embedded)
         {
             bool enabled = GetSlidablePhysicsEnabled();
+            string key = ClientKeybindHelper.NormalizeDisplayKey(MultiSheetClientSettings.SlidableToggleKey);
+            bool listening = body.userData is string ud && ud == "slidable";
+
             VisualElement[] cols = BuildDualRowShell(body);
 
             VisualElement left = new VisualElement();
@@ -326,8 +426,8 @@ namespace PHLPracticeModPack
             left.style.overflow = Overflow.Hidden;
 
             Label main = RinkPanelBuilder.MakeLabel(
-                "Slidable Props (Speakers / Foam Pad)",
-                embedded ? 11 : 12,
+                "Slidable props (" + (enabled ? "Enabled" : "Disabled") + ") = " + key,
+                KeybindFontSize,
                 RinkPanelBuilder.TextColor,
                 FontStyle.Bold);
             main.style.flexShrink = 1;
@@ -346,61 +446,123 @@ namespace PHLPracticeModPack
 
             Label sub = RinkPanelBuilder.MakeLabel(
                 "· may cause fps dips",
-                embedded ? 10 : 11,
+                KeybindFontSize,
                 RinkPanelBuilder.MutedText,
                 FontStyle.Normal);
             sub.style.flexShrink = 0;
             left.Add(sub);
             cols[0].Add(left);
 
-            Button toggle = RinkPanelBuilder.MakeStateButton(
-                enabled ? "Enabled" : "Disabled",
-                enabled,
-                () => ToggleSlidablePhysics(sectionHost, embedded));
-            toggle.style.width = embedded ? 72 : KeybindRightWidth;
-            toggle.style.height = 28;
-            toggle.style.minWidth = embedded ? 72 : KeybindRightWidth;
-            toggle.style.maxWidth = embedded ? 72 : KeybindRightWidth;
-            toggle.style.fontSize = 10;
-            toggle.style.paddingLeft = 0;
-            toggle.style.paddingRight = 0;
-            toggle.style.unityTextAlign = TextAnchor.MiddleCenter;
-            toggle.tooltip = "Toggle slidable physics (host/admin)";
-            cols[1].Add(toggle);
+            Button rebind = RinkPanelBuilder.MakeButton(
+                listening ? "…" : key,
+                RinkPanelBuilder.ButtonBg,
+                RinkPanelBuilder.ButtonHover,
+                () => { });
+            StyleKeybindButton(rebind, embedded);
+            rebind.tooltip = "Rebind slidable toggle key (default L)";
+            rebind.focusable = true;
+            rebind.RegisterCallback<ClickEvent>(evt =>
+            {
+                body.userData = "slidable";
+                rebind.text = "…";
+                rebind.Focus();
+                evt.StopPropagation();
+            });
+            rebind.RegisterCallback<KeyDownEvent>(evt =>
+            {
+                if (body.userData as string != "slidable") return;
+                if (evt.keyCode == KeyCode.Escape)
+                {
+                    body.userData = null;
+                    FillKeybindsSection(sectionHost, embedded);
+                    evt.StopPropagation();
+                    return;
+                }
+                if (evt.keyCode == KeyCode.Tab || evt.keyCode == KeyCode.LeftShift ||
+                    evt.keyCode == KeyCode.RightShift || evt.keyCode == KeyCode.LeftControl ||
+                    evt.keyCode == KeyCode.RightControl || evt.keyCode == KeyCode.LeftAlt ||
+                    evt.keyCode == KeyCode.RightAlt)
+                    return;
+
+                string pressed = evt.keyCode.ToString();
+                if (pressed.Length == 1) pressed = pressed.ToUpperInvariant();
+                MultiSheetClientSettings.SlidableToggleKey = pressed;
+                MultiSheetClientSettings.Save();
+                body.userData = null;
+                FillKeybindsSection(sectionHost, embedded);
+                evt.StopPropagation();
+            });
+            rebind.RegisterCallback<BlurEvent>(_ =>
+            {
+                if (body.userData as string == "slidable")
+                {
+                    body.userData = null;
+                    FillKeybindsSection(sectionHost, embedded);
+                }
+            });
+            if (listening)
+            {
+                RinkPanelBuilder.SetBorder(rebind, 2, CyanAccent);
+                rebind.schedule.Execute(() => rebind.Focus()).ExecuteLater(1);
+            }
+            cols[1].Add(rebind);
+        }
+
+        private static void StyleKeybindButton(Button button, bool embedded)
+        {
+            if (button == null) return;
+            button.style.width = KeybindRightWidth;
+            button.style.minWidth = KeybindRightWidth;
+            button.style.maxWidth = KeybindRightWidth;
+            button.style.height = KeybindButtonHeight;
+            button.style.minHeight = KeybindButtonHeight;
+            button.style.maxHeight = KeybindButtonHeight;
+            button.style.paddingLeft = 0;
+            button.style.paddingRight = 0;
+            button.style.paddingTop = 0;
+            button.style.paddingBottom = 0;
+            button.style.marginTop = 0;
+            button.style.marginBottom = 0;
+            button.style.fontSize = KeybindFontSize;
+            button.style.unityFontStyleAndWeight = FontStyle.Bold;
+            button.style.unityTextAlign = TextAnchor.MiddleCenter;
+            button.style.justifyContent = Justify.Center;
+            button.style.alignItems = Align.Center;
+            CenterKeybindButtonLabel(button);
+        }
+
+        private static void CenterKeybindButtonLabel(Button button)
+        {
+            void Apply()
+            {
+                Label label = button.Q<Label>();
+                if (label == null)
+                    return;
+
+                label.style.fontSize = KeybindFontSize;
+                label.style.unityFontStyleAndWeight = FontStyle.Bold;
+                label.style.unityTextAlign = TextAnchor.MiddleCenter;
+                label.style.flexGrow = 1;
+                label.style.width = new Length(100, LengthUnit.Percent);
+                label.style.height = new Length(100, LengthUnit.Percent);
+                label.style.paddingLeft = 0;
+                label.style.paddingRight = 0;
+                label.style.paddingTop = 0;
+                label.style.paddingBottom = 0;
+                label.style.marginLeft = 0;
+                label.style.marginRight = 0;
+                label.style.marginTop = 0;
+                label.style.marginBottom = 0;
+                label.style.alignSelf = Align.Center;
+            }
+
+            Apply();
+            button.RegisterCallback<GeometryChangedEvent>(_ => Apply());
         }
 
         private static bool GetSlidablePhysicsEnabled()
         {
-            NetworkManager nm = NetworkManager.Singleton;
-            if (nm != null && nm.IsServer)
-                return FlamiePracFeatures.SlidablePhysicsEnabled;
-
-            if (RinkMotdUI.TryGetLastPayload(out RinkMotdPayload payload) && payload != null)
-                return payload.SlidablePhysicsEnabled;
-
-            return FlamiePracFeatures.SlidablePhysicsEnabled;
-        }
-
-        private static void ToggleSlidablePhysics(VisualElement sectionHost, bool embedded)
-        {
-            bool next = !GetSlidablePhysicsEnabled();
-            NetworkManager nm = NetworkManager.Singleton;
-            if (nm == null || !nm.IsConnectedClient)
-                return;
-
-            if (nm.IsServer)
-            {
-                FlamiePracFeatures.SetSlidablePhysicsEnabled(next);
-                RinkMotdService.BroadcastStatus();
-            }
-            else
-            {
-                RinkMotdService.ClientRequestSetSlidable(next);
-                if (RinkMotdUI.TryGetLastPayload(out RinkMotdPayload payload) && payload != null)
-                    payload.SlidablePhysicsEnabled = next;
-            }
-
-            FillKeybindsSection(sectionHost, embedded);
+            return ActiveRinkResolver.IsSlidableEnabledForLocalRink();
         }
 
         private static void AddDualRow(VisualElement body, bool embedded, string text, VisualElement right)
@@ -408,7 +570,7 @@ namespace PHLPracticeModPack
             VisualElement[] cols = BuildDualRowShell(body);
             Label left = RinkPanelBuilder.MakeLabel(
                 text,
-                embedded ? 11 : 12,
+                KeybindFontSize,
                 RinkPanelBuilder.MutedText,
                 FontStyle.Normal);
             left.style.unityTextAlign = TextAnchor.MiddleLeft;

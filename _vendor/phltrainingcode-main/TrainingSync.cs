@@ -237,10 +237,16 @@ public sealed class TrainingSync : MonoBehaviour
 
     private void OnPuckClientStopped(Dictionary<string, object> data)
     {
+        NotifySessionDisconnected();
+    }
+
+    /// <summary>Disconnect cleanup without permanent shutdown (reconnect-safe).</summary>
+    public void NotifySessionDisconnected()
+    {
         if (shutDown)
             return;
 
-        FlamieLog.InfoOnce("client-stopped", "[FlamiePrac] Event_OnClientStopped — clearing client mirrors.");
+        FlamieLog.InfoOnce("client-stopped", "[FlamiePrac] Session disconnect — clearing client mirrors.");
         ClearClientObjects();
         clientAwaitingSnapshot = false;
         clientSnapshotRetries = 0;
@@ -264,7 +270,7 @@ public sealed class TrainingSync : MonoBehaviour
             }
             catch (Exception ex)
             {
-                Debug.LogWarning("[FlamiePrac] ClientStopped handler cleanup: " + ex.Message);
+                Debug.LogWarning("[FlamiePrac] Session disconnect handler cleanup: " + ex.Message);
             }
 
             clientHandlersRegistered = false;

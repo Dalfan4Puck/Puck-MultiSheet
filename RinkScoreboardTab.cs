@@ -23,10 +23,11 @@ namespace PHLPracticeModPack
         private const string PaneName = "MultiSheetRinkPane";
         internal const string StatsTooltipHarmonyId = "oomtm450_stats";
         private const float TabBarHeight = 34f;
-        /// <summary>Tall enough for header + rink grid + columns + footer. Capped to viewport —
-        /// collapsibles scroll inside the card; opening them must not grow the board.</summary>
-        private const float MenuMinBoardHeight = 860f;
-        private const float MaxBoardHeightScreenFraction = 0.92f;
+        /// <summary>Tall enough for welcome-sized rink grid + settings + footer.</summary>
+        private const float MaxBoardHeightScreenFraction = RinkPanelBuilder.PanelMaxHeightScreenFraction;
+
+        private static bool autoShownThisConnection;
+        private static bool pendingAutoOpen;
 
         private static readonly Color TabBarBg = new Color(0.06f, 0.06f, 0.07f, 1f);
         private static readonly Color TabIdleBg = new Color(0.10f, 0.10f, 0.11f, 1f);
@@ -44,6 +45,7 @@ namespace PHLPracticeModPack
         private static bool menuPaneActive;
         private static VisualElement boardRoot;
         private static VisualElement rinkPane;
+        private static VisualElement settingsSectionHost;
         private static VisualElement roleSectionHost;
         private static VisualElement rinkSectionHost;
         private static VisualElement stripSectionHost;
@@ -57,6 +59,60 @@ namespace PHLPracticeModPack
         private static float appliedMarginTop = -1f;
 
         internal static bool IsMenuPaneActive { get { return menuPaneActive; } }
+
+        /// <summary>Once per connection — open scoreboard on the Rinks tab (replaces welcome overlay).</summary>
+        internal static bool TryAutoOpenOnJoin()
+        {
+            if (MultiSheetClientSettings.SkipScoreboardUi || MultiSheetClientSettings.SkipMotdUi)
+                return false;
+
+            UIManager ui = MonoBehaviourSingleton<UIManager>.Instance;
+            UIScoreboard scoreboard = ui != null ? ui.Scoreboard : null;
+            if (scoreboard == null) return false;
+
+            if (autoShownThisConnection && scoreboard.IsVisible && menuPaneActive)
+                return true;
+
+            autoShownThisConnection = true;
+            pendingAutoOpen = false;
+
+            if (!scoreboard.IsVisible)
+                scoreboard.Show();
+            else if (!menuPaneActive)
+                ShowMenuTab();
+
+            return true;
+        }
+
+        internal static void RequestAutoOpenOnJoin()
+        {
+            if (MultiSheetClientSettings.SkipScoreboardUi || MultiSheetClientSettings.SkipMotdUi)
+                return;
+            if (autoShownThisConnection) return;
+            pendingAutoOpen = true;
+            TryAutoOpenOnJoin();
+        }
+
+        internal static void TickAutoOpen()
+        {
+            if (!pendingAutoOpen || autoShownThisConnection) return;
+            TryAutoOpenOnJoin();
+        }
+
+        /// <summary>F9 or Esc-menu shortcut — always open the Rinks tab.</summary>
+        internal static void OpenRinksTab()
+        {
+            if (MultiSheetClientSettings.SkipScoreboardUi) return;
+
+            UIManager ui = MonoBehaviourSingleton<UIManager>.Instance;
+            UIScoreboard scoreboard = ui != null ? ui.Scoreboard : null;
+            if (scoreboard == null) return;
+
+            if (!scoreboard.IsVisible)
+                scoreboard.Show();
+            else
+                ShowMenuTab();
+        }
 
         /// <summary>True while the Tab-toggled scoreboard is on screen (either tab).</summary>
         internal static bool IsScoreboardOpen()
@@ -163,11 +219,21 @@ namespace PHLPracticeModPack
                 RinkPanelBuilder.Callbacks callbacks = CreateEmbedCallbacks();
                 if (rinkPane != null && rinkPane.childCount > 0 && rinkSectionHost != null)
                 {
-                    if (roleSectionHost != null)
-                        RinkPanelBuilder.FillRoleSection(roleSectionHost, payload, callbacks, embedded: true);
-                    RinkPanelBuilder.FillRinkSection(rinkSectionHost, payload, callbacks, embedded: true);
+                    if (settingsSectionHost != null)
+                    {
+                        RinkPanelCollapsible.FillSettingsSection(
+                            settingsSectionHost,
+                            payload,
+                            callbacks,
+                            embedded: false,
+                            out roleSectionHost,
+                            out _);
+                    }
+                    else if (roleSectionHost != null)
+                        RinkPanelBuilder.FillRoleSection(roleSectionHost, payload, callbacks, embedded: false);
+                    RinkPanelBuilder.FillRinkSection(rinkSectionHost, payload, callbacks, embedded: false);
                     if (stripSectionHost != null)
-                        RinkPanelBuilder.FillStripSection(stripSectionHost, payload, callbacks, embedded: true);
+                        RinkPanelBuilder.FillStripSection(stripSectionHost, payload, callbacks, embedded: false);
                 }
                 else
                 {
@@ -229,7 +295,7 @@ namespace PHLPracticeModPack
                 payload.StripVoteProgress = progress;
                 if (stripSectionHost != null)
                     RinkPanelBuilder.FillStripSection(
-                        stripSectionHost, payload, CreateEmbedCallbacks(), embedded: true);
+                        stripSectionHost, payload, CreateEmbedCallbacks(), embedded: false);
             }
             catch (Exception ex)
             {
@@ -241,6 +307,7 @@ namespace PHLPracticeModPack
         internal static void OnStripModesUpdated(RinkMotdPayload payload)
         {
             if (!enabled || payload == null) return;
+            RinkPanelBuilder.CloseStripPracticeMenu();
             ApplyVoteProgress(RinkStripVote.CurrentProgress);
 
             if (!menuPaneActive) return;
@@ -249,9 +316,9 @@ namespace PHLPracticeModPack
                 if (rinkPane != null && rinkPane.childCount > 0 && rinkSectionHost != null)
                 {
                     RinkPanelBuilder.Callbacks callbacks = CreateEmbedCallbacks();
-                    RinkPanelBuilder.FillRinkSection(rinkSectionHost, payload, callbacks, embedded: true);
+                    RinkPanelBuilder.FillRinkSection(rinkSectionHost, payload, callbacks, embedded: false);
                     if (stripSectionHost != null)
-                        RinkPanelBuilder.FillStripSection(stripSectionHost, payload, callbacks, embedded: true);
+                        RinkPanelBuilder.FillStripSection(stripSectionHost, payload, callbacks, embedded: false);
                 }
             }
             catch (Exception ex)
@@ -346,6 +413,7 @@ namespace PHLPracticeModPack
 
         private static void CloseBoard()
         {
+            RinkPanelBuilder.CloseStripPracticeMenu();
             ShowScoreboardTab();
             try
             {
@@ -367,7 +435,7 @@ namespace PHLPracticeModPack
         internal static void RefreshRadioSection()
         {
             if (!enabled || !menuPaneActive || radioSectionHost == null) return;
-            try { RinkPanelBuilder.FillRadioSection(radioSectionHost, embedded: true); }
+            try { RinkPanelBuilder.FillRadioSection(radioSectionHost, embedded: false); }
             catch (Exception ex)
             {
                 Debug.LogWarning("[PHLPractice] Scoreboard radio refresh failed: " + ex.Message);
@@ -434,8 +502,11 @@ namespace PHLPracticeModPack
 
         internal static void OnDisconnected()
         {
+            RinkPanelBuilder.CloseStripPracticeMenu();
             InvalidateCardCache();
             menuPaneActive = false;
+            autoShownThisConnection = false;
+            pendingAutoOpen = false;
             RemoveAllInjected();
             boardRoot = null;
             rinkPane = null;
@@ -561,6 +632,7 @@ namespace PHLPracticeModPack
         private static void ShowScoreboardTab()
         {
             menuPaneActive = false;
+            RinkPanelBuilder.CloseStripPracticeMenu();
 
             if (rinkPane != null)
             {
@@ -568,9 +640,8 @@ namespace PHLPracticeModPack
                 rinkPane.pickingMode = PickingMode.Ignore;
             }
 
-            ClearMenuBoardHeight();
-            if (!RinkMotdUI.IsVisible)
-                RinkPreview.SetVisible(false);
+            ClearMenuBoardLayout();
+            RinkPreview.SetVisible(false);
 
             StyleTabActive(scoreboardTabButton, true);
             StyleTabActive(menuTabButton, false);
@@ -589,9 +660,8 @@ namespace PHLPracticeModPack
                 try { rinkPane.BringToFront(); } catch { }
             }
 
-            ApplyMenuBoardHeight();
-            if (!MultiSheetClientSettings.SkipMotdUi)
-                RinkPreview.SetVisible(true);
+            ApplyMenuBoardLayout();
+            RinkPreview.SetVisible(true);
 
             StyleTabActive(scoreboardTabButton, false);
             StyleTabActive(menuTabButton, true);
@@ -606,41 +676,52 @@ namespace PHLPracticeModPack
             }
         }
 
-        private static void ApplyMenuBoardHeight()
+        private static void ApplyMenuBoardLayout()
         {
             VisualElement board = boardRoot ?? rinkPane?.parent;
             if (board == null) return;
             try
             {
                 float maxH = Screen.height * MaxBoardHeightScreenFraction;
+                float targetH = Mathf.Min(RinkPanelBuilder.PanelMinHeight, maxH);
+                float targetW = Mathf.Min(
+                    RinkPanelBuilder.PanelMaxWidth,
+                    Screen.width * (RinkPanelBuilder.PanelWidthPercent / 100f));
 
-                bool dense = false;
-                try
-                {
-                    dense = RinkMotdUI.TryGetLastPayload(out RinkMotdPayload payload)
-                            && payload?.Rinks != null && payload.Rinks.Count > 6;
-                }
-                catch { }
-
-                float contentMin = dense ? MenuMinBoardHeight + 50f : MenuMinBoardHeight;
-                float target = Mathf.Min(contentMin, maxH);
-
-                board.style.minHeight = target;
+                board.style.width = targetW;
+                board.style.maxWidth = RinkPanelBuilder.PanelMaxWidth;
+                board.style.minWidth = targetW;
+                board.style.minHeight = targetH;
                 board.style.maxHeight = maxH;
+                board.style.alignSelf = Align.Center;
             }
             catch { }
         }
 
-        private static void ClearMenuBoardHeight()
+        private static void ClearMenuBoardLayout()
         {
             VisualElement board = boardRoot ?? rinkPane?.parent;
             if (board == null) return;
             try
             {
+                board.style.width = StyleKeyword.Null;
+                board.style.maxWidth = StyleKeyword.Null;
+                board.style.minWidth = StyleKeyword.Null;
                 board.style.minHeight = StyleKeyword.Null;
                 board.style.maxHeight = StyleKeyword.Null;
+                board.style.alignSelf = StyleKeyword.Null;
             }
             catch { }
+        }
+
+        private static void ApplyMenuBoardHeight()
+        {
+            ApplyMenuBoardLayout();
+        }
+
+        private static void ClearMenuBoardHeight()
+        {
+            ClearMenuBoardLayout();
         }
 
         private static void ApplyBoardVerticalPosition()
@@ -733,12 +814,13 @@ namespace PHLPracticeModPack
             if (rinkPane == null || payload == null || !menuPaneActive) return;
 
             rinkPane.Clear();
-            RinkPanelBuilder.Result built = RinkPanelBuilder.BuildEmbedded(
+            RinkPanelBuilder.Result built = RinkPanelBuilder.BuildForScoreboard(
                 payload, CreateEmbedCallbacks());
 
             if (built.Card != null)
                 rinkPane.Add(built.Card);
             roleSectionHost = built.RoleSectionHost;
+            settingsSectionHost = built.SettingsSectionHost;
             rinkSectionHost = built.RinkSectionHost;
             stripSectionHost = built.StripSectionHost;
             radioSectionHost = built.RadioSectionHost;

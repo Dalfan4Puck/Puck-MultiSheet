@@ -78,7 +78,7 @@ namespace PHLPracticeModPack
                 string id = string.IsNullOrEmpty(entry.Id) ? ("rink" + (i + 1)) : entry.Id;
                 string label = string.IsNullOrEmpty(entry.Label) ? ("Rink " + (i + 1)) : entry.Label;
                 string command = "/rink" + (i + 1);
-                rinks.Add(new RinkSlot(id, command, label, origin, origin, entry.SlickIce));
+                rinks.Add(new RinkSlot(id, command, label, origin, origin));
             }
 
             if (rinks.Count == 0) return;
@@ -149,14 +149,12 @@ namespace PHLPracticeModPack
             {
                 float x = (i % 3) * config.RinkSpacingX;
                 float z = (i / 3) * config.RinkSpacingZ;
-                bool slickIce = i == 5;
                 config.Rinks.Add(new RinkSlot(
                     "rink" + (i + 1),
                     "/rink" + (i + 1),
-                    slickIce ? "Slick Ice Rink" : "Rink " + (i + 1),
+                    "Rink " + (i + 1),
                     new Vector3(x, 0f, z),
-                    new Vector3(x, 0f, z),
-                    slickIce));
+                    new Vector3(x, 0f, z)));
             }
             return config;
         }
@@ -182,19 +180,16 @@ namespace PHLPracticeModPack
         public string Label;
         public Vec3 WorldOrigin;
         public Vec3 Spawn;
-        /// <summary>When true, cloned rink ice uses the same low-friction material as /sheet.</summary>
-        public bool SlickIce;
 
         public RinkSlot() { }
 
-        public RinkSlot(string id, string command, string label, Vector3 origin, Vector3 spawn, bool slickIce = false)
+        public RinkSlot(string id, string command, string label, Vector3 origin, Vector3 spawn)
         {
             Id = id;
             Command = command;
             Label = label;
             WorldOrigin = Vec3.From(origin);
             Spawn = Vec3.From(spawn);
-            SlickIce = slickIce;
         }
 
         public Vector3 Origin => WorldOrigin.ToVector3();

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using HarmonyLib;
+using MaxPractice;
 using Unity.Netcode;
 using UnityEngine;
 
@@ -10,9 +11,8 @@ namespace PHLPracticeModPack
     /// <summary>
     /// MultiSheet spawns at computed rink coordinates without vanilla position select,
     /// so <see cref="Player.PlayerPosition"/> stays null. CompetitivePuckTweaks gates
-    /// Movement.Start tweaks on PlayerPosition.Role (not Player.Role), which skips
-    /// skater turn scaling and goalie speed patches. Claim a rink-1 marker on the server;
-    /// Movement.Start compat on server + local client keeps CPT values and FloatComponent in sync.
+    /// Movement.Start tweaks on PlayerPosition.Role (not Player.Role); we apply CPT
+    /// values from Player.Role in MovementStartCompatPatch and never claim markers.
     /// </summary>
     internal static class CptSpawnCompat
     {
@@ -28,17 +28,9 @@ namespace PHLPracticeModPack
             cachedMarkers = null;
         }
 
-        /// <summary>Call before Server_SpawnCharacter so CPT can use PlayerPosition when claim succeeds.</summary>
+        /// <summary>No-op — practice players stay positionless; CPT compat uses Player.Role.</summary>
         internal static void PreparePlayer(Player player)
         {
-            if (!IsServerAuthority()) return;
-            if (!IsPracticeContext() || player == null || player.IsReplay.Value) return;
-
-            try { TryClaimLogicalPosition(player); }
-            catch (Exception ex)
-            {
-                Debug.LogWarning("[PHLPractice] CPT marker prepare failed: " + ex.Message);
-            }
         }
 
         private static bool IsServerAuthority()
@@ -58,6 +50,7 @@ namespace PHLPracticeModPack
             PlayerBody body = movement != null ? movement.PlayerBody : null;
             Player player = body != null ? body.Player : null;
             if (player == null || player.IsReplay.Value) return false;
+            if (FakePlayerDetector.IsFakePlayer(player)) return false;
 
             NetworkManager nm = NetworkManager.Singleton;
             if (nm == null) return false;
@@ -75,10 +68,7 @@ namespace PHLPracticeModPack
             catch { return false; }
         }
 
-        /// <summary>
-        /// Claim a rink-1 marker before CPT's Movement.Start postfix runs (CPT reads PlayerPosition.Role).
-        /// Registered via PatchAll — no runtime patch of CPT assemblies.
-        /// </summary>
+        /// <summary>Disabled — marker claims fight positionless practice flow and overwrite goalie role.</summary>
         [HarmonyPatch(typeof(Movement), "Start")]
         private static class MovementStartClaimPrefixPatch
         {
@@ -86,17 +76,6 @@ namespace PHLPracticeModPack
             [HarmonyPriority(Priority.First)]
             private static void Prefix(Movement __instance)
             {
-                if (!IsServerAuthority() || !IsPracticeContext()) return;
-
-                PlayerBody body = __instance != null ? __instance.PlayerBody : null;
-                Player player = body != null ? body.Player : null;
-                if (player == null || player.IsReplay.Value || player.PlayerPosition != null) return;
-
-                try { TryClaimLogicalPosition(player); }
-                catch (Exception ex)
-                {
-                    Debug.LogWarning("[PHLPractice] CPT marker claim at Movement.Start failed: " + ex.Message);
-                }
             }
         }
 

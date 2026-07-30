@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Hollow equilateral triangle pass-back frame (traditional hockey triangle passer).
+/// Flat equilateral triangle pass-back bumper visual.
 /// Base edge faces -local Z (toward the shooter); apex points +Z.
 /// </summary>
 public static class PasserTriangleMeshBuilder
@@ -84,42 +84,23 @@ public static class PasserTriangleMeshBuilder
         return candidate.normalized;
     }
 
-    public static Mesh BuildFrameMesh(in Geometry g)
+    public static Mesh BuildFrameMesh(in Geometry g) => BuildSolidMesh(g);
+
+    /// <summary>Single flat equilateral triangle lying on the ice plane.</summary>
+    public static Mesh BuildSolidMesh(in Geometry g)
     {
-        float halfH = g.Height * 0.5f;
-        float shrink = g.Circumradius > 0.001f
-            ? Mathf.Clamp((g.Circumradius - g.WallThickness) / g.Circumradius, 0.35f, 0.98f)
-            : 0.85f;
+        const float lift = 0.008f;
+        Vector3 apex = Lift(g.Apex, lift);
+        Vector3 baseLeft = Lift(g.BaseLeft, lift);
+        Vector3 baseRight = Lift(g.BaseRight, lift);
 
-        Vector3 o0 = g.Apex;
-        Vector3 o1 = g.BaseLeft;
-        Vector3 o2 = g.BaseRight;
-        Vector3 i0 = o0 * shrink;
-        Vector3 i1 = o1 * shrink;
-        Vector3 i2 = o2 * shrink;
+        var verts = new List<Vector3>(6);
+        var tris = new List<int>(6);
 
-        var verts = new List<Vector3>();
-        var tris = new List<int>();
+        AddTriangle(verts, tris, baseLeft, apex, baseRight);
+        AddTriangle(verts, tris, baseRight, apex, baseLeft);
 
-        AddWallQuad(verts, tris,
-            Lift(o1, -halfH), Lift(o2, -halfH), Lift(o2, halfH), Lift(o1, halfH));
-        AddWallQuad(verts, tris,
-            Lift(o2, -halfH), Lift(o0, -halfH), Lift(o0, halfH), Lift(o2, halfH));
-        AddWallQuad(verts, tris,
-            Lift(o0, -halfH), Lift(o1, -halfH), Lift(o1, halfH), Lift(o0, halfH));
-
-        AddWallQuad(verts, tris,
-            Lift(i1, halfH), Lift(i2, halfH), Lift(i2, -halfH), Lift(i1, -halfH));
-        AddWallQuad(verts, tris,
-            Lift(i2, halfH), Lift(i0, halfH), Lift(i0, -halfH), Lift(i2, -halfH));
-        AddWallQuad(verts, tris,
-            Lift(i0, halfH), Lift(i1, halfH), Lift(i1, -halfH), Lift(i0, -halfH));
-
-        AddTopStrip(verts, tris, o1, o2, i2, i1, halfH);
-        AddTopStrip(verts, tris, o2, o0, i0, i2, halfH);
-        AddTopStrip(verts, tris, o0, o1, i1, i0, halfH);
-
-        var mesh = new Mesh { name = "PasserTriangleFrame" };
+        var mesh = new Mesh { name = "PasserTriangleFlat" };
         mesh.SetVertices(verts);
         mesh.SetTriangles(tris, 0);
         mesh.RecalculateNormals();
@@ -127,38 +108,21 @@ public static class PasserTriangleMeshBuilder
         return mesh;
     }
 
-    private static Vector3 Lift(Vector3 v, float y) => new Vector3(v.x, y, v.z);
-
-    private static void AddWallQuad(
+    private static void AddTriangle(
         List<Vector3> verts,
         List<int> tris,
         Vector3 a,
         Vector3 b,
-        Vector3 c,
-        Vector3 d)
+        Vector3 c)
     {
         int i = verts.Count;
         verts.Add(a);
         verts.Add(b);
         verts.Add(c);
-        verts.Add(d);
         tris.Add(i);
         tris.Add(i + 1);
         tris.Add(i + 2);
-        tris.Add(i);
-        tris.Add(i + 2);
-        tris.Add(i + 3);
     }
 
-    private static void AddTopStrip(
-        List<Vector3> verts,
-        List<int> tris,
-        Vector3 oA,
-        Vector3 oB,
-        Vector3 iB,
-        Vector3 iA,
-        float y)
-    {
-        AddWallQuad(verts, tris, Lift(oA, y), Lift(oB, y), Lift(iB, y), Lift(iA, y));
-    }
+    private static Vector3 Lift(Vector3 v, float y) => new Vector3(v.x, y, v.z);
 }

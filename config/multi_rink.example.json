@@ -58,8 +58,7 @@
     {
       "Id": "rink6",
       "Command": "/rink6",
-      "Label": "Slick Ice Rink",
-      "SlickIce": true,
+      "Label": "Rink 6",
       "WorldOrigin": { "x": 128.0, "y": 0.0, "z": 128.0 },
       "Spawn": { "x": 128.0, "y": 0.0, "z": 128.0 }
     }

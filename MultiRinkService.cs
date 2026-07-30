@@ -135,6 +135,32 @@ namespace PHLPracticeModPack
             return ActiveRinkByClient.TryGetValue(clientId, out string id) ? id : null;
         }
 
+        internal static int GetActiveRinkIndex(ulong clientId)
+        {
+            MultiRinkConfig cfg = MultiRinkConfig.Current;
+            string rinkId = GetActiveRinkId(clientId);
+            if (cfg?.Rinks != null && !string.IsNullOrEmpty(rinkId))
+            {
+                for (int i = 0; i < cfg.Rinks.Count; i++)
+                {
+                    RinkSlot slot = cfg.Rinks[i];
+                    if (slot != null && slot.Id == rinkId)
+                        return i;
+                }
+            }
+
+            try
+            {
+                PlayerManager pm = MonoBehaviourSingleton<PlayerManager>.Instance;
+                Player player = pm != null ? pm.GetPlayerByClientId(clientId) : null;
+                if (player?.PlayerBody != null && cfg?.Rinks != null && cfg.Rinks.Count > 0)
+                    return RinkLocator.NearestRink(cfg, player.PlayerBody.transform.position);
+            }
+            catch { }
+
+            return -1;
+        }
+
         internal static void RememberActiveRink(ulong clientId, string rinkId)
         {
             if (!string.IsNullOrEmpty(rinkId))

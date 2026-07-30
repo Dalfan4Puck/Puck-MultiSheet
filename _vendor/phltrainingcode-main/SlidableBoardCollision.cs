@@ -98,7 +98,7 @@ public static class SlidableBoardCollision
         if (vanillaIceLayer >= 0)
             Physics.IgnoreLayerCollision(stickLayer, vanillaIceLayer, true);
 
-        bool ignoreStickSlidable = !FlamiePracFeatures.SlidablePhysicsEnabled;
+        bool ignoreStickSlidable = !FlamiePracFeatures.AnySlidablePhysicsEnabled;
         Physics.IgnoreLayerCollision(stickLayer, slidableLayer, ignoreStickSlidable);
 
         bool stateChanged = !lastStickIceIgnored.HasValue || lastStickIceIgnored.Value != ignoreStickSlidable;

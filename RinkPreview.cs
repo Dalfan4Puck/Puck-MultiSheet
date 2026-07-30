@@ -52,7 +52,7 @@ namespace PHLPracticeModPack
         /// <summary>One camera + one RT per rink tile.</summary>
         internal static void EnsureRig(RinkMotdPayload payload)
         {
-            if (MultiSheetClientSettings.SkipMotdUi) return;
+            if (MultiSheetClientSettings.SkipScoreboardUi) return;
             if (ModRuntimeContext.IsDedicatedGameServer || payload?.Rinks == null || payload.Rinks.Count == 0) return;
 
             int count = payload.Rinks.Count;
@@ -131,14 +131,14 @@ namespace PHLPracticeModPack
 
         internal static void NotifyClientBuildComplete()
         {
-            if (!visible || cameras.Count == 0 || MultiSheetClientSettings.SkipMotdUi) return;
+            if (!visible || cameras.Count == 0 || MultiSheetClientSettings.SkipScoreboardUi) return;
             RequestCapture(extendedFrames: true);
         }
 
         /// <summary>Re-snap one rink or every rink (default).</summary>
         internal static void RequestCapture(int rinkIndex = -1, bool extendedFrames = false)
         {
-            if (!visible || cameras.Count == 0 || MultiSheetClientSettings.SkipMotdUi) return;
+            if (!visible || cameras.Count == 0 || MultiSheetClientSettings.SkipScoreboardUi) return;
             EnsurePendingArray();
 
             int frames = extendedFrames ? CaptureFramesAfterBuild : CaptureFrames;
@@ -163,7 +163,7 @@ namespace PHLPracticeModPack
 
         internal static void LateTick()
         {
-            if (MultiSheetClientSettings.SkipMotdUi)
+            if (MultiSheetClientSettings.SkipScoreboardUi)
             {
                 if (cameras.Count > 0) Teardown();
                 return;

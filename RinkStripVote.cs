@@ -56,6 +56,7 @@ namespace PHLPracticeModPack
             EnforceVoteTimeout();
             TryApplyServerDefaults();
             TryReconcileStripSpawns();
+            RinkPracticeDrills.TickReconcile();
         }
 
         internal static void Teardown()
@@ -88,6 +89,7 @@ namespace PHLPracticeModPack
             nextDefaultRetry = 0f;
             nextReconcileAt = 0f;
             serverModes.Clear();
+            RinkPracticeDrills.StopAll();
         }
 
         internal static RinkStripMode GetServerMode(int rinkIndex)
@@ -319,15 +321,18 @@ namespace PHLPracticeModPack
             serverModes[rinkIndex] = mode;
 
             TrainingObjectManager manager = TrainingObjectManager.Instance;
-            if (manager == null) return;
+            if (manager != null)
+                manager.SetRinkToolsEnabled(rinkIndex, mode == RinkStripMode.PhlTools);
 
-            bool enable = mode == RinkStripMode.PhlTools;
-            manager.SetRinkToolsEnabled(rinkIndex, enable);
+            RinkPracticeDrills.ApplyMode(rinkIndex, mode);
 
             if (announce)
             {
+                string label = mode == RinkStripMode.Empty
+                    ? "cleared"
+                    : RinkStripModeUtil.DisplayName(mode);
                 BroadcastChat(
-                    "Rink " + (rinkIndex + 1) + " tools changed to " + RinkStripModeUtil.DisplayName(mode) + ".",
+                    "Rink " + (rinkIndex + 1) + " practice mode " + label + ".",
                     "#e67e22");
             }
         }

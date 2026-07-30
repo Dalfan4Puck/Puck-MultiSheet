@@ -36,6 +36,9 @@ public static class SlidableObstacleSetup
     private const float BeamStickPushScale = 24f;
     /// <summary>Grow beam height + thickness; length stays the same.</summary>
     private const float BeamCrossSectionScale = 1.5f;
+    /// <summary>Puck rebound off push beams — ice clone was too dead (puck glued on contact).</summary>
+    private const float BeamPuckBounciness = 0.62f;
+    private const float BeamPuckFriction = 0.035f;
     public const string PasserRelativePathPrefix = "passer";
     public const string SheetRelativePathPrefix = "sheet";
 
@@ -120,8 +123,17 @@ public static class SlidableObstacleSetup
         for (int i = root.transform.childCount - 1; i >= 0; i--)
         {
             Transform child = root.transform.GetChild(i);
-            if (child != null && child.name.StartsWith("PasserWall_", System.StringComparison.Ordinal))
+            if (child == null) continue;
+            if (child.name.StartsWith("PasserWall_", System.StringComparison.Ordinal))
                 UnityEngine.Object.Destroy(child.gameObject);
+        }
+
+        Transform visual = root.transform.Find("BoardVisual");
+        if (visual != null)
+        {
+            MeshCollider meshCol = visual.GetComponent<MeshCollider>();
+            if (meshCol != null)
+                UnityEngine.Object.Destroy(meshCol);
         }
 
         PasserTriangleMeshBuilder.Geometry g = PasserTriangleMeshBuilder.Compute(scale);
@@ -342,6 +354,7 @@ public static class SlidableObstacleSetup
                 BeamMass,
                 MinColliderHeight,
                 preset: ApplyBeamPhysicsProfileFields);
+            ApplyBeamPuckMaterial(beam.gameObject);
         }
 
         List<Transform> speakers = FindAllSpeakers(trainingRoot.transform);
@@ -1182,6 +1195,7 @@ public static class SlidableObstacleSetup
             AttachSlidableDecals(beam, maxDistance: 2.5f);
             AbsorbNearbyBeamMeshes(beam, trainingRoot.transform, maxDistance: 3.5f);
             ConfigureSlidableClient(trainingRoot.transform, beam, syncId, MinColliderHeight);
+            ApplyBeamPuckMaterial(beam.gameObject);
         }
 
         List<Transform> speakers = FindAllSpeakers(trainingRoot.transform);
@@ -1295,6 +1309,20 @@ public static class SlidableObstacleSetup
         }
     }
 
+    /// <summary>Low-friction, bouncy faces so pucks rebound instead of sticking on push beams.</summary>
+    public static void ApplyBeamPuckMaterial(GameObject obj)
+    {
+        if (obj == null)
+            return;
+
+        PhysicsMaterial bounce = GetBeamPuckMaterial();
+        foreach (Collider col in obj.GetComponentsInChildren<Collider>(true))
+        {
+            if (col != null && !col.isTrigger)
+                col.material = bounce;
+        }
+    }
+
     public static void ApplySheetSlideMaterial(GameObject obj)
     {
         PhysicsMaterial slide = GetSheetSlideMaterial();
@@ -1306,64 +1334,29 @@ public static class SlidableObstacleSetup
         }
     }
 
-    /// <summary>PHL MultiSheet hooks this to refresh SlickIce rink colliders when /slickice changes μ.</summary>
-    public static Action SlickIceFrictionReapply;
-
-    public static float GetCurrentSheetFrictionMu()
-    {
-        if (liveFrictionOverride.HasValue)
-            return liveFrictionOverride.Value;
-
-        PhysicsMaterial ice = GetIceLikeMaterial();
-        return Mathf.Max(ice.dynamicFriction * 0.45f, 0.012f);
-    }
-
-    public static float GetRegularIceFrictionMu() => GetIceLikeMaterial().dynamicFriction;
-
-    public static bool IsLiveSheetFrictionOverridden => liveFrictionOverride.HasValue;
-
-    public static bool TrySetLiveSheetFriction(float mu, out string error)
-    {
-        error = null;
-        if (float.IsNaN(mu) || mu < 0.001f || mu > 0.99f)
-        {
-            error = "Usage: /slickice <friction> — decimal between 0.001 and 0.99 (e.g. 0.02).";
-            return false;
-        }
-
-        liveFrictionOverride = mu;
-        cachedSheetMaterial = null;
-        ReapplyLiveFrictionSurfaces();
-        FlamieLog.Info("[FlamiePrac] Live sheet/slick-ice friction μd=" + mu.ToString("F3"));
-        return true;
-    }
-
-    private static void ReapplyLiveFrictionSurfaces()
-    {
-        SlidableObstacle[] obstacles = UnityEngine.Object.FindObjectsByType<SlidableObstacle>(
-            FindObjectsInactive.Include,
-            FindObjectsSortMode.None);
-        for (int i = 0; i < obstacles.Length; i++)
-        {
-            SlidableObstacle obstacle = obstacles[i];
-            if (obstacle == null)
-                continue;
-
-            string path = obstacle.RelativePath;
-            if (string.IsNullOrEmpty(path) ||
-                !path.StartsWith(SheetRelativePathPrefix, StringComparison.Ordinal))
-                continue;
-
-            ApplySheetSlideMaterial(obstacle.gameObject);
-        }
-
-        try { SlickIceFrictionReapply?.Invoke(); }
-        catch (Exception ex) { Debug.LogWarning("[FlamiePrac] SlickIce friction reapply failed: " + ex.Message); }
-    }
-
     private static PhysicsMaterial cachedIceLikeMaterial;
     private static PhysicsMaterial cachedSheetMaterial;
-    private static float? liveFrictionOverride;
+    private static PhysicsMaterial cachedBeamPuckMaterial;
+
+    private static PhysicsMaterial GetBeamPuckMaterial()
+    {
+        if (cachedBeamPuckMaterial != null)
+            return cachedBeamPuckMaterial;
+
+        cachedBeamPuckMaterial = new PhysicsMaterial("FlamiePrac_BeamPuck")
+        {
+            dynamicFriction = BeamPuckFriction,
+            staticFriction = BeamPuckFriction,
+            bounciness = BeamPuckBounciness,
+            frictionCombine = PhysicsMaterialCombine.Minimum,
+            bounceCombine = PhysicsMaterialCombine.Maximum
+        };
+        FlamieLog.InfoOnce(
+            "beam-puck-mat",
+            "[FlamiePrac] Beam puck material bounce=" + BeamPuckBounciness.ToString("F2") +
+            " μd=" + BeamPuckFriction.ToString("F3") + ".");
+        return cachedBeamPuckMaterial;
+    }
 
     private static PhysicsMaterial GetIceLikeMaterial()
     {
@@ -1380,7 +1373,7 @@ public static class SlidableObstacleSetup
                 if (col == null || col.isTrigger || col.gameObject.layer != iceLayer)
                     continue;
 
-                PhysicsMaterial source = col.material;
+                PhysicsMaterial source = col.sharedMaterial;
                 if (source == null)
                     continue;
 
@@ -1412,11 +1405,11 @@ public static class SlidableObstacleSetup
 
     public static PhysicsMaterial GetSheetSlideMaterial()
     {
-        float mu = GetCurrentSheetFrictionMu();
+        PhysicsMaterial ice = GetIceLikeMaterial();
+        float mu = Mathf.Max(ice.dynamicFriction * 0.45f, 0.012f);
         if (cachedSheetMaterial != null && Mathf.Abs(cachedSheetMaterial.dynamicFriction - mu) < 0.0001f)
             return cachedSheetMaterial;
 
-        PhysicsMaterial ice = GetIceLikeMaterial();
         cachedSheetMaterial = new PhysicsMaterial("FlamiePrac_Sheet")
         {
             dynamicFriction = mu,
@@ -1428,8 +1421,7 @@ public static class SlidableObstacleSetup
         FlamieLog.InfoOnce(
             "sheet-slide-mat",
             "[FlamiePrac] Sheet slide material μd=" + mu.ToString("F3") +
-            " (ice μd=" + ice.dynamicFriction.ToString("F3") +
-            (liveFrictionOverride.HasValue ? ", live override" : ", default") + ").");
+            " (ice μd=" + ice.dynamicFriction.ToString("F3") + ", default).");
         return cachedSheetMaterial;
     }
 

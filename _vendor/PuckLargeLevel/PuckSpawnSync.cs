@@ -196,16 +196,13 @@ public class PuckSpawnSync : MonoBehaviour
     private void Update()
     {
         if (UnityEngine.InputSystem.Keyboard.current == null) return;
-        if (!UnityEngine.InputSystem.Keyboard.current.rKey.wasPressedThisFrame) return;
+        if (!PHLPracticeModPack.ClientKeybindHelper.WasKeyPressedThisFrame(
+                PHLPracticeModPack.MultiSheetClientSettings.SpawnPuckKey))
+            return;
         if (!NetworkManager.Singleton.IsClient) return;
 
         // Only MultiSheet servers understand the spawn request; stay silent elsewhere.
         if (!NetworkManager.Singleton.IsServer && !PHLPracticeModPack.PracticeFlowClient.IsOnPracticeServer) return;
-
-        // Suppress spawn while the chat input box is open. The game's chat is built with
-        // Unity UI Toolkit (VisualElement) so InputField/TMP scans don't see it.
-        // CustomLevelPlugin patches UIChat.StartInput/StopInput to flip this flag instead.
-        if (CustomLevelPlugin.ChatInputActive) return;
 
         Player player = MonoBehaviourSingleton<PlayerManager>.Instance
             .GetPlayerByClientId(NetworkManager.Singleton.LocalClientId);

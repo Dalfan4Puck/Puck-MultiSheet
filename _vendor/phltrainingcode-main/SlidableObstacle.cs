@@ -26,6 +26,7 @@ public class SlidableObstacle : MonoBehaviour
 
     public int ParentSyncId { get; private set; }
     public string RelativePath { get; private set; }
+    public int RinkIndex { get; private set; }
 
     private Rigidbody rb;
     private Collider[] bodyColliders;
@@ -66,9 +67,20 @@ public class SlidableObstacle : MonoBehaviour
 
     public static void ApplyPhysicsEnabled(bool enabled)
     {
-        foreach (SlidableObstacle obstacle in Active)
+        for (int i = 0; i < Active.Count; i++)
         {
+            SlidableObstacle obstacle = Active[i];
             if (obstacle != null)
+                obstacle.SetPhysicsEnabled(enabled);
+        }
+    }
+
+    public static void ApplyPhysicsEnabledForRink(int rinkIndex, bool enabled)
+    {
+        for (int i = 0; i < Active.Count; i++)
+        {
+            SlidableObstacle obstacle = Active[i];
+            if (obstacle != null && obstacle.RinkIndex == rinkIndex)
                 obstacle.SetPhysicsEnabled(enabled);
         }
     }
@@ -157,6 +169,7 @@ public class SlidableObstacle : MonoBehaviour
         RelativePath = relativePath ?? string.Empty;
         rootTransform = trainingRoot;
         ownedAnchor = anchorToOwn;
+        RinkIndex = RinkOrigin.ResolveRinkIndexFromWorld(transform.position);
 
         rb = GetComponent<Rigidbody>();
         if (rb == null)
@@ -176,7 +189,7 @@ public class SlidableObstacle : MonoBehaviour
         rb.linearVelocity = Vector3.zero;
         rb.angularVelocity = Vector3.zero;
         rb.sleepThreshold = 0.05f;
-        physicsFrozen = !FlamiePracFeatures.SlidablePhysicsEnabled;
+        physicsFrozen = !FlamiePracFeatures.IsSlidablePhysicsEnabled(RinkIndex);
         float settle = useCabinetMeshColliders ? SpeakerJoinSettleSeconds : JoinSettleSeconds;
         wakeTime = Time.time + settle;
         isAwake = false;
@@ -258,7 +271,7 @@ public class SlidableObstacle : MonoBehaviour
         if (!IsServerSide() || rb == null)
             return;
 
-        if (physicsFrozen || !FlamiePracFeatures.SlidablePhysicsEnabled)
+        if (physicsFrozen || !FlamiePracFeatures.IsSlidablePhysicsEnabled(RinkIndex))
         {
             if (!rb.isKinematic)
                 SetPhysicsEnabled(false);
@@ -1171,7 +1184,7 @@ public class SlidableObstacle : MonoBehaviour
         if (!IsServerSide() || rb == null || collision == null)
             return;
 
-        if (physicsFrozen || !FlamiePracFeatures.SlidablePhysicsEnabled)
+        if (physicsFrozen || !FlamiePracFeatures.IsSlidablePhysicsEnabled(RinkIndex))
             return;
 
         if (SlidableBoardCollision.IsBoardLayer(collision.collider.gameObject.layer))
@@ -1205,7 +1218,7 @@ public class SlidableObstacle : MonoBehaviour
         if (!IsServerSide() || rb == null || collision == null)
             return;
 
-        if (physicsFrozen || !FlamiePracFeatures.SlidablePhysicsEnabled)
+        if (physicsFrozen || !FlamiePracFeatures.IsSlidablePhysicsEnabled(RinkIndex))
             return;
 
         if (SlidableBoardCollision.IsBoardLayer(collision.collider.gameObject.layer))

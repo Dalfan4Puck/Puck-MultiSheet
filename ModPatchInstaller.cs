@@ -45,6 +45,8 @@ namespace PHLPracticeModPack
             if (!MultiSheetClientSettings.SkipMinimap)
                 MinimapRinkView.InstallPatch(harmony);
 
+            PatchNestedTypes(harmony, typeof(MinimapSessionOverride), "BlockShowWhileSuppressedPatch");
+
             if (MultiSheetClientSettings.AllowRinkChanges)
                 TrlReskinBridge.SetHarmony(harmony);
         }
@@ -59,15 +61,14 @@ namespace PHLPracticeModPack
         private static readonly Type[] SharedPatchTypes =
         {
             typeof(RinkCommands),
-            typeof(PracticeScoreboardBlockFakeAddPlayerPatch),
-            typeof(PracticeScoreboardBlockFakeUpdatePlayerPatch),
-            typeof(PracticeScoreboardPurgeFakePlayersOnShowPatch),
         };
 
         private static readonly Type[] ServerPatchTypes =
         {
             typeof(PracticePhaseLockPatch),
             typeof(PracticeWarmupTimerPatch),
+            typeof(PracticePositionSelectTogglePatch),
+            typeof(PracticeBlockPositionRolePatch),
             typeof(RinkStripVoteCastVotePatch),
         };
 
@@ -82,6 +83,11 @@ namespace PHLPracticeModPack
             typeof(PracticePhaseLabelPatch),
             typeof(LocalBodyShadowHidePatch),
             typeof(LocalBodyShadowShowPatch),
+            typeof(PracticeScoreboardBlockFakeAddPlayerPatch),
+            typeof(PracticeScoreboardBlockFakeStylePlayerPatch),
+            typeof(PracticeScoreboardHidePositionPatch),
+            typeof(PracticeScoreboardBlockFakeUpdatePlayerPingPatch),
+            typeof(PracticeScoreboardPurgeFakePlayersOnShowPatch),
             typeof(RinkScoreboardTabInitializePatch),
             typeof(RinkScoreboardTabShowPatch),
             typeof(RinkScoreboardTabHidePatch),

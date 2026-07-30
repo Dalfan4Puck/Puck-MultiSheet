@@ -62,7 +62,7 @@ namespace PHLPracticeModPack
         /// </summary>
         public bool skipScoreboardUi = false;
 
-        /// <summary>Skip join/F9 MOTD overlay and the multi-rink preview camera rig (FPS A/B).</summary>
+        /// <summary>Skip join auto-open of the Rinks tab (FPS A/B). F9 still opens when scoreboard UI is on.</summary>
         public bool skipMotdUi = false;
 
         /// <summary>Skip minimap rink-local translate patch (FPS A/B).</summary>
@@ -71,10 +71,28 @@ namespace PHLPracticeModPack
         /// <summary>Key bound to spawn test puck (default R).</summary>
         public string spawnPuckKey = "R";
 
-        /// <summary>Remember Keybinds collapsible open state in the rink panel.</summary>
+        /// <summary>Key bound to toggle skater/goalie (default P).</summary>
+        public string toggleRoleKey = "P";
+
+        /// <summary>Key bound to toggle slidable physics (default L).</summary>
+        public string slidableToggleKey = "L";
+
+        /// <summary>Hide the stock minimap while in MultiSheet (client-only).</summary>
+        public bool minimapHidden = false;
+
+        /// <summary>Radio output volume 0–1.</summary>
+        public float radioVolume = 0.1f;
+
+        /// <summary>Whether radio is tuned in (streaming enabled).</summary>
+        public bool radioListening = false;
+
+        /// <summary>Legacy — collapsible sections always start closed on join.</summary>
+        public bool settingsSectionOpen = false;
+
+        /// <summary>Legacy — collapsible sections always start closed on join.</summary>
         public bool keybindsSectionOpen = false;
 
-        /// <summary>Remember Radio info collapsible open state in the rink panel.</summary>
+        /// <summary>Legacy — collapsible sections always start closed on join.</summary>
         public bool radioInfoSectionOpen = false;
 
         /// <summary>When true, radio plays at full volume everywhere (intercom). When false, only near speakers.</summary>
@@ -140,16 +158,52 @@ namespace PHLPracticeModPack
             }
         }
 
-        internal static bool KeybindsSectionOpen
+        internal static string ToggleRoleKey
         {
-            get { return Load().keybindsSectionOpen; }
-            set { Load().keybindsSectionOpen = value; }
+            get
+            {
+                string key = Load().toggleRoleKey;
+                return string.IsNullOrWhiteSpace(key) ? "P" : key.Trim();
+            }
+            set
+            {
+                Load().toggleRoleKey = string.IsNullOrWhiteSpace(value) ? "P" : value.Trim();
+            }
         }
 
-        internal static bool RadioInfoSectionOpen
+        internal static string SlidableToggleKey
         {
-            get { return Load().radioInfoSectionOpen; }
-            set { Load().radioInfoSectionOpen = value; }
+            get
+            {
+                string key = Load().slidableToggleKey;
+                return string.IsNullOrWhiteSpace(key) ? "L" : key.Trim();
+            }
+            set
+            {
+                Load().slidableToggleKey = string.IsNullOrWhiteSpace(value) ? "L" : value.Trim();
+            }
+        }
+
+        internal static bool MinimapHidden
+        {
+            get { return Load().minimapHidden; }
+            set { Load().minimapHidden = value; }
+        }
+
+        internal static float RadioVolume
+        {
+            get
+            {
+                float v = Load().radioVolume;
+                return Mathf.Clamp01(v <= 0f ? 0.1f : v);
+            }
+            set { Load().radioVolume = Mathf.Clamp01(value); }
+        }
+
+        internal static bool RadioListening
+        {
+            get { return Load().radioListening; }
+            set { Load().radioListening = value; }
         }
 
         internal static bool RadioPlayEverywhere
@@ -169,7 +223,48 @@ namespace PHLPracticeModPack
             set { Load().radioSpeakerRange = Mathf.Clamp(value, 5f, 100f); }
         }
 
+        internal static void ResetJoinPresentationState()
+        {
+            presentationRefreshPending = false;
+        }
+
+        private static bool presentationRefreshPending;
+
         internal static string LoadedFromPath => Load() != null ? (loadedFromPath ?? ResolvePath()) : ResolvePath();
+
+        /// <summary>Apply persisted client prefs after load or reconnect.</summary>
+        internal static void ApplyLoadedPreferences()
+        {
+            Load();
+            presentationRefreshPending = true;
+            MinimapSessionOverride.ApplyPersistedPreference();
+            RadioController.ApplyClientPreferencesFromMultiSheet();
+            ApplyPresentationPreferences();
+        }
+
+        /// <summary>One-shot retry when client layout finishes after connect.</summary>
+        internal static void TickDeferredJoinApply()
+        {
+            if (!presentationRefreshPending)
+                return;
+
+            ApplyPresentationPreferences();
+        }
+
+        private static void ApplyPresentationPreferences()
+        {
+            if (ModRuntimeContext.IsDedicatedGameServer)
+                return;
+
+            if (!ModRuntimeContext.ShouldInstallClientPresentation())
+                return;
+
+            if (!CustomLevelPlugin.IsClientLayoutReady)
+                return;
+
+            ArenaLighting.RefreshRinkLightCulling();
+            presentationRefreshPending = false;
+        }
 
         internal static MultiSheetClientSettings Load()
         {
@@ -182,9 +277,17 @@ namespace PHLPracticeModPack
             {
                 if (File.Exists(loadedFromPath))
                 {
-                    var parsed = JsonConvert.DeserializeObject<MultiSheetClientSettings>(
-                        File.ReadAllText(loadedFromPath));
-                    if (parsed != null) current = parsed;
+                    string raw = File.ReadAllText(loadedFromPath);
+                    var parsed = JsonConvert.DeserializeObject<MultiSheetClientSettings>(raw);
+                    if (parsed != null)
+                    {
+                        current = parsed;
+                        MigrateLegacyPlayerPrefs(current, raw);
+                    }
+                }
+                else
+                {
+                    MigrateLegacyPlayerPrefs(current, null);
                 }
             }
             catch (Exception ex)
@@ -229,6 +332,26 @@ namespace PHLPracticeModPack
             catch (Exception ex)
             {
                 Debug.LogWarning("[PHLPractice] Failed to write " + RelativePath + ": " + ex.Message);
+            }
+        }
+
+        private static void MigrateLegacyPlayerPrefs(MultiSheetClientSettings settings, string rawJson)
+        {
+            if (settings == null) return;
+
+            bool hasRadioVolume = rawJson != null && rawJson.IndexOf("\"radioVolume\"", StringComparison.OrdinalIgnoreCase) >= 0;
+            bool hasRadioListening = rawJson != null && rawJson.IndexOf("\"radioListening\"", StringComparison.OrdinalIgnoreCase) >= 0;
+
+            if (!hasRadioVolume && PlayerPrefs.HasKey("FlamiePrac_RadioVolume"))
+            {
+                settings.radioVolume = PlayerPrefs.GetFloat("FlamiePrac_RadioVolume", 0.1f);
+                dirty = true;
+            }
+
+            if (!hasRadioListening && PlayerPrefs.HasKey("FlamiePrac_RadioListening"))
+            {
+                settings.radioListening = PlayerPrefs.GetInt("FlamiePrac_RadioListening", 0) != 0;
+                dirty = true;
             }
         }
 

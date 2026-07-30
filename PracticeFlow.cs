@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using HarmonyLib;
+using MaxPractice;
 using Unity.Netcode;
 using UnityEngine;
 
@@ -83,7 +84,8 @@ namespace PHLPracticeModPack
         }
 
         /// <summary>Spawn a positionless player at their chosen rink (center ice or crease).</summary>
-        internal static void SpawnPositionless(Player player)
+        /// <param name="spawnPosition">When set with <paramref name="spawnRotation"/>, spawn here instead of rink defaults (role switches).</param>
+        internal static void SpawnPositionless(Player player, Vector3? spawnPosition = null, Quaternion? spawnRotation = null)
         {
             MultiRinkConfig cfg = MultiRinkConfig.Current;
             if (cfg?.Rinks == null || cfg.Rinks.Count == 0) return;
@@ -91,8 +93,9 @@ namespace PHLPracticeModPack
             RinkSlot slot = FindRinkSlot(cfg, MultiRinkService.GetActiveRinkId(player.OwnerClientId));
             if (slot == null) return;
 
-            // CPT Movement.Start reads PlayerPosition.Role; claim a rink-1 marker when
-            // one is free so CompTweaks patches apply, with a Harmony guard fallback.
+            bool spawnInPlace = spawnPosition.HasValue && spawnRotation.HasValue;
+
+            // CPT Movement.Start compat applies from Player.Role — no marker claim.
             CptSpawnCompat.PreparePlayer(player);
 
             PlayerRole role = player.Role == PlayerRole.Goalie ? PlayerRole.Goalie : PlayerRole.Attacker;
@@ -102,26 +105,56 @@ namespace PHLPracticeModPack
                 if (player.Team != team)
                     player.Server_SetGameState(null, team, PlayerRole.Goalie);
 
-                PracticeGoalieSpawn.TryGetGoaliePose(slot, player.Team, out Vector3 crease, out Quaternion rot);
-                player.Server_SpawnCharacter(crease, rot, PlayerRole.Goalie);
+                Vector3 position;
+                Quaternion rot;
+                if (spawnInPlace)
+                {
+                    position = spawnPosition.Value;
+                    rot = spawnRotation.Value;
+                }
+                else
+                {
+                    PracticeGoalieSpawn.TryGetGoaliePose(slot, player.Team, out position, out rot);
+                }
+
+                player.Server_SpawnCharacter(position, rot, PlayerRole.Goalie);
                 MultiRinkService.RefreshChunkSlot(player.PlayerBody);
                 Debug.Log("[PHLPractice] Spawned client " + player.OwnerClientId + " as " + player.Team +
-                          " goalie at " + slot.Id + " pos=" + crease.ToString("F2") +
+                          " goalie at " + slot.Id + " pos=" + position.ToString("F2") +
                           " body=" + (player.PlayerBody != null
                               ? player.PlayerBody.transform.position.ToString("F2")
                               : "<null>") + ".");
                 return;
             }
 
-            Vector3 position = MultiRinkService.GetSpawnPosition(slot, player);
-            player.Server_SpawnCharacter(
-                position, MultiRinkService.GetSpawnRotation(player.Team), PlayerRole.Attacker);
+            Vector3 skaterPos = spawnInPlace
+                ? spawnPosition.Value
+                : MultiRinkService.GetSpawnPosition(slot, player);
+            Quaternion skaterRot = spawnInPlace
+                ? spawnRotation.Value
+                : MultiRinkService.GetSpawnRotation(player.Team);
+            player.Server_SpawnCharacter(skaterPos, skaterRot, PlayerRole.Attacker);
             MultiRinkService.RefreshChunkSlot(player.PlayerBody);
             PracticeLog.Info("[PHLPractice] Spawned client " + player.OwnerClientId + " at " + slot.Id +
-                      " center ice (positionless).");
+                      (spawnInPlace ? " (in place)." : " center ice (positionless)."));
         }
 
-        /// <summary>Switch skater/goalie from the MOTD UI; respawn on current rink when bodied.</summary>
+        /// <summary>Flip skater/goalie — same path as the menu buttons and the P key.</summary>
+        internal static bool TryToggleRole(Player player, out string message)
+        {
+            message = null;
+            if (player == null)
+            {
+                message = "Could not find your player.";
+                return false;
+            }
+
+            PlayerRole current = player.Role == PlayerRole.Goalie ? PlayerRole.Goalie : PlayerRole.Attacker;
+            PlayerRole next = current == PlayerRole.Goalie ? PlayerRole.Attacker : PlayerRole.Goalie;
+            return TrySetRole(player.OwnerClientId, next, out message);
+        }
+
+        /// <summary>Switch skater/goalie from the MOTD UI or P key; respawn in place when bodied.</summary>
         internal static bool TrySetRole(ulong clientId, PlayerRole role, out string message)
         {
             message = null;
@@ -151,13 +184,24 @@ namespace PHLPracticeModPack
                 message = normalized == PlayerRole.Goalie
                     ? "Goalie selected — pick a rink."
                     : "Skater selected — pick a rink.";
+                NotifyRoleChanged();
                 return true;
             }
 
-            RinkSlot slot = FindRinkSlot(cfg, MultiRinkService.GetActiveRinkId(clientId));
-            if (slot == null && player.PlayerBody != null && cfg?.Rinks != null)
+            Vector3 respawnPos = default;
+            Quaternion respawnRot = Quaternion.identity;
+            bool respawnInPlace = false;
+            if (player.PlayerBody != null)
             {
-                int idx = RinkLocator.NearestRink(cfg, player.PlayerBody.transform.position);
+                respawnPos = player.PlayerBody.transform.position;
+                respawnRot = player.PlayerBody.transform.rotation;
+                respawnInPlace = true;
+            }
+
+            RinkSlot slot = FindRinkSlot(cfg, MultiRinkService.GetActiveRinkId(clientId));
+            if (slot == null && respawnInPlace && cfg?.Rinks != null)
+            {
+                int idx = RinkLocator.NearestRink(cfg, respawnPos);
                 if (idx >= 0 && idx < cfg.Rinks.Count) slot = cfg.Rinks[idx];
             }
 
@@ -165,6 +209,7 @@ namespace PHLPracticeModPack
             // left a skater body wearing a goalie game state for a frame, and everything
             // that reacts to the role (equipment, jersey, stick prefab choice) ran against
             // the body that was about to be thrown away.
+            ReleaseClaimedPosition(player);
             try { player.Server_DespawnCharacter(); }
             catch (Exception ex)
             {
@@ -177,6 +222,7 @@ namespace PHLPracticeModPack
                 message = normalized == PlayerRole.Goalie
                     ? "Goalie selected — pick a rink."
                     : "Skater selected — pick a rink.";
+                NotifyRoleChanged();
                 return true;
             }
 
@@ -198,13 +244,41 @@ namespace PHLPracticeModPack
             // A handler inside the stock Server_SpawnCharacter call stack can throw
             // after the character is already spawned — the switch still worked, so
             // never announce a failure to the player; just log for diagnostics.
-            try { SpawnPositionless(player); }
+            try
+            {
+                if (respawnInPlace)
+                    SpawnPositionless(player, respawnPos, respawnRot);
+                else
+                    SpawnPositionless(player);
+            }
             catch (Exception ex)
             {
                 Debug.LogWarning("[PHLPractice] Role switch respawn threw (spawn usually completed): " + ex.Message);
             }
             message = normalized == PlayerRole.Goalie ? "Switched to goalie." : "Switched to skater.";
+            NotifyRoleChanged();
             return true;
+        }
+
+        private static void ReleaseClaimedPosition(Player player)
+        {
+            if (player?.PlayerPosition == null) return;
+            try { player.PlayerPosition.Server_Unclaim(); }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[PHLPractice] Position unclaim failed: " + ex.Message);
+            }
+        }
+
+        /// <summary>Push LocalRole to clients so menu highlights match P-key toggles.</summary>
+        private static void NotifyRoleChanged()
+        {
+            if (!PracticeFlow.ServerActive) return;
+            try { RinkMotdService.BroadcastStatus(); }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[PHLPractice] Role status broadcast failed: " + ex.Message);
+            }
         }
 
         private static RinkSlot FindRinkSlot(MultiRinkConfig cfg, string rinkId)
@@ -263,8 +337,32 @@ namespace PHLPracticeModPack
         private static bool OnPlayerPhaseChangedPrefix(Player player, PlayerPhase oldPhase, PlayerPhase newPhase)
         {
             if (!PracticeFlow.ServerActive) return true;
-            if (newPhase != PlayerPhase.Play || player == null || player.PlayerPosition != null) return true;
+            if (player == null) return true;
 
+            // MaxPractice AI goalies spawn with PlayerPosition=null on purpose.
+            if (FakePlayerDetector.IsFakePlayer(player)
+                || GoalieAIManager.IsAIGoalie(player)
+                || GoalieAIManager.IsAIGoalieClientId(player.OwnerClientId))
+            {
+                if (newPhase == PlayerPhase.Play) return false;
+                return true;
+            }
+
+            if (newPhase == PlayerPhase.PositionSelect && player.IsCharacterSpawned)
+            {
+                // Stock P used to land here and despawn — practice uses in-place role toggle instead.
+                ReleaseClaimedPosition(player);
+                try { player.Server_DespawnCharacter(); }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning("[PHLPractice] Position-select despawn blocked/failed: " + ex.Message);
+                }
+                return false;
+            }
+
+            if (newPhase != PlayerPhase.Play) return true;
+
+            // Never let vanilla Play spawn read PlayerPosition (null-ref or RW skater respawn).
             try { SpawnPositionless(player); }
             catch (Exception ex)
             {
@@ -368,7 +466,7 @@ namespace PHLPracticeModPack
                 if (ui != null && ui.PauseMenu != null) ui.PauseMenu.Hide();
             }
             catch { }
-            try { RinkMotdUI.OpenMenu(); }
+            try { RinkScoreboardTab.OpenRinksTab(); }
             catch (Exception ex)
             {
                 Debug.LogWarning("[PHLPractice] Welcome open from pause menu failed: " + ex.Message);
@@ -449,8 +547,11 @@ namespace PHLPracticeModPack
 
         internal static void OnLocalConnected()
         {
+            ModSessionTeardown.MarkSessionActive();
             if (joinRealtime < 0f) joinRealtime = Time.realtimeSinceStartup;
             manualTeamSelect = false;
+            RinkPanelCollapsible.ResetCollapsibleSections();
+            MultiSheetClientSettings.ApplyLoadedPreferences();
         }
 
         internal static void OnLocalDisconnected()
@@ -664,6 +765,40 @@ namespace PHLPracticeModPack
         private static bool Prefix()
         {
             return !PracticeFlowClient.TryOpenWelcomeFromPauseMenu();
+        }
+    }
+
+    /// <summary>
+    /// Block stock position select on practice servers — role toggle is client-keybound
+    /// via <see cref="ClientKeybindRuntime"/> and MOTD RPC.
+    /// </summary>
+    [HarmonyPatch(typeof(StandardGameMode<PublicGameModeConfig>), "OnPlayerRequestPositionSelect")]
+    internal static class PracticePositionSelectTogglePatch
+    {
+        private static bool Prefix(Player player)
+        {
+            if (!PracticeFlow.ServerActive) return true;
+            if (player == null || player.IsReplay.Value) return true;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Practice players are positionless — never let a claimed RW/C marker overwrite
+    /// skater/goalie role from the menu or P key (StandardGameMode.OnPlayerPositionChanged).
+    /// </summary>
+    [HarmonyPatch(typeof(StandardGameMode<PublicGameModeConfig>), "OnPlayerPositionChanged")]
+    internal static class PracticeBlockPositionRolePatch
+    {
+        private static bool Prefix(Player player)
+        {
+            if (!PracticeFlow.ServerActive) return true;
+            if (player == null || player.IsReplay.Value) return true;
+            if (FakePlayerDetector.IsFakePlayer(player)
+                || GoalieAIManager.IsAIGoalie(player)
+                || GoalieAIManager.IsAIGoalieClientId(player.OwnerClientId))
+                return true;
+            return false;
         }
     }
 

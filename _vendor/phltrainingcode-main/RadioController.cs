@@ -26,8 +26,8 @@ public class RadioController : MonoBehaviour
     private const float UrlRefreshSkewSeconds = 90f;
     /// <summary>Playlist poll interval — well under ~90 req/min/IP; never fetch every frame.</summary>
     private const float PlaylistRefreshSeconds = 300f;
-    private const float SyncSeekToleranceSeconds = 0.35f;
-    private const float SyncReseekIntervalSeconds = 2.0f;
+    private const float SyncSeekToleranceSeconds = 1.0f;
+    private const float SyncReseekIntervalSeconds = 3.0f;
     private const float SyncSeekVerifySeconds = 0.05f;
     private const float EndOfTrackEpsilonSeconds = 0.2f;
     /// <summary>Match former 3D speaker rolloff for fake near-speaker volume.</summary>
@@ -52,8 +52,8 @@ public class RadioController : MonoBehaviour
             if (listeningEnabled == value)
                 return;
             listeningEnabled = value;
-            PlayerPrefs.SetInt(PrefListening, listeningEnabled ? 1 : 0);
-            PlayerPrefs.Save();
+            PHLPracticeModPack.MultiSheetClientSettings.RadioListening = listeningEnabled;
+            PHLPracticeModPack.MultiSheetClientSettings.Save();
             ApplyListeningState(seekIfOn: true);
             NotifyStateChanged();
         }
@@ -115,6 +115,7 @@ public class RadioController : MonoBehaviour
     private float lastPlaylistFetchRealtime = -999f;
     private string syncedTrackId = string.Empty;
     private double syncedStartServerTime;
+    private bool syncedClockStarted;
     private float syncedDuration;
     private float nextSyncSeekTime;
     private bool reportedDurationForCurrent;
@@ -135,8 +136,10 @@ public class RadioController : MonoBehaviour
     private float currentTrackStartedAt;
     private Coroutine delayedRestartCoroutine;
     private Coroutine trackEndCoroutine;
+    private Coroutine autoAdvanceCoroutine;
     private int trackPlayGeneration;
     private int pendingStartIndex = -1;
+    private string reportedReadyTrackId = string.Empty;
 
     private AudioSource PrimarySource
     {
@@ -158,8 +161,8 @@ public class RadioController : MonoBehaviour
         {
             storedVolume = Mathf.Clamp01(value);
             ApplyVolumeToOutputs();
-            PlayerPrefs.SetFloat(PrefVolume, storedVolume);
-            PlayerPrefs.Save();
+            PHLPracticeModPack.MultiSheetClientSettings.RadioVolume = storedVolume;
+            PHLPracticeModPack.MultiSheetClientSettings.Save();
             NotifyStateChanged();
         }
     }
@@ -441,8 +444,31 @@ public class RadioController : MonoBehaviour
         }
 
         Instance = this;
-        storedVolume = PlayerPrefs.GetFloat(PrefVolume, 0.1f);
-        listeningEnabled = PlayerPrefs.GetInt(PrefListening, 0) != 0;
+        storedVolume = PHLPracticeModPack.MultiSheetClientSettings.RadioVolume;
+        listeningEnabled = PHLPracticeModPack.MultiSheetClientSettings.RadioListening;
+    }
+
+    public static void ApplyClientPreferencesFromMultiSheet()
+    {
+        if (Instance == null)
+            return;
+
+        Instance.storedVolume = PHLPracticeModPack.MultiSheetClientSettings.RadioVolume;
+        Instance.listeningEnabled = PHLPracticeModPack.MultiSheetClientSettings.RadioListening;
+        Instance.ApplyVolumeToOutputs();
+        Instance.ApplyListeningState(seekIfOn: false);
+    }
+
+    /// <summary>Stop audio and clear speaker anchors on disconnect; keep component for reconnect.</summary>
+    public static void StopSessionPlayback()
+    {
+        if (Instance == null)
+            return;
+
+        Instance.PrepareForDestroy();
+        Instance.IsSyncedPlayback = false;
+        Instance.syncedTrackId = string.Empty;
+        Instance.syncedClockStarted = false;
     }
 
     private void OnDestroy()
@@ -592,7 +618,8 @@ public class RadioController : MonoBehaviour
                     RadioSync.PendingClientState.Duration,
                     RadioSync.PendingClientState.VoteCount,
                     RadioSync.PendingClientState.RestartVoteCount,
-                    RadioSync.PendingClientState.VoteNeed);
+                    RadioSync.PendingClientState.VoteNeed,
+                    RadioSync.PendingClientState.ClockStarted);
                 RadioSync.PendingClientState.Clear();
             }
 
@@ -643,7 +670,8 @@ public class RadioController : MonoBehaviour
         float duration,
         ushort voteCount,
         ushort restartVoteCount,
-        ushort voteNeed)
+        ushort voteNeed,
+        bool clockStarted)
     {
         if (Application.isBatchMode || string.IsNullOrEmpty(trackId))
             return;
@@ -654,11 +682,10 @@ public class RadioController : MonoBehaviour
         SyncVoteNeed = voteNeed;
 
         bool trackChanged = !string.Equals(syncedTrackId, trackId, StringComparison.Ordinal);
-        bool restartClock = !trackChanged &&
-                            !string.IsNullOrEmpty(syncedTrackId) &&
-                            Math.Abs(syncedStartServerTime - startServerTime) > 0.05;
+        bool clockJustStarted = clockStarted && !syncedClockStarted;
 
         syncedStartServerTime = startServerTime;
+        syncedClockStarted = clockStarted;
         if (trackChanged)
         {
             syncedDuration = ResolveDurationForTrack(trackId, duration);
@@ -675,7 +702,7 @@ public class RadioController : MonoBehaviour
         if (!libraryReady || tracks == null)
         {
             RadioSync.PendingClientState.Store(
-                trackId, startServerTime, duration, voteCount, restartVoteCount, voteNeed);
+                trackId, startServerTime, duration, voteCount, restartVoteCount, voteNeed, clockStarted);
             EnsureClientBootstrapFromServer();
             NotifyStateChanged();
             return;
@@ -684,7 +711,6 @@ public class RadioController : MonoBehaviour
         int index = FindTrackIndex(trackId);
         if (index < 0)
         {
-            // Playlist refresh may be stale — keep id and show title as id until merge.
             SetStatus("Unknown track: " + trackId);
             NotifyStateChanged();
             StartCoroutine(RefreshPlaylistThenPlay(trackId));
@@ -693,16 +719,16 @@ public class RadioController : MonoBehaviour
 
         if (trackChanged)
         {
+            CancelAutoAdvanceDelay();
             reportedDurationForCurrent = false;
             reportedEndForCurrent = false;
             nextEndReportRetryTime = 0f;
             lastObservedPlaybackTime = -1f;
             lastPlaybackSampleTime = -1f;
+            reportedReadyTrackId = string.Empty;
             syncedDuration = ResolveDurationForTrack(trackId, duration);
             currentSong = index;
             pendingStartIndex = -1;
-            // Detach stale clip immediately so Update() cannot Play() the ending track
-            // with the next track's near-zero server seek while the new clip loads.
             EnsurePlaybackSource();
             if (playback != null)
             {
@@ -711,20 +737,41 @@ public class RadioController : MonoBehaviour
             }
             RequestPlay(index, recordHistory: false);
         }
-        else if (restartClock)
+        else if (!clockStarted)
+        {
+            reportedReadyTrackId = string.Empty;
+            SetStatus("Preparing…");
+            if (IsPlaybackClipForSyncedTrack())
+            {
+                EnsurePlaybackSource();
+                if (playback != null)
+                {
+                    playback.time = 0f;
+                    playback.Pause();
+                }
+                ReportTrackReadyIfNeeded();
+            }
+            else
+            {
+                RequestPlay(index, recordHistory: false);
+            }
+        }
+        else if (clockJustStarted)
         {
             reportedEndForCurrent = false;
             nextEndReportRetryTime = 0f;
+            nextSyncSeekTime = 0f;
+            SetStatus(string.Empty);
             TrySyncSeek(force: true);
             ApplyListeningState(seekIfOn: true);
         }
         else
         {
-            // Periodic server snapshots must not hard-seek every time — only correct real drift.
             TrySyncSeek(force: false);
         }
 
-        SetStatus(string.Empty);
+        if (clockStarted)
+            SetStatus(string.Empty);
         NotifyStateChanged();
     }
 
@@ -764,7 +811,8 @@ public class RadioController : MonoBehaviour
                 RadioSync.PendingClientState.Duration,
                 RadioSync.PendingClientState.VoteCount,
                 RadioSync.PendingClientState.RestartVoteCount,
-                RadioSync.PendingClientState.VoteNeed);
+                RadioSync.PendingClientState.VoteNeed,
+                RadioSync.PendingClientState.ClockStarted);
             RadioSync.PendingClientState.Clear();
         }
     }
@@ -802,7 +850,7 @@ public class RadioController : MonoBehaviour
         double now = nm != null ? nm.ServerTime.Time : Time.realtimeSinceStartupAsDouble;
         float seek = (float)(now - syncedStartServerTime);
         if (seek < 0f)
-            seek = 0f;
+            return seek;
 
         if (syncedDuration > 0.05f && seek > syncedDuration)
             seek = syncedDuration;
@@ -812,6 +860,76 @@ public class RadioController : MonoBehaviour
             seek = effective;
 
         return seek;
+    }
+
+    private float GetLoadedClipEndPosition()
+    {
+        if (playback == null || playback.clip == null || playback.clip.length <= 0.05f)
+            return -1f;
+
+        return Mathf.Max(0f, playback.clip.length - EndOfTrackEpsilonSeconds);
+    }
+
+    /// <summary>
+    /// Unity non-looping AudioSources reset time to 0 at clip end and can blip the intro.
+    /// Hold at the end position before that happens.
+    /// </summary>
+    private bool HoldPlaybackAtEndIfNeeded()
+    {
+        if (!IsSyncedPlayback || playback == null || playback.clip == null)
+            return false;
+
+        if (!IsPlaybackClipForSyncedTrack())
+            return false;
+
+        if (IsWaitingForServerStart())
+            return false;
+
+        float endPos = GetLoadedClipEndPosition();
+        if (endPos < 0f)
+            return false;
+
+        float seek = ComputeServerSeekSeconds();
+        if (seek < 0f)
+            return false;
+
+        bool wrappedToStart = playback.time < 0.35f && seek > endPos * 0.5f;
+        bool atClipEnd = playback.time >= endPos - 0.03f;
+        bool serverPastClip = seek >= endPos;
+
+        if (!wrappedToStart && !atClipEnd && !serverPastClip)
+            return false;
+
+        if (playback.isPlaying)
+            playback.Pause();
+
+        if (wrappedToStart || playback.time > endPos + 0.02f)
+            playback.time = endPos;
+
+        ReportTrackEndedIfNeeded(forceRetry: wrappedToStart);
+        lastPlaybackSampleTime = -1f;
+        lastObservedPlaybackTime = -1f;
+        return true;
+    }
+
+    private bool IsWaitingForServerStart()
+    {
+        return IsSyncedPlayback && !syncedClockStarted;
+    }
+
+    private void ReportTrackReadyIfNeeded()
+    {
+        if (!IsSyncedPlayback || syncedClockStarted || string.IsNullOrEmpty(syncedTrackId))
+            return;
+
+        if (!IsPlaybackClipForSyncedTrack())
+            return;
+
+        if (reportedReadyTrackId == syncedTrackId)
+            return;
+
+        reportedReadyTrackId = syncedTrackId;
+        RadioSync.ClientReportTrackReady(syncedTrackId);
     }
 
     private void TrySyncSeek(bool force)
@@ -835,7 +953,21 @@ public class RadioController : MonoBehaviour
         if (!IsPlaybackClipForSyncedTrack())
             return;
 
+        if (IsWaitingForServerStart())
+        {
+            if (primary.isPlaying)
+                primary.Pause();
+            return;
+        }
+
         float seek = ComputeServerSeekSeconds();
+        if (seek < 0f)
+        {
+            if (primary.isPlaying)
+                primary.Pause();
+            return;
+        }
+
         float len = GetEffectivePlaybackLength();
         if (len <= 0.05f)
             return;
@@ -847,14 +979,31 @@ public class RadioController : MonoBehaviour
         // Past end of clip: pause locally; server auto-advance owns the playlist clock.
         if (seek >= len - EndOfTrackEpsilonSeconds)
         {
-            if (primary.isPlaying)
-                primary.Pause();
-
-            ReportTrackEndedIfNeeded(forceRetry: true);
+            HoldPlaybackAtEndIfNeeded();
             return;
         }
 
-        if (!force && primary.isPlaying && Mathf.Abs(primary.time - seek) <= SyncSeekToleranceSeconds)
+        float clipEndPos = GetLoadedClipEndPosition();
+        if (clipEndPos > 0f)
+        {
+            // Unity wraps time to 0 at clip end — never re-play from the intro.
+            if (primary.time < 0.35f && seek > clipEndPos * 0.5f)
+            {
+                HoldPlaybackAtEndIfNeeded();
+                return;
+            }
+
+            if (primary.time >= clipEndPos - 0.03f || seek >= clipEndPos)
+            {
+                HoldPlaybackAtEndIfNeeded();
+                return;
+            }
+        }
+
+        bool nearEnd = clipEndPos > 0f &&
+                       (primary.time >= clipEndPos - 0.15f || seek >= len - EndOfTrackEpsilonSeconds);
+        if (!force && !nearEnd && primary.isPlaying &&
+            Mathf.Abs(primary.time - seek) <= SyncSeekToleranceSeconds)
             return;
 
         // Tune-in / forced snap: Pause first so Unity does not resume from the local pause point.
@@ -955,6 +1104,9 @@ public class RadioController : MonoBehaviour
         if (!IsSyncedPlayback || string.IsNullOrEmpty(syncedTrackId))
             return;
 
+        if (IsWaitingForServerStart())
+            return;
+
         float seek = ComputeServerSeekSeconds();
         float len = GetEffectivePlaybackLength();
 
@@ -1015,8 +1167,7 @@ public class RadioController : MonoBehaviour
             syncedDuration = actualLen;
             reportedDurationForCurrent = true;
             RadioSync.ClientReportDuration(syncedTrackId, actualLen);
-            playback.Pause();
-            ReportTrackEndedIfNeeded(forceRetry: true);
+            HoldPlaybackAtEndIfNeeded();
             lastPlaybackSampleTime = -1f;
             lastObservedPlaybackTime = -1f;
             return;
@@ -1312,14 +1463,17 @@ public class RadioController : MonoBehaviour
         {
             // End-of-track uses the server clock so mute / far speakers still advance the playlist.
             MaybeReportVerifiedClipDuration();
-            MaybeDetectPlaybackLoop();
-            MaybeDetectPlaybackStall();
-            MaybeReportEndFromServerClock();
+            if (!HoldPlaybackAtEndIfNeeded())
+            {
+                MaybeDetectPlaybackLoop();
+                MaybeDetectPlaybackStall();
+                MaybeReportEndFromServerClock();
 
-            if (listeningEnabled)
-                TrySyncSeek(force: false);
-            else if (playback.isPlaying)
-                playback.Pause();
+                if (listeningEnabled)
+                    TrySyncSeek(force: false);
+                else if (playback.isPlaying)
+                    playback.Pause();
+            }
 
             trackWasPlaying = listeningEnabled && IsAnyOutputPlaying();
         }
@@ -1420,14 +1574,45 @@ public class RadioController : MonoBehaviour
         }
     }
 
+    private void CancelAutoAdvanceDelay()
+    {
+        if (autoAdvanceCoroutine == null)
+            return;
+
+        StopCoroutine(autoAdvanceCoroutine);
+        autoAdvanceCoroutine = null;
+    }
+
     private void AutoAdvanceToNextTrack()
     {
         if (advancingTrack || !listeningEnabled || tracks == null || tracks.Length == 0)
             return;
 
+        if (IsSyncedPlayback)
+        {
+            // Server clock owns playlist advance; clients load during the inter-track gap.
+            return;
+        }
+
+        CancelAutoAdvanceDelay();
+        autoAdvanceCoroutine = StartCoroutine(AutoAdvanceAfterGap());
+    }
+
+    private IEnumerator AutoAdvanceAfterGap()
+    {
         advancingTrack = true;
+        yield return new WaitForSecondsRealtime(RadioSync.InterTrackGapSeconds);
+
+        if (!listeningEnabled || tracks == null || tracks.Length == 0)
+        {
+            advancingTrack = false;
+            autoAdvanceCoroutine = null;
+            yield break;
+        }
+
         FlamieLog.InfoThrottled("radio-advance", "[FlamiePrac] Radio auto-advancing to next track.");
         AdvanceTrackLocally(CmdNext);
+        autoAdvanceCoroutine = null;
     }
 
     private bool AllOutputsIdle()
@@ -1475,6 +1660,7 @@ public class RadioController : MonoBehaviour
 
     private void CancelPlayRoutine()
     {
+        CancelAutoAdvanceDelay();
         if (playRoutine == null)
             return;
 
@@ -1803,11 +1989,24 @@ public class RadioController : MonoBehaviour
         float seek = IsSyncedPlayback ? ComputeServerSeekSeconds() : 0f;
         if (clip != null && clip.length > 0.05f)
         {
+            if (IsSyncedPlayback && (IsWaitingForServerStart() || seek < 0f))
+            {
+                playback.loop = false;
+                playback.clip = clip;
+                playback.time = 0f;
+                playback.Pause();
+                ReportTrackReadyIfNeeded();
+                NotifyStateChanged();
+                return;
+            }
+
             // If sync clock is already past the clip, wait for server advance — don't restart.
             if (IsSyncedPlayback && seek >= clip.length - EndOfTrackEpsilonSeconds)
             {
+                float endPos = Mathf.Max(0f, clip.length - EndOfTrackEpsilonSeconds);
+                playback.loop = false;
                 playback.clip = clip;
-                playback.time = seek;
+                playback.time = endPos;
                 playback.Pause();
                 NotifyStateChanged();
                 return;
@@ -2048,6 +2247,7 @@ public class RadioController : MonoBehaviour
         if (tracks == null || tracks.Length == 0)
             return;
 
+        CancelAutoAdvanceDelay();
         CancelDelayedRestart();
         CancelTrackEndWatch();
         advancingTrack = true;

@@ -627,11 +627,6 @@ public class TrainingObjectManager : MonoBehaviour
                 SpawnSlidableSheetAtPlayer(num);
                 return;
             }
-            if (text == "/slickice")
-            {
-                HandleSlickIceCommand(num, args);
-                return;
-            }
             if (text == null)
             {
                 return;
@@ -784,41 +779,6 @@ public class TrainingObjectManager : MonoBehaviour
         }
     }
 
-    private void HandleSlickIceCommand(ulong clientId, string[] args)
-    {
-        if (args == null || args.Length < 1 || string.IsNullOrWhiteSpace(args[0]))
-        {
-            float regular = SlidableObstacleSetup.GetRegularIceFrictionMu();
-            float slick = SlidableObstacleSetup.GetCurrentSheetFrictionMu();
-            string mode = SlidableObstacleSetup.IsLiveSheetFrictionOverridden ? "live override" : "default";
-            SendMessageToClient(clientId,
-                "Regular ice μd=" + regular.ToString("F3") +
-                ". Slick ice (sheet + SlickIce rinks) μd=" + slick.ToString("F3") +
-                " (" + mode + "). /slickice <value> to change (0.001–0.99).");
-            return;
-        }
-
-        if (!float.TryParse(args[0], System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out float mu) &&
-            !float.TryParse(args[0], out mu))
-        {
-            SendMessageToClient(clientId, "Invalid number. Example: /slickice 0.02");
-            return;
-        }
-
-        if (!SlidableObstacleSetup.TrySetLiveSheetFriction(mu, out string error))
-        {
-            SendMessageToClient(clientId, error ?? "Could not set friction.");
-            return;
-        }
-
-        float regularIce = SlidableObstacleSetup.GetRegularIceFrictionMu();
-        SendMessageToClient(clientId,
-            "Regular ice μd=" + regularIce.ToString("F3") +
-            " (unchanged). Slick ice now μd=" + mu.ToString("F3") +
-            " — sheet + SlickIce rinks updated.");
-    }
-
     private void HandleSlidableCommand(Player sender, ulong clientId, string[] args)
     {
         if (!IsAdmin(sender))
@@ -828,7 +788,9 @@ public class TrainingObjectManager : MonoBehaviour
         }
         if (args.Length < 1)
         {
-            SendMessageToClient(clientId, "Usage: /slidable true|false (currently " + (FlamiePracFeatures.SlidablePhysicsEnabled ? "on" : "off") + ")");
+            int currentRink = ResolveRinkIndexFromWorld(sender.PlayerBody.transform.position);
+            bool on = FlamiePracFeatures.IsSlidablePhysicsEnabled(currentRink);
+            SendMessageToClient(clientId, "Usage: /slidable true|false (rink " + (currentRink + 1) + " currently " + (on ? "on" : "off") + ")");
             return;
         }
         string text = args[0].Trim().ToLowerInvariant();
@@ -869,9 +831,12 @@ public class TrainingObjectManager : MonoBehaviour
             }
             flag2 = false;
         }
-        FlamiePracFeatures.SetSlidablePhysicsEnabled(flag2);
-        FlamieLog.Info("[FlamiePrac] Slidable physics " + (flag2 ? "enabled" : "disabled") + " by client " + clientId);
-        SendMessageToClient(clientId, "Slidable physics " + (flag2 ? "enabled" : "disabled") + ".");
+        int rinkIndex = ResolveRinkIndexFromWorld(sender.PlayerBody.transform.position);
+        FlamiePracFeatures.SetSlidablePhysicsEnabled(rinkIndex, flag2);
+        FlamieLog.Info("[FlamiePrac] Slidable physics " + (flag2 ? "enabled" : "disabled") +
+                      " on rink " + (rinkIndex + 1) + " by client " + clientId);
+        SendMessageToClient(clientId, "Slidable physics " + (flag2 ? "enabled" : "disabled") +
+                           " on rink " + (rinkIndex + 1) + ".");
     }
 
     private void HandleNapCommand(Player player, ulong clientId)

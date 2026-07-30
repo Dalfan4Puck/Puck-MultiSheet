@@ -26,7 +26,9 @@ public class FlamiePracTestPuckSpawn : MonoBehaviour
             return;
 
         Keyboard keyboard = Keyboard.current;
-        if (keyboard == null || !keyboard.rKey.wasPressedThisFrame)
+        if (keyboard == null
+            || !PHLPracticeModPack.ClientKeybindHelper.WasKeyPressedThisFrame(
+                PHLPracticeModPack.MultiSheetClientSettings.SpawnPuckKey))
             return;
 
         if (Time.unscaledTime < lastRequestTime + CooldownSeconds)

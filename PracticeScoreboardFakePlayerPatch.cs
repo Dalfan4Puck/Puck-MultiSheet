@@ -11,8 +11,8 @@ namespace PHLPracticeModPack
     /// Hide MaxPractice fake players (DummyRed/DummyBlue, traffic, passers) from the Tab
     /// scoreboard without touching PlayerManager lists — filtering GetSpawnedPlayers breaks
     /// AI goalie simulation; population counts stay in GoalieAIManager patches.
-    /// UIScoreboard.AddPlayer is called when bots spawn and builds rows independently of
-    /// GetPlayers(), so we block/purge at the scoreboard layer only.
+    /// UIScoreboardController calls AddPlayer/StylePlayer/UpdatePlayerPing on spawn and
+    /// stat changes; block fakes at those entry points and purge any stragglers on Show.
     /// </summary>
     internal static class PracticeScoreboardFakePlayerFilter
     {
@@ -65,19 +65,58 @@ namespace PHLPracticeModPack
             !PracticeScoreboardFakePlayerFilter.ShouldHide(player);
     }
 
-    [HarmonyPatch(typeof(UIScoreboard), "UpdatePlayer", new[] { typeof(Player) })]
-    internal static class PracticeScoreboardBlockFakeUpdatePlayerPatch
+    [HarmonyPatch(typeof(UIScoreboard), nameof(UIScoreboard.StylePlayer))]
+    internal static class PracticeScoreboardBlockFakeStylePlayerPatch
     {
         [HarmonyPrefix]
         private static bool Prefix(Player player) =>
             !PracticeScoreboardFakePlayerFilter.ShouldHide(player);
     }
 
-    [HarmonyPatch(typeof(UIScoreboard), nameof(UIScoreboard.Show))]
+    /// <summary>Positionless practice — POS column stays blank (no RW/C from stray claims).</summary>
+    [HarmonyPatch(typeof(UIScoreboard), nameof(UIScoreboard.StylePlayer))]
+    internal static class PracticeScoreboardHidePositionPatch
+    {
+        private static readonly FieldInfo PlayerRowMapField =
+            typeof(UIScoreboard).GetField("playerVisualElementMap", BindingFlags.Instance | BindingFlags.NonPublic);
+
+        [HarmonyPostfix]
+        private static void Postfix(UIScoreboard __instance, Player player)
+        {
+            if (!PracticeFlowClient.IsOnPracticeServer || player == null) return;
+            if (PracticeScoreboardFakePlayerFilter.ShouldHide(player)) return;
+            if (PlayerRowMapField == null) return;
+
+            try
+            {
+                var map = PlayerRowMapField.GetValue(__instance) as Dictionary<Player, VisualElement>;
+                if (map == null || !map.TryGetValue(player, out VisualElement row) || row == null) return;
+
+                VisualElement playerEl = row.Q<VisualElement>("Player");
+                Label posLabel = playerEl?.Q<Label>("PositionLabel");
+                if (posLabel != null) posLabel.text = string.Empty;
+            }
+            catch { }
+        }
+    }
+
+    [HarmonyPatch(typeof(UIScoreboard), nameof(UIScoreboard.UpdatePlayerPing))]
+    internal static class PracticeScoreboardBlockFakeUpdatePlayerPingPatch
+    {
+        [HarmonyPrefix]
+        private static bool Prefix(Player player) =>
+            !PracticeScoreboardFakePlayerFilter.ShouldHide(player);
+    }
+
+    /// <summary>Show is declared on <see cref="UIView"/>; UIScoreboard inherits it.</summary>
+    [HarmonyPatch(typeof(UIView), nameof(UIView.Show))]
     internal static class PracticeScoreboardPurgeFakePlayersOnShowPatch
     {
         [HarmonyPostfix]
-        private static void Postfix(UIScoreboard __instance) =>
-            PracticeScoreboardFakePlayerRows.Purge(__instance);
+        private static void Postfix(UIView __instance)
+        {
+            if (__instance is UIScoreboard scoreboard)
+                PracticeScoreboardFakePlayerRows.Purge(scoreboard);
+        }
     }
 }

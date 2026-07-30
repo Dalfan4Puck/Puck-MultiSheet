@@ -102,7 +102,7 @@ public static class TrainingObjectFactory
         visual.transform.localRotation = Quaternion.identity;
 
         MeshFilter filter = visual.AddComponent<MeshFilter>();
-        filter.sharedMesh = PasserTriangleMeshBuilder.BuildFrameMesh(tri);
+        filter.sharedMesh = PasserTriangleMeshBuilder.BuildSolidMesh(tri);
 
         MeshRenderer meshRenderer = visual.AddComponent<MeshRenderer>();
         if (role == BuildRole.ClientVisual || !Application.isBatchMode)

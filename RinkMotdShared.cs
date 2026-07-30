@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Unity.Netcode;
 using UnityEngine;
 
 namespace PHLPracticeModPack
@@ -11,8 +12,6 @@ namespace PHLPracticeModPack
         internal int Count;
         internal float OriginX;
         internal float OriginZ;
-        /// <summary>Low-friction cloned ice (synced MOTD v5+).</summary>
-        internal bool SlickIce;
 
         internal Vector3 Origin => new Vector3(OriginX, 0f, OriginZ);
     }
@@ -30,7 +29,17 @@ namespace PHLPracticeModPack
         internal readonly List<RinkStripMode> StripModes = new List<RinkStripMode>();
         /// <summary>Live strip vote for MOTD badges (server → client).</summary>
         internal RinkStripVoteProgress StripVoteProgress;
-        /// <summary>Server-authoritative slidable physics flag (synced on status v4+).</summary>
+        /// <summary>Server-authoritative slidable physics per rink (synced on status v7+).</summary>
+        internal readonly List<bool> SlidableByRink = new List<bool>();
+
+        internal bool IsSlidableEnabledForRink(int rinkIndex)
+        {
+            if (rinkIndex >= 0 && rinkIndex < SlidableByRink.Count)
+                return SlidableByRink[rinkIndex];
+            return false;
+        }
+
+        /// <summary>Deprecated v4 single flag — use <see cref="IsSlidableEnabledForRink"/>.</summary>
         internal bool SlidablePhysicsEnabled;
 
         /// <summary>
@@ -128,6 +137,51 @@ namespace PHLPracticeModPack
             if (Camera.main != null)
                 return Camera.main.transform.position;
             return null;
+        }
+    }
+
+    internal static class ActiveRinkResolver
+    {
+        internal static int ResolveLocalRinkIndex()
+        {
+            try
+            {
+                NetworkManager nm = NetworkManager.Singleton;
+                if (nm != null && nm.IsConnectedClient && nm.IsServer)
+                {
+                    int assigned = MultiRinkService.GetActiveRinkIndex(nm.LocalClientId);
+                    if (assigned >= 0)
+                        return assigned;
+                }
+            }
+            catch { }
+
+            if (RinkMotdUI.TryGetLastPayload(out RinkMotdPayload payload) && payload != null && payload.Rinks.Count > 0)
+            {
+                Vector3? pos = RinkLocator.LocalPlayerBodyPosition();
+                if (pos.HasValue)
+                    return RinkLocator.NearestRink(payload, pos.Value);
+            }
+
+            MultiRinkConfig cfg = MultiRinkConfig.Current;
+            Vector3? bodyPos = RinkLocator.LocalPlayerBodyPosition();
+            if (cfg?.Rinks != null && cfg.Rinks.Count > 0 && bodyPos.HasValue)
+                return RinkLocator.NearestRink(cfg, bodyPos.Value);
+
+            return 0;
+        }
+
+        internal static bool IsSlidableEnabledForLocalRink()
+        {
+            int rinkIndex = ResolveLocalRinkIndex();
+            NetworkManager nm = NetworkManager.Singleton;
+            if (nm != null && nm.IsServer)
+                return FlamiePracFeatures.IsSlidablePhysicsEnabled(rinkIndex);
+
+            if (RinkMotdUI.TryGetLastPayload(out RinkMotdPayload payload) && payload != null)
+                return payload.IsSlidableEnabledForRink(rinkIndex);
+
+            return FlamiePracFeatures.IsSlidablePhysicsEnabled(rinkIndex);
         }
     }
 }

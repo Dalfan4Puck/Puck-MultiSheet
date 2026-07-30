@@ -15,7 +15,7 @@ namespace PHLPracticeModPack
     {
         private const string StatusChannel = "multisheet-motd-v1";
         private const string RequestChannel = "multisheet-motd-req-v1";
-        private const byte ProtocolVersion = 5;
+        private const byte ProtocolVersion = 7;
         private const byte OpRequestShow = 0;
         private const byte OpTeleport = 1;
         private const byte OpSetRole = 2;
@@ -307,7 +307,6 @@ namespace PHLPracticeModPack
                         Vector3 origin = slot != null ? slot.Origin : Vector3.zero;
                         writer.WriteValueSafe(origin.x);
                         writer.WriteValueSafe(origin.z);
-                        writer.WriteValueSafe((byte)(slot != null && slot.SlickIce ? 1 : 0));
                     }
 
                     writer.WriteValueSafe(ReadLocalRoleByte(clientId));
@@ -320,7 +319,9 @@ namespace PHLPracticeModPack
                         writer.WriteValueSafe((byte)mode);
                     }
 
-                    writer.WriteValueSafe((byte)(FlamiePracFeatures.SlidablePhysicsEnabled ? 1 : 0));
+                    writer.WriteValueSafe((byte)stripCount);
+                    for (int i = 0; i < stripCount; i++)
+                        writer.WriteValueSafe((byte)(FlamiePracFeatures.IsSlidablePhysicsEnabled(i) ? 1 : 0));
 
                     manager.CustomMessagingManager.SendNamedMessage(
                         StatusChannel, clientId, writer, NetworkDelivery.ReliableSequenced);
@@ -357,24 +358,34 @@ namespace PHLPracticeModPack
                     if (PracticeFlowServer.TrySetRole(senderClientId, role, out string roleMessage))
                         PracticeLog.Info("[PHLPractice] Role change client=" + senderClientId + " -> " + role);
                     QueuePrivateChat(senderClientId, roleMessage ?? "Could not change role.");
-                    BroadcastStatus();
                     return;
                 }
 
                 if (op == OpSetSlidable)
                 {
+                    reader.ReadValueSafe(out byte rinkIndexByte);
                     reader.ReadValueSafe(out byte enabledByte);
-                    if (!TryAuthorizeSlidable(senderClientId, out string denyMessage))
+                    int slidableRink = rinkIndexByte;
+                    if (!TryAuthorizeSlidable(senderClientId, slidableRink, out string denyMessage))
                     {
-                        QueuePrivateChat(senderClientId, denyMessage ?? "Admin only.");
+                        QueuePrivateChat(senderClientId, denyMessage ?? "Not allowed.");
+                        return;
+                    }
+
+                    MultiRinkConfig slidableCfg = MultiRinkConfig.Current;
+                    if (slidableCfg?.Rinks == null || slidableRink < 0 || slidableRink >= slidableCfg.Rinks.Count)
+                    {
+                        QueuePrivateChat(senderClientId, "Unknown rink.");
                         return;
                     }
 
                     bool enabled = enabledByte != 0;
-                    FlamiePracFeatures.SetSlidablePhysicsEnabled(enabled);
+                    FlamiePracFeatures.SetSlidablePhysicsEnabled(slidableRink, enabled);
                     PracticeLog.Info("[PHLPractice] Slidable physics " + (enabled ? "enabled" : "disabled") +
-                                     " by client " + senderClientId);
-                    QueuePrivateChat(senderClientId, "Slidable physics " + (enabled ? "enabled" : "disabled") + ".");
+                                     " on rink " + (slidableRink + 1) + " by client " + senderClientId);
+                    QueuePrivateChat(senderClientId,
+                        "Slidable physics " + (enabled ? "enabled" : "disabled") +
+                        " on " + (slidableCfg.Rinks[slidableRink]?.Label ?? ("Rink " + (slidableRink + 1))) + ".");
                     BroadcastStatus();
                     return;
                 }
@@ -403,6 +414,12 @@ namespace PHLPracticeModPack
 
         private static void QueuePrivateChat(ulong clientId, string message)
         {
+            QueuePrivateChatForClient(clientId, message);
+        }
+
+        internal static void QueuePrivateChatForClient(ulong clientId, string message)
+        {
+            if (string.IsNullOrEmpty(message)) return;
             string payload = $"<size=70%><color=#FFFFFF>{message}</color></size>";
             ulong id = clientId;
             ChatOutbound.Enqueue(() =>
@@ -453,14 +470,15 @@ namespace PHLPracticeModPack
             }, 2);
         }
 
-        /// <summary>Ask the server to enable or disable slidable physics (admin/host).</summary>
-        internal static void ClientRequestSetSlidable(bool enabled)
+        /// <summary>Ask the server to enable or disable slidable physics on one rink.</summary>
+        internal static void ClientRequestSetSlidable(int rinkIndex, bool enabled)
         {
             SendRequest(writer =>
             {
                 writer.WriteValueSafe(OpSetSlidable);
+                writer.WriteValueSafe((byte)Mathf.Clamp(rinkIndex, 0, 255));
                 writer.WriteValueSafe(enabled ? (byte)1 : (byte)0);
-            }, 2);
+            }, 3);
         }
 
         private static void SendRequest(Action<FastBufferWriter> fill, int size)
@@ -518,13 +536,6 @@ namespace PHLPracticeModPack
                     reader.ReadValueSafe(out float oz);
                     entry.OriginX = ox;
                     entry.OriginZ = oz;
-                    if (version >= 5)
-                    {
-                        reader.ReadValueSafe(out byte slickByte);
-                        entry.SlickIce = slickByte != 0;
-                    }
-                    else
-                        entry.SlickIce = InferSlickIce(entry.Label, entry.Id);
                     payload.Rinks.Add(entry);
                 }
 
@@ -545,7 +556,17 @@ namespace PHLPracticeModPack
                     payload.StripVoteProgress = RinkStripVote.CurrentProgress;
                 }
 
-                if (version >= 4)
+                if (version >= 7)
+                {
+                    reader.ReadValueSafe(out byte slidableCount);
+                    payload.SlidableByRink.Clear();
+                    for (int i = 0; i < slidableCount; i++)
+                    {
+                        reader.ReadValueSafe(out byte slidableByte);
+                        payload.SlidableByRink.Add(slidableByte != 0);
+                    }
+                }
+                else if (version >= 4)
                 {
                     reader.ReadValueSafe(out byte slidableByte);
                     payload.SlidablePhysicsEnabled = slidableByte != 0;
@@ -636,12 +657,9 @@ namespace PHLPracticeModPack
         private static void ResetLocalConnection()
         {
             localConnected = false;
-            PracticeFlowClient.OnLocalDisconnected();
-            MinimapSessionOverride.RestoreOnDisconnect();
-            RinkMotdUI.OnDisconnected();
-            RinkScoreboardTab.OnDisconnected();
-            RinkPreview.Teardown();
-            CustomLevelPlugin.OnPracticeConnectionLost();
+            bool wasHosting = serverRoleActive;
+            serverRoleActive = false;
+            ModSessionTeardown.OnLocalDisconnect(wasHosting);
         }
 
         private static byte ReadLocalRoleByte(ulong clientId)
@@ -678,11 +696,14 @@ namespace PHLPracticeModPack
             return Encoding.UTF8.GetString(bytes);
         }
 
-        private static bool TryAuthorizeSlidable(ulong clientId, out string message)
+        private static bool TryAuthorizeSlidable(ulong clientId, int rinkIndex, out string message)
         {
             message = null;
             NetworkManager nm = NetworkManager.Singleton;
             if (nm != null && nm.IsServer && clientId == nm.LocalClientId)
+                return true;
+
+            if (MultiRinkService.GetActiveRinkIndex(clientId) == rinkIndex)
                 return true;
 
             PlayerManager pm = MonoBehaviourSingleton<PlayerManager>.Instance;
@@ -696,7 +717,7 @@ namespace PHLPracticeModPack
             if (IsAdminPlayer(player))
                 return true;
 
-            message = "Admin only: slidable toggle requires host or admin.";
+            message = "Slidable toggle applies to your active rink only.";
             return false;
         }
 
@@ -719,17 +740,6 @@ namespace PHLPracticeModPack
             {
                 return false;
             }
-        }
-
-        private static bool InferSlickIce(string label, string id)
-        {
-            if (!string.IsNullOrEmpty(label)
-                && label.IndexOf("slick", System.StringComparison.OrdinalIgnoreCase) >= 0)
-                return true;
-            if (!string.IsNullOrEmpty(id)
-                && id.IndexOf("slick", System.StringComparison.OrdinalIgnoreCase) >= 0)
-                return true;
-            return false;
         }
     }
 }

@@ -33,6 +33,27 @@ public static class RinkOrigin
 
     public static float ApplyZ(float localZ) => localZ + Current.z;
 
+    /// <summary>0-based rink index nearest a world position (MultiSheet grid).</summary>
+    public static int ResolveRinkIndexFromWorld(Vector3 worldPos, int maxRinks = 9)
+    {
+        int best = 0;
+        float bestDist = float.MaxValue;
+        for (int i = 0; i < maxRinks; i++)
+        {
+            Vector3 origin = OriginFor(i + 1);
+            float dx = worldPos.x - origin.x;
+            float dz = worldPos.z - origin.z;
+            float distSq = dx * dx + dz * dz;
+            if (distSq < bestDist)
+            {
+                bestDist = distSq;
+                best = i;
+            }
+        }
+
+        return best;
+    }
+
     public static void ConfigureFromLayout(int rinkIndex)
     {
         ActiveRinkIndex = rinkIndex > 0 ? rinkIndex : 1;

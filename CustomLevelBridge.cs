@@ -30,6 +30,7 @@ public static class CustomLevelPlugin
 
     public static AssetBundle GetBundle() => bundle;
     public static bool IsGeometryLoaded => spawnedServerRoot != null || spawnedClientRoot != null;
+    public static bool IsClientLayoutReady => spawnedClientRoot != null;
 
     internal static bool TryInstall(Harmony ownerHarmony)
     {
@@ -456,7 +457,7 @@ public static class CustomLevelPlugin
     }
 
     /// <summary>Local client left the server — re-arm the deferral for the next join.</summary>
-    internal static void OnPracticeConnectionLost()
+    internal static void OnPracticeConnectionLost(bool wasHosting)
     {
         clientBuildPending = false;
         clientBuildDone = false;
@@ -465,17 +466,37 @@ public static class CustomLevelPlugin
         // visuals root and puck spawn-sync object are DontDestroyOnLoad, so they
         // would otherwise follow the player onto other servers.
         if (spawnedClientRoot != null) { UnityEngine.Object.Destroy(spawnedClientRoot); spawnedClientRoot = null; }
+        if (wasHosting && spawnedServerRoot != null)
+        {
+            UnityEngine.Object.Destroy(spawnedServerRoot);
+            spawnedServerRoot = null;
+        }
+
         // Full destroy rather than Clear: the proxy object is DontDestroyOnLoad and holds
         // a beginCameraRendering subscription, both of which would ride along to the next
         // server. AddDraw re-creates it on the next MultiSheet join.
         CloneVisualProxy.DestroyInstance();
         TrlReskinBridge.Clear();
+        TrlReskinBridge.SetCompatibilityEnabled(false);
         ArenaLighting.Restore();
         RestoreVanillaScoreboards();
         VanillaRinkCloner.ResetCache();
+        LevelDayNightCycle.ManualHour = null;
+        ProtectedPucks.Clear();
+
         NetworkManager serverCheck = NetworkManager.Singleton;
         if (serverCheck == null || !serverCheck.IsServer)
             DestroyPuckSpawnSync();
+
+        DisarmClientChunkDecode();
+
+        if (wasHosting)
+        {
+            MultiRinkSyncThrottle.Disable();
+            CL_NetworkBoundsPatch.Disable();
+            MultiRinkPuckSpawner.Stop();
+            RinkPracticeDrills.StopAll();
+        }
 
         // Chunk decode must never leak into a later vanilla-server session: with it
         // active but no chunk announcements, every synced object would freeze.
@@ -487,6 +508,23 @@ public static class CustomLevelPlugin
             CL_ChunkRegistry.ChunksActive = false;
             CL_ChunkRegistry.Clear();
             PracticeLog.Info("[PHLPractice] Chunk decode disarmed (left practice server).");
+        }
+    }
+
+    private static void DisarmClientChunkDecode()
+    {
+        try
+        {
+            NetworkManager nm = NetworkManager.Singleton;
+            nm?.CustomMessagingManager?.UnregisterNamedMessageHandler(CL_ChunkSyncServer.CmmName);
+        }
+        catch { }
+
+        if (CL_ChunkRegistry.ChunksActive)
+        {
+            CL_ChunkSyncClient.Disable();
+            CL_ChunkRegistry.ChunksActive = false;
+            CL_ChunkRegistry.Clear();
         }
     }
 
@@ -509,6 +547,7 @@ public static class CustomLevelPlugin
         ArenaLighting.Apply();
         // Honour Limit Rink Changes (unpatch TRL + stock look) after Apply.
         PracticePresentation.ApplyAfterClientBuild();
+        MultiSheetClientSettings.ApplyLoadedPreferences();
         SpawnGroundPlane(cfg.Rinks, spawnedClientRoot);
         HideVanillaScoreboards();
         RinkPreview.NotifyClientBuildComplete();
