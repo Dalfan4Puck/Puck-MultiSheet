@@ -4,6 +4,7 @@ obj/
 
 # Local scratch / decompile output (never commit).
 _tmp*/
+_tmp_*
 **/*_decompile/
 _vendor/puck_decompile/
 assets/puckobjects
