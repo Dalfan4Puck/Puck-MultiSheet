@@ -12,6 +12,7 @@ public class FlamiePracTestPuckSpawn : MonoBehaviour
 {
     private float lastRequestTime = -1f;
     private const float CooldownSeconds = 0.35f;
+    private const float SpawnForwardMeters = 2.35f;
 
     private static readonly Dictionary<ulong, Puck> PlayerPucks = new Dictionary<ulong, Puck>();
 
@@ -92,10 +93,10 @@ public class FlamiePracTestPuckSpawn : MonoBehaviour
         return true;
     }
 
-    /// <summary>Same placement as MultiSheet PuckSpawnSync (2 m ahead + ice raycast).</summary>
+    /// <summary>Same placement as MultiSheet PuckSpawnSync (ahead + ice raycast).</summary>
     public static Vector3 ComputeSpawnPosition(Vector3 bodyPosition, Vector3 bodyForward)
     {
-        Vector3 spawnPos = bodyPosition + bodyForward * 2f;
+        Vector3 spawnPos = bodyPosition + bodyForward * SpawnForwardMeters;
         spawnPos.y = bodyPosition.y + 5f;
 
         int iceLayer = LayerMask.NameToLayer("Ice");

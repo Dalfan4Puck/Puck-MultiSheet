@@ -9,8 +9,10 @@ namespace PHLPracticeModPack
 {
     /// <summary>
     /// Hide MaxPractice fake players (DummyRed/DummyBlue, traffic, passers) from the Tab
-    /// scoreboard. PlayerManager list filters alone are not enough — UIScoreboard.AddPlayer
-    /// is called when bots spawn and builds rows independently of GetPlayers().
+    /// scoreboard without touching PlayerManager lists — filtering GetSpawnedPlayers breaks
+    /// AI goalie simulation; population counts stay in GoalieAIManager patches.
+    /// UIScoreboard.AddPlayer is called when bots spawn and builds rows independently of
+    /// GetPlayers(), so we block/purge at the scoreboard layer only.
     /// </summary>
     internal static class PracticeScoreboardFakePlayerFilter
     {
@@ -21,16 +23,6 @@ namespace PHLPracticeModPack
             if (GoalieAIManager.IsManipulatingFakePlayers || GoalieAIManager.bypassFilter)
                 return false;
             return FakePlayerDetector.ShouldExcludeFromPopulation(player);
-        }
-
-        internal static void FilterList(List<Player> players)
-        {
-            if (players == null || players.Count == 0)
-                return;
-            if (GoalieAIManager.IsManipulatingFakePlayers || GoalieAIManager.bypassFilter)
-                return;
-
-            players.RemoveAll(p => p == null || FakePlayerDetector.ShouldExcludeFromPopulation(p));
         }
     }
 
@@ -65,22 +57,6 @@ namespace PHLPracticeModPack
         }
     }
 
-    [HarmonyPatch(typeof(PlayerManager), nameof(PlayerManager.GetPlayers), new[] { typeof(bool) })]
-    internal static class PracticeScoreboardFilterGetPlayersBoolPatch
-    {
-        [HarmonyPostfix]
-        private static void Postfix(ref List<Player> __result) =>
-            PracticeScoreboardFakePlayerFilter.FilterList(__result);
-    }
-
-    [HarmonyPatch(typeof(PlayerManager), nameof(PlayerManager.GetSpawnedPlayers), new[] { typeof(bool) })]
-    internal static class PracticeScoreboardFilterGetSpawnedPlayersBoolPatch
-    {
-        [HarmonyPostfix]
-        private static void Postfix(ref List<Player> __result) =>
-            PracticeScoreboardFakePlayerFilter.FilterList(__result);
-    }
-
     [HarmonyPatch(typeof(UIScoreboard), nameof(UIScoreboard.AddPlayer))]
     internal static class PracticeScoreboardBlockFakeAddPlayerPatch
     {
@@ -103,13 +79,5 @@ namespace PHLPracticeModPack
         [HarmonyPostfix]
         private static void Postfix(UIScoreboard __instance) =>
             PracticeScoreboardFakePlayerRows.Purge(__instance);
-    }
-
-    [HarmonyPatch(typeof(UIScoreboard), nameof(UIScoreboard.StyleServer))]
-    internal static class PracticeScoreboardHumanCountPatch
-    {
-        [HarmonyPrefix]
-        private static void Prefix(ref int playerCount) =>
-            playerCount = FakePlayerDetector.CountRealPopulationPlayers();
     }
 }

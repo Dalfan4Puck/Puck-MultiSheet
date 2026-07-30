@@ -78,7 +78,7 @@ namespace PHLPracticeModPack
                 string id = string.IsNullOrEmpty(entry.Id) ? ("rink" + (i + 1)) : entry.Id;
                 string label = string.IsNullOrEmpty(entry.Label) ? ("Rink " + (i + 1)) : entry.Label;
                 string command = "/rink" + (i + 1);
-                rinks.Add(new RinkSlot(id, command, label, origin, origin));
+                rinks.Add(new RinkSlot(id, command, label, origin, origin, entry.SlickIce));
             }
 
             if (rinks.Count == 0) return;

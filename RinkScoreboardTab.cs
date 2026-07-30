@@ -23,10 +23,10 @@ namespace PHLPracticeModPack
         private const string PaneName = "MultiSheetRinkPane";
         internal const string StatsTooltipHarmonyId = "oomtm450_stats";
         private const float TabBarHeight = 34f;
-        /// <summary>Tall enough for header + flex rink grid + Position|Lighting columns +
-        /// community footer. The rink section flex-grows into this height (tiles absorb the
-        /// space — do not "fix" emptiness by raising this without giving the grid flexGrow).</summary>
+        /// <summary>Tall enough for header + rink grid + columns + footer. Capped to viewport —
+        /// collapsibles scroll inside the card; opening them must not grow the board.</summary>
         private const float MenuMinBoardHeight = 860f;
+        private const float MaxBoardHeightScreenFraction = 0.92f;
 
         private static readonly Color TabBarBg = new Color(0.06f, 0.06f, 0.07f, 1f);
         private static readonly Color TabIdleBg = new Color(0.10f, 0.10f, 0.11f, 1f);
@@ -150,6 +150,7 @@ namespace PHLPracticeModPack
             rinkPane.style.top = 0;
             rinkPane.style.bottom = 0;
             rinkPane.style.backgroundColor = RinkPanelBuilder.PanelBg;
+            rinkPane.style.overflow = Overflow.Hidden;
             board.Add(rinkPane);
         }
 
@@ -611,7 +612,8 @@ namespace PHLPracticeModPack
             if (board == null) return;
             try
             {
-                // Three tile rows (7+ rinks) need more vertical room than two.
+                float maxH = Screen.height * MaxBoardHeightScreenFraction;
+
                 bool dense = false;
                 try
                 {
@@ -620,17 +622,11 @@ namespace PHLPracticeModPack
                 }
                 catch { }
 
-                // Size to content only — growing toward the screen height just opens a
-                // blank gap between the position row and the community footer.
-                float target = dense ? MenuMinBoardHeight + 50f : MenuMinBoardHeight;
-                if (MultiSheetClientSettings.KeybindsSectionOpen)
-                    target += 168f;
-                if (MultiSheetClientSettings.RadioInfoSectionOpen)
-                    target += 112f;
-                try { target = Mathf.Min(target, Screen.height * 0.92f); }
-                catch { }
+                float contentMin = dense ? MenuMinBoardHeight + 50f : MenuMinBoardHeight;
+                float target = Mathf.Min(contentMin, maxH);
 
                 board.style.minHeight = target;
+                board.style.maxHeight = maxH;
             }
             catch { }
         }
@@ -639,7 +635,11 @@ namespace PHLPracticeModPack
         {
             VisualElement board = boardRoot ?? rinkPane?.parent;
             if (board == null) return;
-            try { board.style.minHeight = StyleKeyword.Null; }
+            try
+            {
+                board.style.minHeight = StyleKeyword.Null;
+                board.style.maxHeight = StyleKeyword.Null;
+            }
             catch { }
         }
 

@@ -8,6 +8,10 @@ using Unity.Collections;
 public class PuckSpawnSync : MonoBehaviour
 {
     private const string SpawnPuckMessage = "CustomLevel_SpawnPuck";
+    /// <summary>Meters in front of the player body along facing (flat forward from client).</summary>
+    private const float SpawnForwardMeters = 2.35f;
+    /// <summary>Lateral offset toward stick side: +right for righties, -right for lefties.</summary>
+    private const float SpawnHandednessOffsetMeters = 0.4f;
     private Dictionary<ulong, Puck> playerPucks = new Dictionary<ulong, Puck>();
 
     private void Start()
@@ -37,6 +41,8 @@ public class PuckSpawnSync : MonoBehaviour
         Vector3 position = new Vector3(px, py, pz);
         Vector3 forward = new Vector3(fx, fy, fz);
 
+        Player player = MonoBehaviourSingleton<PlayerManager>.Instance.GetPlayerByClientId(senderClientId);
+
         // Despawn the player's previous puck so they never hold more than one at a time.
         // Remove from ProtectedPucks first so our own despawn call isn't blocked by the guard.
         if (playerPucks.TryGetValue(senderClientId, out Puck prev) && prev != null)
@@ -46,9 +52,10 @@ public class PuckSpawnSync : MonoBehaviour
             PracticeLog.Info($"[CustomLevel] Despawned previous puck for client {senderClientId}");
         }
 
-        // Place the puck 2 m in front of the player, then raycast down to find the top surface
+        // Place the puck slightly in front of the player, then raycast down to find the top surface
         // (sheet/slidable layer wins over rink ice when the player is standing on a sheet).
-        Vector3 spawnPos = position + forward * 2f;
+        Vector3 spawnPos = position + forward * SpawnForwardMeters;
+        spawnPos += GetHandednessOffset(player, forward);
         spawnPos.y = position.y + 5f;
         if (!TryFindSpawnSurfaceY(spawnPos, out float surfaceY))
             surfaceY = position.y + 0.1f;
@@ -90,7 +97,6 @@ public class PuckSpawnSync : MonoBehaviour
             CL_ChunkSyncServer.InitSlot(syncObj);
 
         // Inherit the player's velocity so the puck doesn't appear stationary when spawned mid-skate
-        Player player = MonoBehaviourSingleton<PlayerManager>.Instance.GetPlayerByClientId(senderClientId);
         if (player?.PlayerBody != null)
         {
             Rigidbody prb = player.PlayerBody.GetComponent<Rigidbody>();
@@ -99,6 +105,49 @@ public class PuckSpawnSync : MonoBehaviour
         }
 
         PracticeLog.Info($"[CustomLevel] Spawned puck for client {senderClientId} at {spawnPos}");
+    }
+
+    private static Vector3 GetHandednessOffset(Player player, Vector3 forward)
+    {
+        float sideSign = GetHandednessSideSign(player);
+        if (Mathf.Approximately(sideSign, 0f))
+            return Vector3.zero;
+
+        Vector3 right;
+        if (player?.PlayerBody != null)
+        {
+            right = player.PlayerBody.transform.right;
+            right.y = 0f;
+        }
+        else
+        {
+            Vector3 flatForward = forward;
+            flatForward.y = 0f;
+            if (flatForward.sqrMagnitude < 0.0001f)
+                return Vector3.zero;
+            right = Vector3.Cross(Vector3.up, flatForward.normalized);
+        }
+
+        if (right.sqrMagnitude < 0.0001f)
+            return Vector3.zero;
+
+        return right.normalized * (SpawnHandednessOffsetMeters * sideSign);
+    }
+
+    private static float GetHandednessSideSign(Player player)
+    {
+        if (player?.Handedness == null)
+            return 1f;
+
+        switch (player.Handedness.Value)
+        {
+            case PlayerHandedness.Left:
+                return -1f;
+            case PlayerHandedness.Right:
+                return 1f;
+            default:
+                return 1f;
+        }
     }
 
     private static bool TryFindSpawnSurfaceY(Vector3 rayOrigin, out float surfaceY)

@@ -11,6 +11,8 @@ namespace PHLPracticeModPack
         internal int Count;
         internal float OriginX;
         internal float OriginZ;
+        /// <summary>Low-friction cloned ice (synced MOTD v5+).</summary>
+        internal bool SlickIce;
 
         internal Vector3 Origin => new Vector3(OriginX, 0f, OriginZ);
     }

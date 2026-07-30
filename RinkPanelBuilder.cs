@@ -28,6 +28,8 @@ namespace PHLPracticeModPack
         internal static readonly Color ColumnRule = new Color(1f, 1f, 1f, 0.08f);
         internal static readonly Color ButtonBg = new Color(0.165f, 0.165f, 0.165f, 1f);
         internal static readonly Color ButtonHover = new Color(0.239f, 0.239f, 0.239f, 1f);
+        internal static readonly Color BadgeCyan = new Color(0.20f, 0.75f, 0.85f, 1f);
+        internal static readonly Color VoteBadgeOrange = new Color(0.90f, 0.49f, 0.13f, 1f);
         internal static readonly Color YoutubeBg = new Color(0.90f, 0.10f, 0.10f, 1f);
         internal static readonly Color YoutubeHover = new Color(1f, 0.20f, 0.20f, 1f);
 
@@ -206,6 +208,7 @@ namespace PHLPracticeModPack
             scroll.style.maxHeight = new Length(100, LengthUnit.Percent);
             scroll.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
             scroll.verticalScrollerVisibility = ScrollerVisibility.Auto;
+            ConfigureOutwardScrollbar(scroll);
             VisualElement contentHost = scroll;
             card.Add(contentHost);
 
@@ -456,6 +459,8 @@ namespace PHLPracticeModPack
             row.Add(MakeRoleButton("Skater", !isGoalie, embedded, () => callbacks.OnSelectRole?.Invoke(0)));
             row.Add(MakeRoleButton("Goalie", isGoalie, embedded, () => callbacks.OnSelectRole?.Invoke(1)));
 
+            AddControlsColumnSeparator(host, embedded);
+
             bool minimapHidden = MinimapSessionOverride.Suppressed;
             Button minimapBtn = MakeRoleButton(
                 minimapHidden ? "Minimap: Hidden" : "Minimap: Visible",
@@ -466,12 +471,22 @@ namespace PHLPracticeModPack
                     MinimapSessionOverride.SetSuppressed(!MinimapSessionOverride.Suppressed);
                     FillRoleSection(host, payload, callbacks, embedded);
                 });
-            minimapBtn.style.marginTop = embedded ? 6 : 8;
+            minimapBtn.style.marginTop = 0;
             minimapBtn.style.marginLeft = 4;
             minimapBtn.style.marginRight = 4;
             minimapBtn.style.alignSelf = Align.Stretch;
             minimapBtn.style.width = new Length(100, LengthUnit.Percent);
             host.Add(minimapBtn);
+        }
+
+        private static void AddControlsColumnSeparator(VisualElement host, bool embedded)
+        {
+            VisualElement sep = new VisualElement();
+            sep.style.height = 1;
+            sep.style.backgroundColor = ColumnRule;
+            sep.style.marginTop = embedded ? 6 : 8;
+            sep.style.marginBottom = embedded ? 4 : 6;
+            host.Add(sep);
         }
 
         /// <summary>
@@ -481,12 +496,7 @@ namespace PHLPracticeModPack
         {
             if (lightingHost == null) return;
 
-            VisualElement sep = new VisualElement();
-            sep.style.height = 1;
-            sep.style.backgroundColor = ColumnRule;
-            sep.style.marginTop = embedded ? 6 : 8;
-            sep.style.marginBottom = embedded ? 4 : 6;
-            lightingHost.Add(sep);
+            AddControlsColumnSeparator(lightingHost, embedded);
 
             VisualElement row = new VisualElement();
             row.style.flexDirection = FlexDirection.Row;
@@ -883,9 +893,10 @@ namespace PHLPracticeModPack
             int localRink = GetLocalRinkIndex(payload);
             int total = payload.Rinks.Count;
             bool dense = total > 6;
-            int previewH = dense ? 156 : 184;
+            int previewH = GetRinkPreviewHeight(dense, embedded);
             int stripH = embedded ? 28 : 32;
-            int rowMinH = previewH + stripH + 26;
+            int hereBannerH = embedded ? 18 : 22;
+            int rowMinH = previewH + stripH + 8;
             host.style.minHeight = ComputeRinkSectionMinHeight(total, embedded);
 
             for (int start = 0; start < total; start += perRow)
@@ -896,14 +907,12 @@ namespace PHLPracticeModPack
                 row.style.flexWrap = Wrap.NoWrap;
                 row.style.width = new Length(100, LengthUnit.Percent);
                 row.style.justifyContent = Justify.SpaceBetween;
-                row.style.alignItems = Align.Stretch;
+                row.style.alignItems = Align.FlexStart;
                 row.style.marginBottom = end < total ? (embedded ? 6 : 10) : 0;
                 row.style.flexShrink = 0;
                 if (embedded)
                 {
-                    // Grow when collapsibles are closed; never shrink below tile + strip height.
                     row.style.flexGrow = 1;
-                    row.style.flexShrink = 0;
                     row.style.minHeight = rowMinH;
                 }
                 else
@@ -915,18 +924,53 @@ namespace PHLPracticeModPack
                 for (int i = start; i < end; i++)
                 {
                     bool isLast = i == end - 1;
-                    row.Add(MakeRinkTile(payload, i, localRink, callbacks, embedded, isLast));
+                    row.Add(MakeRinkTile(payload, i, localRink, callbacks, embedded, isLast, hereBannerH));
                 }
             }
+        }
+
+        private static int GetRinkPreviewHeight(bool dense, bool embedded)
+        {
+            if (embedded)
+                return dense ? 96 : 112;
+            return dense ? 156 : 184;
+        }
+
+        /// <summary>
+        /// Keep the vertical scroller from stealing content width — overlay on the right edge.
+        /// </summary>
+        private static void ConfigureOutwardScrollbar(ScrollView scroll)
+        {
+            if (scroll == null) return;
+            scroll.schedule.Execute(() =>
+            {
+                try
+                {
+                    VisualElement scroller = scroll.verticalScroller;
+                    if (scroller == null) return;
+                    scroller.style.position = Position.Absolute;
+                    scroller.style.right = 0;
+                    scroller.style.top = 0;
+                    scroller.style.bottom = 0;
+                    scroller.style.width = 12;
+                    VisualElement viewport = scroll.contentViewport;
+                    if (viewport != null)
+                    {
+                        viewport.style.marginRight = 0;
+                        viewport.style.paddingRight = 0;
+                    }
+                }
+                catch { }
+            }).ExecuteLater(0);
         }
 
         private static int ComputeRinkSectionMinHeight(int rinkCount, bool embedded)
         {
             if (rinkCount <= 0) return embedded ? 120 : 140;
             bool dense = rinkCount > 6;
-            int previewH = dense ? 156 : 184;
+            int previewH = GetRinkPreviewHeight(dense, embedded);
             int stripH = embedded ? 28 : 32;
-            int rowMinH = previewH + stripH + 26;
+            int rowMinH = previewH + stripH + 8;
             int rows = (rinkCount + 2) / 3;
             int heading = embedded ? 28 : 34;
             int rowGap = embedded ? 6 : 10;
@@ -988,7 +1032,8 @@ namespace PHLPracticeModPack
             int localRink,
             Callbacks callbacks,
             bool embedded,
-            bool isLast)
+            bool isLast,
+            int hereBannerH)
         {
             RinkStatusEntry entry = payload.Rinks[index];
             bool isHere = index == localRink;
@@ -1001,8 +1046,9 @@ namespace PHLPracticeModPack
             column.style.minWidth = 0;
             column.style.marginRight = isLast ? 0 : (embedded ? 6 : 10);
             column.style.flexDirection = FlexDirection.Column;
+            column.style.alignItems = Align.Stretch;
 
-            VisualElement tile = BuildRinkTileSurface(payload, index, entry, isHere, isFull, callbacks, embedded);
+            VisualElement tile = BuildRinkTileSurface(payload, index, entry, isHere, isFull, callbacks, embedded, hereBannerH);
             column.Add(tile);
             VisualElement stripBtn = MakeRinkStripButton(payload, index, callbacks, embedded);
             stripBtn.style.marginTop = 4;
@@ -1017,13 +1063,12 @@ namespace PHLPracticeModPack
             bool isHere,
             bool isFull,
             Callbacks callbacks,
-            bool embedded)
+            bool embedded,
+            int hereBannerH)
         {
-            // Full-bleed preview. Embedded scoreboard: tile/preview flex-grow so the grid
-            // eats leftover board height instead of leaving a blank band. Fullscreen MOTD
-            // keeps fixed heights (no flex parent to fill).
+            // Full-bleed preview; tile height follows preview + strip only (no flex-grow gap).
             bool dense = payload.Rinks.Count > 6;
-            int previewH = dense ? 156 : 184;
+            int previewH = GetRinkPreviewHeight(dense, embedded);
 
             VisualElement tile = new VisualElement();
             tile.name = "RinkTile_" + index;
@@ -1031,19 +1076,8 @@ namespace PHLPracticeModPack
             tile.style.backgroundColor = ElevatedBg;
             tile.style.flexDirection = FlexDirection.Column;
             tile.style.overflow = Overflow.Hidden;
-            if (embedded)
-            {
-                tile.style.flexGrow = 1;
-                tile.style.flexShrink = 0;
-                tile.style.flexBasis = 0;
-                tile.style.height = new Length(100, LengthUnit.Percent);
-                tile.style.minHeight = dense ? 96 : 112;
-            }
-            else
-            {
-                tile.style.flexShrink = 0;
-                tile.style.flexGrow = 0;
-            }
+            tile.style.flexShrink = 0;
+            tile.style.flexGrow = 0;
             // Constant 2 px border — UITK borders are part of layout, so hover must
             // only swap the color, never the width, or the whole grid shifts around.
             Color idleBorder = isHere ? CtaBg : isFull ? FullRed : BorderStrong;
@@ -1051,17 +1085,10 @@ namespace PHLPracticeModPack
 
             VisualElement preview = new VisualElement();
             preview.name = "RinkPreview_" + index;
-            if (embedded)
-            {
-                preview.style.flexGrow = 1;
-                preview.style.flexShrink = 1;
-                preview.style.minHeight = dense ? 96 : 112;
-            }
-            else
-            {
-                preview.style.height = previewH;
-                preview.style.flexShrink = 0;
-            }
+            preview.style.flexGrow = 0;
+            preview.style.flexShrink = 0;
+            preview.style.height = previewH;
+            preview.style.minHeight = previewH;
             preview.style.backgroundColor = new Color(0.03f, 0.03f, 0.035f, 1f);
             preview.style.overflow = Overflow.Hidden;
             preview.pickingMode = PickingMode.Ignore;
@@ -1082,14 +1109,23 @@ namespace PHLPracticeModPack
             Color nameColor = isHere ? CtaText : TextColor;
             Color countColor = isFull ? FullRed : isHere ? CtaBg : TextColor;
 
-            VisualElement nameChip = MakeOverlayChip(
+            VisualElement topLeftRow = new VisualElement();
+            topLeftRow.style.position = Position.Absolute;
+            topLeftRow.style.left = 6;
+            topLeftRow.style.top = 6;
+            topLeftRow.style.flexDirection = FlexDirection.Row;
+            topLeftRow.style.alignItems = Align.Center;
+            topLeftRow.style.flexWrap = Wrap.NoWrap;
+            topLeftRow.style.maxWidth = new Length(72, LengthUnit.Percent);
+            topLeftRow.pickingMode = PickingMode.Ignore;
+
+            VisualElement nameChip = MakeInlineOverlayChip(
                 entry.Label ?? ("Rink " + (index + 1)),
                 embedded ? 12 : 14,
-                nameColor,
-                Align.FlexStart);
-            nameChip.style.left = 6;
-            nameChip.style.top = 6;
-            overlay.Add(nameChip);
+                nameColor);
+            topLeftRow.Add(nameChip);
+            AppendRinkFeatureBadges(topLeftRow, payload, entry, index, embedded);
+            overlay.Add(topLeftRow);
 
             VisualElement countChip = MakeOverlayChip(
                 entry.Count + "/" + payload.Capacity,
@@ -1099,6 +1135,30 @@ namespace PHLPracticeModPack
             countChip.style.right = 6;
             countChip.style.top = 6;
             overlay.Add(countChip);
+
+            if (isHere)
+            {
+                VisualElement hereBar = new VisualElement();
+                hereBar.name = "RinkHereBar_" + index;
+                hereBar.style.position = Position.Absolute;
+                hereBar.style.left = 0;
+                hereBar.style.right = 0;
+                hereBar.style.bottom = 0;
+                hereBar.style.height = hereBannerH;
+                hereBar.style.backgroundColor = ElevatedBg;
+                hereBar.style.borderTopWidth = 1;
+                hereBar.style.borderTopColor = ColumnRule;
+                hereBar.style.justifyContent = Justify.Center;
+                hereBar.style.alignItems = Align.Center;
+                hereBar.pickingMode = PickingMode.Ignore;
+
+                Label here = MakeLabel("YOU ARE HERE", embedded ? 9 : 10, CtaBg, FontStyle.Bold);
+                here.style.unityTextAlign = TextAnchor.MiddleCenter;
+                try { here.style.letterSpacing = 1; } catch { }
+                here.pickingMode = PickingMode.Ignore;
+                hereBar.Add(here);
+                overlay.Add(hereBar);
+            }
 
             tile.tooltip = isFull
                 ? (entry.Label + " is full")
@@ -1116,20 +1176,6 @@ namespace PHLPracticeModPack
             // {
             //     RinkPreview.SetLiveRink(-1, null);
             // });
-
-            if (isHere)
-            {
-                Label here = MakeLabel("YOU ARE HERE", embedded ? 9 : 10, CtaBg, FontStyle.Bold);
-                here.style.unityTextAlign = TextAnchor.MiddleCenter;
-                here.style.paddingTop = 3;
-                here.style.paddingBottom = 3;
-                here.style.backgroundColor = ElevatedBg;
-                here.style.borderTopWidth = 1;
-                here.style.borderTopColor = ColumnRule;
-                try { here.style.letterSpacing = 1; } catch { }
-                here.pickingMode = PickingMode.Ignore;
-                tile.Add(here);
-            }
 
             if (isFull)
             {
@@ -1173,9 +1219,14 @@ namespace PHLPracticeModPack
                 && voteProgress.RinkIndex == rinkIndex
                 && voteProgress.Mode == targetMode;
 
-            Color voteOrange = new Color(0.90f, 0.49f, 0.13f, 1f);
-            Color normal = votingHere ? new Color(0.90f, 0.49f, 0.13f, 0.28f) : ButtonBg;
-            Color hover = votingHere ? new Color(0.90f, 0.49f, 0.13f, 0.42f) : ButtonHover;
+            bool votingToAdd = targetMode == RinkStripMode.PhlTools;
+            Color voteAccent = votingToAdd ? CtaBg : FullRed;
+            Color normal = votingHere
+                ? new Color(voteAccent.r, voteAccent.g, voteAccent.b, 0.28f)
+                : ButtonBg;
+            Color hover = votingHere
+                ? new Color(voteAccent.r, voteAccent.g, voteAccent.b, 0.42f)
+                : ButtonHover;
 
             VisualElement wrap = new VisualElement();
             wrap.style.position = Position.Relative;
@@ -1191,10 +1242,9 @@ namespace PHLPracticeModPack
             button.style.height = embedded ? 28 : 32;
             button.style.fontSize = embedded ? 10 : 11;
             button.style.unityFontStyleAndWeight = FontStyle.Bold;
-            button.style.color = votingHere ? voteOrange : hasTools ? CtaBg : MutedText;
-            if (votingHere) SetBorder(button, 2, voteOrange);
-            else if (hasTools) SetBorder(button, 1, CtaBg);
-            else SetBorder(button, 1, BorderStrong);
+            button.style.color = votingHere ? voteAccent : hasTools ? CtaBg : MutedText;
+            if (votingHere) SetBorder(button, 2, voteAccent);
+            else SetBorder(button, 2, hasTools ? CtaBg : BorderStrong);
             wrap.Add(button);
 
             if (votingHere && !string.IsNullOrEmpty(voteProgress.BadgeText))
@@ -1204,7 +1254,7 @@ namespace PHLPracticeModPack
                 badge.style.position = Position.Absolute;
                 badge.style.top = -2;
                 badge.style.right = -2;
-                badge.style.backgroundColor = voteOrange;
+                badge.style.backgroundColor = VoteBadgeOrange;
                 badge.style.paddingLeft = 4;
                 badge.style.paddingRight = 4;
                 badge.style.paddingTop = 0;
@@ -1218,6 +1268,111 @@ namespace PHLPracticeModPack
             }
 
             return wrap;
+        }
+
+        private static RinkSlot GetRinkSlotByIndex(int index)
+        {
+            MultiRinkConfig cfg = MultiRinkConfig.Current;
+            if (cfg?.Rinks == null || index < 0 || index >= cfg.Rinks.Count) return null;
+            return cfg.Rinks[index];
+        }
+
+        /// <summary>Feature pills beside the rink name (TOOLS, SLICK, …).</summary>
+        private static void AppendRinkFeatureBadges(
+            VisualElement row,
+            RinkMotdPayload payload,
+            RinkStatusEntry entry,
+            int index,
+            bool embedded)
+        {
+            if (GetStripMode(payload, index) == RinkStripMode.PhlTools)
+                row.Add(MakeFeatureBadge("TOOLS", CtaBg, embedded));
+
+            if (IsSlickRink(entry, index))
+                row.Add(MakeFeatureBadge("SLICK", BadgeCyan, embedded));
+        }
+
+        private static bool IsSlickRink(RinkStatusEntry entry, int index)
+        {
+            if (entry != null && entry.SlickIce)
+                return true;
+
+            RinkSlot slot = GetRinkSlotByIndex(index);
+            if (slot != null && slot.SlickIce)
+                return true;
+
+            if (entry != null)
+            {
+                if (!string.IsNullOrEmpty(entry.Label)
+                    && entry.Label.IndexOf("slick", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+                if (!string.IsNullOrEmpty(entry.Id)
+                    && entry.Id.IndexOf("slick", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static VisualElement MakeInlineOverlayChip(string text, int fontSize, Color color)
+        {
+            VisualElement chip = new VisualElement();
+            chip.style.flexDirection = FlexDirection.Row;
+            chip.style.alignItems = Align.Center;
+            chip.style.flexShrink = 1;
+            chip.style.minWidth = 0;
+            chip.style.backgroundColor = new Color(0f, 0f, 0f, 0.55f);
+            chip.style.paddingLeft = 7;
+            chip.style.paddingRight = 7;
+            chip.style.paddingTop = 3;
+            chip.style.paddingBottom = 3;
+            chip.style.borderTopLeftRadius = 3;
+            chip.style.borderTopRightRadius = 3;
+            chip.style.borderBottomLeftRadius = 3;
+            chip.style.borderBottomRightRadius = 3;
+            chip.pickingMode = PickingMode.Ignore;
+
+            Label label = MakeLabel(text, fontSize, color, FontStyle.Bold);
+            label.style.unityTextAlign = TextAnchor.MiddleLeft;
+            label.style.overflow = Overflow.Hidden;
+            label.style.textOverflow = TextOverflow.Ellipsis;
+            label.style.whiteSpace = WhiteSpace.NoWrap;
+            label.style.flexShrink = 1;
+            label.pickingMode = PickingMode.Ignore;
+            chip.Add(label);
+            return chip;
+        }
+
+        private static VisualElement MakeFeatureBadge(string text, Color accent, bool embedded)
+        {
+            VisualElement pill = new VisualElement();
+            pill.style.flexDirection = FlexDirection.Row;
+            pill.style.alignItems = Align.Center;
+            pill.style.flexShrink = 0;
+            pill.style.marginLeft = 4;
+            pill.style.paddingLeft = 4;
+            pill.style.paddingRight = 4;
+            pill.style.paddingTop = 1;
+            pill.style.paddingBottom = 1;
+            pill.style.backgroundColor = new Color(0f, 0f, 0f, 0.55f);
+            pill.style.borderTopWidth = 1;
+            pill.style.borderRightWidth = 1;
+            pill.style.borderBottomWidth = 1;
+            pill.style.borderLeftWidth = 1;
+            pill.style.borderTopColor = accent;
+            pill.style.borderRightColor = accent;
+            pill.style.borderBottomColor = accent;
+            pill.style.borderLeftColor = accent;
+            pill.style.borderTopLeftRadius = 2;
+            pill.style.borderTopRightRadius = 2;
+            pill.style.borderBottomLeftRadius = 2;
+            pill.style.borderBottomRightRadius = 2;
+            pill.pickingMode = PickingMode.Ignore;
+
+            Label label = MakeLabel(text, embedded ? 8 : 9, accent, FontStyle.Bold);
+            label.pickingMode = PickingMode.Ignore;
+            pill.Add(label);
+            return pill;
         }
 
         private static VisualElement MakeOverlayChip(

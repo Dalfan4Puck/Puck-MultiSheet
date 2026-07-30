@@ -40,10 +40,10 @@ namespace PHLPracticeModPack
             if (body == null) return;
 
             AddSpawnPuckRow(host, body, embedded);
+            AddSlidableRow(host, body, embedded);
             AddDualRow(body, embedded, "Tab = Open this menu", null);
             AddDualRow(body, embedded, "Chat: /passer — pass bump board in front of you", null);
             AddDualRow(body, embedded, "Chat: /sheet — flat pushable sheet", null);
-            AddSlidableRow(host, body, embedded);
         }
 
         internal static void FillRadioInfoSection(VisualElement host, bool embedded)

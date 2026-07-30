@@ -15,7 +15,7 @@ namespace PHLPracticeModPack
     {
         private const string StatusChannel = "multisheet-motd-v1";
         private const string RequestChannel = "multisheet-motd-req-v1";
-        private const byte ProtocolVersion = 4;
+        private const byte ProtocolVersion = 5;
         private const byte OpRequestShow = 0;
         private const byte OpTeleport = 1;
         private const byte OpSetRole = 2;
@@ -307,6 +307,7 @@ namespace PHLPracticeModPack
                         Vector3 origin = slot != null ? slot.Origin : Vector3.zero;
                         writer.WriteValueSafe(origin.x);
                         writer.WriteValueSafe(origin.z);
+                        writer.WriteValueSafe((byte)(slot != null && slot.SlickIce ? 1 : 0));
                     }
 
                     writer.WriteValueSafe(ReadLocalRoleByte(clientId));
@@ -517,6 +518,13 @@ namespace PHLPracticeModPack
                     reader.ReadValueSafe(out float oz);
                     entry.OriginX = ox;
                     entry.OriginZ = oz;
+                    if (version >= 5)
+                    {
+                        reader.ReadValueSafe(out byte slickByte);
+                        entry.SlickIce = slickByte != 0;
+                    }
+                    else
+                        entry.SlickIce = InferSlickIce(entry.Label, entry.Id);
                     payload.Rinks.Add(entry);
                 }
 
@@ -711,6 +719,17 @@ namespace PHLPracticeModPack
             {
                 return false;
             }
+        }
+
+        private static bool InferSlickIce(string label, string id)
+        {
+            if (!string.IsNullOrEmpty(label)
+                && label.IndexOf("slick", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            if (!string.IsNullOrEmpty(id)
+                && id.IndexOf("slick", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            return false;
         }
     }
 }
