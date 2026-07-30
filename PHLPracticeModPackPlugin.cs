@@ -41,6 +41,7 @@ namespace PHLPracticeModPack
                 UnityEngine.Object.DontDestroyOnLoad(runtimeObject);
 
                 flamiePrac = new MyMod.Class1();
+                SlidableObstacleSetup.SlickIceFrictionReapply = VanillaRinkCloner.ReapplySlickIceFriction;
                 if (!flamiePrac.OnEnable())
                 {
                     Debug.LogError("[PHLPractice] FlamiePrac failed to enable — MultiSheet continues without training props.");
@@ -76,6 +77,8 @@ namespace PHLPracticeModPack
                     catch (Exception ex) { Debug.LogWarning("[PHLPractice] FlamiePrac disable failed: " + ex.Message); }
                     flamiePrac = null;
                 }
+
+                SlidableObstacleSetup.SlickIceFrictionReapply = null;
 
                 RinkMotdService.Teardown();
                 RinkStripVote.Teardown();

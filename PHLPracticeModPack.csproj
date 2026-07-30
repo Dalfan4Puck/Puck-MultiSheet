@@ -63,6 +63,7 @@
     <Compile Include="RinkScoreboardTab.cs" />
     <Compile Include="PracticeFlow.cs" />
     <Compile Include="PracticeGoalieSpawn.cs" />
+    <Compile Include="PracticeScoreboardFakePlayerPatch.cs" />
     <Compile Include="CustomLevelBridge.cs" />
   </ItemGroup>
 
@@ -104,6 +105,7 @@
     <Compile Include="$(FlamieDir)\FlamiePracRinkInterest.cs" Link="Flamie\FlamiePracRinkInterest.cs" />
     <Compile Include="$(FlamieDir)\FlamieLog.cs" Link="Flamie\FlamieLog.cs" />
     <Compile Include="$(FlamieDir)\FollowSpinningObject.cs" Link="Flamie\FollowSpinningObject.cs" />
+    <Compile Include="$(FlamieDir)\PasserTriangleMeshBuilder.cs" Link="Flamie\PasserTriangleMeshBuilder.cs" />
     <Compile Include="$(FlamieDir)\PassBackBoardLock.cs" Link="Flamie\PassBackBoardLock.cs" />
     <Compile Include="$(FlamieDir)\PassBumperHitRelay.cs" Link="Flamie\PassBumperHitRelay.cs" />
     <Compile Include="$(FlamieDir)\PlayerNapService.cs" Link="Flamie\PlayerNapService.cs" />
@@ -121,6 +123,7 @@
     <Compile Include="$(FlamieDir)\SlidableGroundRaycastPatch.cs" Link="Flamie\SlidableGroundRaycastPatch.cs" />
     <Compile Include="$(FlamieDir)\SlidableObstacle.cs" Link="Flamie\SlidableObstacle.cs" />
     <Compile Include="$(FlamieDir)\SlidableObstacleSetup.cs" Link="Flamie\SlidableObstacleSetup.cs" />
+    <Compile Include="$(FlamieDir)\SheetRampMeshBuilder.cs" Link="Flamie\SheetRampMeshBuilder.cs" />
     <Compile Include="$(FlamieDir)\SlidableObstacleSync.cs" Link="Flamie\SlidableObstacleSync.cs" />
     <Compile Include="$(FlamieDir)\SlidableStickCollision.cs" Link="Flamie\SlidableStickCollision.cs" />
     <Compile Include="$(FlamieDir)\SlidablePuckFilter.cs" Link="Flamie\SlidablePuckFilter.cs" />

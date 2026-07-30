@@ -117,21 +117,84 @@ public static class SlidableObstacleSetup
                 UnityEngine.Object.Destroy(col);
         }
 
-        BoxCollider box = root.GetComponent<BoxCollider>();
-        if (box == null)
-            box = root.AddComponent<BoxCollider>();
+        for (int i = root.transform.childCount - 1; i >= 0; i--)
+        {
+            Transform child = root.transform.GetChild(i);
+            if (child != null && child.name.StartsWith("PasserWall_", System.StringComparison.Ordinal))
+                UnityEngine.Object.Destroy(child.gameObject);
+        }
 
-        // Match the neon BoardVisual exactly (full depth, centered). Pucks ignore this solid via
-        // SlidablePuckFilter and still enter HitFace — a back-half-only slab made stick contact
-        // feel shifted behind the mesh on dedicated (client visual vs server hitbox).
-        float width = Mathf.Max(scale.x, 0.35f);
-        float height = Mathf.Max(scale.y, 0.35f);
-        float depth = Mathf.Max(scale.z, 0.2f);
-        box.center = Vector3.zero;
-        box.size = new Vector3(width, height, depth);
-        box.isTrigger = false;
+        PasserTriangleMeshBuilder.Geometry g = PasserTriangleMeshBuilder.Compute(scale);
+        for (int edge = 0; edge < 3; edge++)
+        {
+            PasserTriangleMeshBuilder.WallSpec wall = PasserTriangleMeshBuilder.GetWall(g, edge);
+            GameObject wallObj = new GameObject("PasserWall_" + edge);
+            wallObj.transform.SetParent(root.transform, false);
+            wallObj.transform.localPosition = wall.Center;
+            wallObj.transform.localRotation = wall.Rotation;
+
+            BoxCollider box = wallObj.AddComponent<BoxCollider>();
+            box.center = Vector3.zero;
+            box.size = wall.Size;
+            box.isTrigger = false;
+            CollisionHelper.SetSlidablePhysicsLayer(wallObj);
+        }
+
         CollisionHelper.SetSlidablePhysicsLayer(root);
         SlidablePuckFilter.ConfigureForPlayerPushOnly(root);
+    }
+
+    public const float SheetRampAngleDeg = 15f;
+    private const float SheetRampRunMin = 0.12f;
+    private const float SheetRampRunMax = 2.8f;
+    private const float SheetDeckTopThickness = 0.02f;
+    public const float SheetDeckTopThicknessPublic = SheetDeckTopThickness;
+
+    public struct SheetRampGeometry
+    {
+        public float Thickness;
+        public float Run;
+        public float HalfW;
+        public float HalfD;
+        public float DeckW;
+        public float DeckD;
+        public float Rise;
+        public float SlopeLen;
+        public float AngleDeg;
+        public float IceY;
+        public float DeckTop;
+        public float DeckBottomY;
+        public float DeckCenterY;
+    }
+
+    public static SheetRampGeometry ComputeSheetRampGeometry(Vector3 scale)
+    {
+        var g = new SheetRampGeometry();
+        g.Thickness = Mathf.Max(scale.y, 0.04f);
+        g.HalfW = scale.x * 0.5f;
+        g.HalfD = scale.z * 0.5f;
+        g.Run = ComputeSheetRampRun(g.Thickness, g.HalfW, g.HalfD);
+        g.DeckW = Mathf.Max(scale.x - g.Run * 2f, 0.5f);
+        g.DeckD = Mathf.Max(scale.z - g.Run * 2f, 0.5f);
+        g.IceY = -g.Thickness * 0.5f;
+        g.DeckTop = g.Thickness * 0.5f;
+        g.DeckBottomY = g.DeckTop - SheetDeckTopThickness;
+        g.Rise = g.DeckTop - g.IceY;
+        g.SlopeLen = Mathf.Sqrt(g.Run * g.Run + g.Rise * g.Rise);
+        g.AngleDeg = Mathf.Atan2(g.Rise, g.Run) * Mathf.Rad2Deg;
+        g.DeckCenterY = g.DeckBottomY + SheetDeckTopThickness * 0.5f;
+        return g;
+    }
+
+    public static float ComputeSheetRampRun(float thickness, float halfW, float halfD)
+    {
+        thickness = Mathf.Max(thickness, 0.04f);
+        float rise = thickness;
+        float run = rise / Mathf.Tan(SheetRampAngleDeg * Mathf.Deg2Rad);
+        float maxByFootprint = Mathf.Min(halfW, halfD) - 0.25f;
+        if (maxByFootprint > SheetRampRunMin)
+            run = Mathf.Min(run, maxByFootprint);
+        return Mathf.Clamp(run, SheetRampRunMin, SheetRampRunMax);
     }
 
     private static void EnsureSheetCollider(GameObject root, Vector3 scale)
@@ -142,18 +205,65 @@ public static class SlidableObstacleSetup
                 UnityEngine.Object.Destroy(col);
         }
 
-        BoxCollider box = root.GetComponent<BoxCollider>();
-        if (box == null)
-            box = root.AddComponent<BoxCollider>();
+        for (int i = root.transform.childCount - 1; i >= 0; i--)
+        {
+            Transform child = root.transform.GetChild(i);
+            if (child != null && child.name.StartsWith("SheetRamp_", StringComparison.Ordinal))
+                UnityEngine.Object.Destroy(child.gameObject);
+        }
 
         float width = Mathf.Max(scale.x, 1f);
-        float height = Mathf.Max(scale.y, 0.04f);
         float depth = Mathf.Max(scale.z, 1f);
-        box.center = Vector3.zero;
-        box.size = new Vector3(width, height, depth);
-        box.isTrigger = false;
+        SheetRampGeometry g = ComputeSheetRampGeometry(scale);
+
+        BoxCollider deck = root.AddComponent<BoxCollider>();
+        deck.center = new Vector3(0f, g.DeckCenterY, 0f);
+        deck.size = new Vector3(g.DeckW, SheetDeckTopThickness, g.DeckD);
+        deck.isTrigger = false;
+
+        AddSheetRampWedgeCollider(root.transform, 0, g, width);
+        AddSheetRampWedgeCollider(root.transform, 1, g, width);
+        AddSheetRampWedgeCollider(root.transform, 2, g, depth);
+        AddSheetRampWedgeCollider(root.transform, 3, g, depth);
+
         CollisionHelper.SetSlidablePhysicsLayer(root);
-        SlidablePuckFilter.ConfigureForPlayerPushOnly(root);
+    }
+
+    private static void AddSheetRampWedgeCollider(
+        Transform root,
+        int edge,
+        SheetRampGeometry g,
+        float spanWidth)
+    {
+        GameObject ramp = new GameObject("SheetRamp_" + edge);
+        ramp.transform.SetParent(root, false);
+        CollisionHelper.SetSlidablePhysicsLayer(ramp);
+
+        MeshCollider col = ramp.AddComponent<MeshCollider>();
+        col.sharedMesh = SheetRampMeshBuilder.BuildRampWedgeMesh(spanWidth, g.Run, g.IceY, g.DeckTop);
+        col.convex = true;
+        col.isTrigger = false;
+
+        float halfRun = g.Run * 0.5f;
+        switch (edge)
+        {
+            case 0: // +Z
+                ramp.transform.localPosition = new Vector3(0f, 0f, g.HalfD - halfRun);
+                ramp.transform.localRotation = Quaternion.identity;
+                break;
+            case 1: // -Z
+                ramp.transform.localPosition = new Vector3(0f, 0f, -(g.HalfD - halfRun));
+                ramp.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+                break;
+            case 2: // +X
+                ramp.transform.localPosition = new Vector3(g.HalfW - halfRun, 0f, 0f);
+                ramp.transform.localRotation = Quaternion.Euler(0f, 90f, 0f);
+                break;
+            default: // -X
+                ramp.transform.localPosition = new Vector3(-(g.HalfW - halfRun), 0f, 0f);
+                ramp.transform.localRotation = Quaternion.Euler(0f, -90f, 0f);
+                break;
+        }
     }
 
     /// <summary>Chat-spawned flat sheet: pushable blanket on the slidable prop layer.</summary>
@@ -164,7 +274,7 @@ public static class SlidableObstacleSetup
 
         EnsureSheetCollider(sheetRoot, scale);
         CollisionHelper.SetSlidablePhysicsLayer(sheetRoot);
-        SlidableObstacleSetup.ApplySlideMaterial(sheetRoot);
+        ApplySheetSlideMaterial(sheetRoot);
 
         SlidableObstacle obstacle = sheetRoot.GetComponent<SlidableObstacle>();
         if (obstacle == null)
@@ -184,6 +294,7 @@ public static class SlidableObstacleSetup
             return;
 
         EnsureSheetCollider(sheetRoot, scale);
+        ApplySheetSlideMaterial(sheetRoot);
         ConfigureSlidableClient(
             sheetRoot.transform,
             sheetRoot.transform,
@@ -1184,7 +1295,75 @@ public static class SlidableObstacleSetup
         }
     }
 
+    public static void ApplySheetSlideMaterial(GameObject obj)
+    {
+        PhysicsMaterial slide = GetSheetSlideMaterial();
+
+        foreach (Collider col in obj.GetComponentsInChildren<Collider>(true))
+        {
+            if (col != null && !col.isTrigger)
+                col.material = slide;
+        }
+    }
+
+    /// <summary>PHL MultiSheet hooks this to refresh SlickIce rink colliders when /slickice changes μ.</summary>
+    public static Action SlickIceFrictionReapply;
+
+    public static float GetCurrentSheetFrictionMu()
+    {
+        if (liveFrictionOverride.HasValue)
+            return liveFrictionOverride.Value;
+
+        PhysicsMaterial ice = GetIceLikeMaterial();
+        return Mathf.Max(ice.dynamicFriction * 0.45f, 0.012f);
+    }
+
+    public static float GetRegularIceFrictionMu() => GetIceLikeMaterial().dynamicFriction;
+
+    public static bool IsLiveSheetFrictionOverridden => liveFrictionOverride.HasValue;
+
+    public static bool TrySetLiveSheetFriction(float mu, out string error)
+    {
+        error = null;
+        if (float.IsNaN(mu) || mu < 0.001f || mu > 0.99f)
+        {
+            error = "Usage: /slickice <friction> — decimal between 0.001 and 0.99 (e.g. 0.02).";
+            return false;
+        }
+
+        liveFrictionOverride = mu;
+        cachedSheetMaterial = null;
+        ReapplyLiveFrictionSurfaces();
+        FlamieLog.Info("[FlamiePrac] Live sheet/slick-ice friction μd=" + mu.ToString("F3"));
+        return true;
+    }
+
+    private static void ReapplyLiveFrictionSurfaces()
+    {
+        SlidableObstacle[] obstacles = UnityEngine.Object.FindObjectsByType<SlidableObstacle>(
+            FindObjectsInactive.Include,
+            FindObjectsSortMode.None);
+        for (int i = 0; i < obstacles.Length; i++)
+        {
+            SlidableObstacle obstacle = obstacles[i];
+            if (obstacle == null)
+                continue;
+
+            string path = obstacle.RelativePath;
+            if (string.IsNullOrEmpty(path) ||
+                !path.StartsWith(SheetRelativePathPrefix, StringComparison.Ordinal))
+                continue;
+
+            ApplySheetSlideMaterial(obstacle.gameObject);
+        }
+
+        try { SlickIceFrictionReapply?.Invoke(); }
+        catch (Exception ex) { Debug.LogWarning("[FlamiePrac] SlickIce friction reapply failed: " + ex.Message); }
+    }
+
     private static PhysicsMaterial cachedIceLikeMaterial;
+    private static PhysicsMaterial cachedSheetMaterial;
+    private static float? liveFrictionOverride;
 
     private static PhysicsMaterial GetIceLikeMaterial()
     {
@@ -1229,6 +1408,29 @@ public static class SlidableObstacleSetup
             bounceCombine = PhysicsMaterialCombine.Minimum
         };
         return cachedIceLikeMaterial;
+    }
+
+    public static PhysicsMaterial GetSheetSlideMaterial()
+    {
+        float mu = GetCurrentSheetFrictionMu();
+        if (cachedSheetMaterial != null && Mathf.Abs(cachedSheetMaterial.dynamicFriction - mu) < 0.0001f)
+            return cachedSheetMaterial;
+
+        PhysicsMaterial ice = GetIceLikeMaterial();
+        cachedSheetMaterial = new PhysicsMaterial("FlamiePrac_Sheet")
+        {
+            dynamicFriction = mu,
+            staticFriction = mu,
+            bounciness = Mathf.Min(ice.bounciness, 0.02f),
+            frictionCombine = PhysicsMaterialCombine.Minimum,
+            bounceCombine = PhysicsMaterialCombine.Minimum
+        };
+        FlamieLog.InfoOnce(
+            "sheet-slide-mat",
+            "[FlamiePrac] Sheet slide material μd=" + mu.ToString("F3") +
+            " (ice μd=" + ice.dynamicFriction.ToString("F3") +
+            (liveFrictionOverride.HasValue ? ", live override" : ", default") + ").");
+        return cachedSheetMaterial;
     }
 
     /// <summary>Tight axis-aligned box matched to visible mesh bounds (after pose snap).</summary>

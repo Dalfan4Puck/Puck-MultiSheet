@@ -59,6 +59,12 @@ namespace PHLPracticeModPack
         private static readonly Type[] SharedPatchTypes =
         {
             typeof(RinkCommands),
+            typeof(PracticeScoreboardFilterGetPlayersBoolPatch),
+            typeof(PracticeScoreboardFilterGetSpawnedPlayersBoolPatch),
+            typeof(PracticeScoreboardBlockFakeAddPlayerPatch),
+            typeof(PracticeScoreboardBlockFakeUpdatePlayerPatch),
+            typeof(PracticeScoreboardPurgeFakePlayersOnShowPatch),
+            typeof(PracticeScoreboardHumanCountPatch),
         };
 
         private static readonly Type[] ServerPatchTypes =

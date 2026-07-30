@@ -26,7 +26,7 @@ public static class TrainingLayoutConfig
         public Vec3 Position = new Vec3();
         public float RotationY;
         public float Speed = 14f;
-        public Vec3 Scale = new Vec3 { x = DefaultPasserLength, y = 0.55f, z = 0.5f };
+        public Vec3 Scale = new Vec3 { x = DefaultPasserLength, y = 0.55f, z = 0.12f };
     }
 
     /// <summary>Vanilla blue end goal line (world Z). Pass bumpers stay entirely in front of this.</summary>
@@ -49,7 +49,7 @@ public static class TrainingLayoutConfig
     }
 
     public static Vec3 DefaultPasserScale() =>
-        new Vec3 { x = DefaultPasserLength, y = 0.55f, z = 0.5f };
+        new Vec3 { x = DefaultPasserLength, y = 0.55f, z = 0.12f };
 
     [Serializable]
     public class LayoutFile

@@ -27,7 +27,7 @@ public class PuckPasser : MonoBehaviour
         TryPassPuck(other);
     }
 
-    internal void TryPassPuck(Collider other)
+    internal void TryPassPuck(Collider other, Transform face = null)
     {
         if (other == null || Time.time < lastHitTime + hitCooldown)
             return;
@@ -43,7 +43,8 @@ public class PuckPasser : MonoBehaviour
         Vector3 puckPos = puckBody.position;
         Vector3 puckVel = puckBody.linearVelocity;
 
-        Player target = FindTargetPlayer(puckPos, puckVel);
+        Transform aimFace = face != null ? face : hitFace;
+        Player target = FindTargetPlayer(puckPos, puckVel, aimFace);
         if (target == null || target.Stick == null || target.PlayerBody == null)
             return;
 
@@ -124,18 +125,18 @@ public class PuckPasser : MonoBehaviour
         return feet;
     }
 
-    private Player FindTargetPlayer(Vector3 puckPos, Vector3 puckVel)
+    private Player FindTargetPlayer(Vector3 puckPos, Vector3 puckVel, Transform aimFace)
     {
-        Vector3 incoming = ResolveIncomingDirection(puckPos, puckVel);
+        Vector3 incoming = ResolveIncomingDirection(puckPos, puckVel, aimFace);
         Vector3 rayOrigin = puckPos + Vector3.up * 0.12f;
 
         Player fromRay = RaycastForPlayer(rayOrigin, incoming, MaxTargetRange);
         if (fromRay != null)
             return fromRay;
 
-        if (hitFace != null)
+        if (aimFace != null)
         {
-            fromRay = RaycastForPlayer(hitFace.position, hitFace.forward, MaxTargetRange);
+            fromRay = RaycastForPlayer(aimFace.position, aimFace.forward, MaxTargetRange);
             if (fromRay != null)
                 return fromRay;
         }
@@ -143,10 +144,13 @@ public class PuckPasser : MonoBehaviour
         return ScoreBestPlayer(puckPos, incoming);
     }
 
-    private Vector3 ResolveIncomingDirection(Vector3 puckPos, Vector3 puckVel)
+    private Vector3 ResolveIncomingDirection(Vector3 puckPos, Vector3 puckVel, Transform aimFace)
     {
         if (puckVel.sqrMagnitude >= MinIncomingSpeed * MinIncomingSpeed)
             return -puckVel.normalized;
+
+        if (aimFace != null)
+            return -aimFace.forward;
 
         return -GetFaceForward();
     }

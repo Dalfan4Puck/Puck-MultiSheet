@@ -128,7 +128,7 @@ namespace PHLPracticeModPack
                     bool isRink = string.Equals(kv.Key, "Rink", StringComparison.OrdinalIgnoreCase);
                     GameObject clone = BuildOffsetHierarchyClone(
                         src, offset, root.transform, SanitizeCloneName(kv.Key, slot.Id),
-                        role, iceLayer, isRink, kv.Key);
+                        role, iceLayer, isRink, kv.Key, slot);
                     if (clone == null) continue;
 
                     cloneCount++;
@@ -196,7 +196,7 @@ namespace PHLPracticeModPack
         /// </summary>
         private static GameObject BuildOffsetHierarchyClone(
             GameObject source, Vector3 offset, Transform parent, string name,
-            RinkCloneRole role, int iceLayer, bool addIceCollider, string templatePath)
+            RinkCloneRole role, int iceLayer, bool addIceCollider, string templatePath, RinkSlot slot)
         {
             Vector3 worldPos = source.transform.position + offset;
             GameObject clone = UnityEngine.Object.Instantiate(source, worldPos, source.transform.rotation, parent);
@@ -218,10 +218,10 @@ namespace PHLPracticeModPack
             if (role == RinkCloneRole.Server)
             {
                 if (addIceCollider)
-                    AddIceSurfaceCollider(parent, name, offset, iceLayer);
+                    AddIceSurfaceCollider(parent, name, offset, iceLayer, slot);
                 if (ModRuntimeContext.IsDedicatedGameServer)
                     StripDedicatedServerVisuals(clone);
-                PrepareServerClone(clone, iceLayer);
+                PrepareServerClone(clone, iceLayer, slot);
             }
             else
             {
@@ -232,7 +232,7 @@ namespace PHLPracticeModPack
                 // silently switch off on the offset sheets. A host already has the server
                 // root's boxes in the same physics scene, so it must not stack a second.
                 if (addIceCollider && !IsLocalServer())
-                    AddIceSurfaceCollider(parent, name, offset, iceLayer);
+                    AddIceSurfaceCollider(parent, name, offset, iceLayer, slot);
                 FixClientCombinedMeshes(clone, source, offset, worldPos.z);
                 PrepareClientClone(clone);
             }
@@ -370,7 +370,7 @@ namespace PHLPracticeModPack
             }
         }
 
-        private static void PrepareServerClone(GameObject clone, int iceLayer)
+        private static void PrepareServerClone(GameObject clone, int iceLayer, RinkSlot slot)
         {
             foreach (Renderer r in clone.GetComponentsInChildren<Renderer>(true))
                 if (r != null) r.enabled = false;
@@ -379,6 +379,23 @@ namespace PHLPracticeModPack
             {
                 if (col == null) continue;
                 col.enabled = true;
+            }
+
+            if (slot != null && slot.SlickIce)
+                ApplySlickIceMaterial(clone, iceLayer);
+        }
+
+        private static void ApplySlickIceMaterial(GameObject root, int iceLayer)
+        {
+            if (root == null || iceLayer < 0)
+                return;
+
+            PhysicsMaterial slick = SlidableObstacleSetup.GetSheetSlideMaterial();
+            foreach (Collider col in root.GetComponentsInChildren<Collider>(true))
+            {
+                if (col == null || col.isTrigger || col.gameObject.layer != iceLayer)
+                    continue;
+                col.material = slick;
             }
         }
 
@@ -683,7 +700,7 @@ namespace PHLPracticeModPack
             dst.enabled = true;
         }
 
-        private static void AddIceSurfaceCollider(Transform parent, string rinkName, Vector3 offset, int iceLayer)
+        private static void AddIceSurfaceCollider(Transform parent, string rinkName, Vector3 offset, int iceLayer, RinkSlot slot)
         {
             string colliderName = rinkName + "_IceSurface";
             if (parent != null && parent.Find(colliderName) != null) return;
@@ -700,6 +717,61 @@ namespace PHLPracticeModPack
             box.center = new Vector3(0f, -box.size.y * 0.5f, 0f);
             if (iceLayer >= 0) iceObj.layer = iceLayer;
             StickIcePassThrough.RegisterFloorIce(box);
+
+            if (slot != null && slot.SlickIce)
+                box.material = SlidableObstacleSetup.GetSheetSlideMaterial();
+        }
+
+        internal static void ReapplySlickIceFriction()
+        {
+            MultiRinkConfig cfg = MultiRinkConfig.Current;
+            if (cfg?.Rinks == null || cfg.Rinks.Count == 0)
+                return;
+
+            int iceLayer = LayerMask.NameToLayer("Ice");
+            if (iceLayer < 0)
+                return;
+
+            Transform serverRoot = null;
+            GameObject serverRootObj = GameObject.Find("PHL_VanillaMultiRink_Server");
+            if (serverRootObj != null)
+                serverRoot = serverRootObj.transform;
+
+            PhysicsMaterial slick = SlidableObstacleSetup.GetSheetSlideMaterial();
+            for (int i = 0; i < cfg.Rinks.Count; i++)
+            {
+                RinkSlot slot = cfg.Rinks[i];
+                if (slot == null || !slot.SlickIce)
+                    continue;
+
+                if (serverRoot != null)
+                {
+                    string clonePrefix = "Rink_" + slot.Id;
+                    string iceSurfaceName = clonePrefix + "_IceSurface";
+                    Transform iceSurface = serverRoot.Find(iceSurfaceName);
+                    if (iceSurface != null)
+                    {
+                        foreach (Collider col in iceSurface.GetComponents<Collider>())
+                        {
+                            if (col != null && !col.isTrigger)
+                                col.material = slick;
+                        }
+                    }
+
+                    for (int c = 0; c < serverRoot.childCount; c++)
+                    {
+                        Transform child = serverRoot.GetChild(c);
+                        if (child == null ||
+                            child.name.IndexOf(slot.Id, StringComparison.OrdinalIgnoreCase) < 0)
+                            continue;
+
+                        ApplySlickIceMaterial(child.gameObject, iceLayer);
+                    }
+                }
+            }
+
+            PracticeLog.Info("[PHLPractice] Reapplied slick-ice friction μd=" +
+                           slick.dynamicFriction.ToString("F3"));
         }
 
         internal static Vector3 ResolveSpawnPoint(RinkSlot slot)

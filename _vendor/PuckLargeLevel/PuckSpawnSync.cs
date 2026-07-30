@@ -46,19 +46,13 @@ public class PuckSpawnSync : MonoBehaviour
             PracticeLog.Info($"[CustomLevel] Despawned previous puck for client {senderClientId}");
         }
 
-        // Place the puck 2 m in front of the player, then raycast down to find the floor surface.
-        // Without the raycast the puck spawns at player.y which can clip through geometry when
-        // the player is crouching (ctrl held) or standing on an angled surface.
+        // Place the puck 2 m in front of the player, then raycast down to find the top surface
+        // (sheet/slidable layer wins over rink ice when the player is standing on a sheet).
         Vector3 spawnPos = position + forward * 2f;
         spawnPos.y = position.y + 5f;
-        int iceLayer = LayerMask.NameToLayer("Ice");
-        int mask = iceLayer >= 0 ? (1 << iceLayer) : Physics.DefaultRaycastLayers;
-        if (Physics.Raycast(spawnPos, Vector3.down, out RaycastHit hit, 30f, mask, QueryTriggerInteraction.Ignore))
-            spawnPos.y = hit.point.y + 0.05f;
-        else if (Physics.Raycast(spawnPos, Vector3.down, out hit, 30f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
-            spawnPos.y = hit.point.y + 0.05f;
-        else
-            spawnPos.y = position.y + 0.1f;
+        if (!TryFindSpawnSurfaceY(spawnPos, out float surfaceY))
+            surfaceY = position.y + 0.1f;
+        spawnPos.y = surfaceY;
 
         Puck newPuck = null;
         try
@@ -105,6 +99,49 @@ public class PuckSpawnSync : MonoBehaviour
         }
 
         PracticeLog.Info($"[CustomLevel] Spawned puck for client {senderClientId} at {spawnPos}");
+    }
+
+    private static bool TryFindSpawnSurfaceY(Vector3 rayOrigin, out float surfaceY)
+    {
+        surfaceY = rayOrigin.y;
+        int mask = BuildSpawnSurfaceMask();
+        RaycastHit[] hits = Physics.RaycastAll(
+            rayOrigin,
+            Vector3.down,
+            30f,
+            mask,
+            QueryTriggerInteraction.Ignore);
+        if (hits == null || hits.Length == 0)
+            return false;
+
+        float bestY = float.NegativeInfinity;
+        for (int i = 0; i < hits.Length; i++)
+        {
+            if (hits[i].collider == null || hits[i].collider.isTrigger)
+                continue;
+            if (hits[i].point.y > bestY)
+                bestY = hits[i].point.y;
+        }
+
+        if (bestY <= float.NegativeInfinity + 1f)
+            return false;
+
+        surfaceY = bestY + 0.05f;
+        return true;
+    }
+
+    private static int BuildSpawnSurfaceMask()
+    {
+        int mask = 0;
+        int iceLayer = LayerMask.NameToLayer("Ice");
+        if (iceLayer >= 0)
+            mask |= 1 << iceLayer;
+
+        int slidableLayer = CollisionHelper.GetSlidablePropLayerIndex();
+        if (slidableLayer >= 0)
+            mask |= 1 << slidableLayer;
+
+        return mask != 0 ? mask : Physics.DefaultRaycastLayers;
     }
 
     private void Update()

@@ -11,7 +11,7 @@ public static class TrainingObjectFactory
     private static readonly Color PasserNeonGreen = new Color(0.12f, 1f, 0.18f);
     private static readonly Color SheetWhite = Color.white;
 
-    public static readonly Vector3 DefaultSheetScale = new Vector3(16f, 0.06f, 12f);
+    public static readonly Vector3 DefaultSheetScale = new Vector3(22f, 0.08f, 18f);
 
     public enum BuildRole
     {
@@ -94,22 +94,21 @@ public static class TrainingObjectFactory
         GameObject root = new GameObject("PassBackBox_" + syncId);
         root.transform.SetPositionAndRotation(rootPos, Quaternion.Euler(0f, yRot, 0f));
 
-        GameObject visual = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        visual.name = "BoardVisual";
+        PasserTriangleMeshBuilder.Geometry tri = PasserTriangleMeshBuilder.Compute(scale);
+
+        GameObject visual = new GameObject("BoardVisual");
         visual.transform.SetParent(root.transform, false);
         visual.transform.localPosition = Vector3.zero;
         visual.transform.localRotation = Quaternion.identity;
-        visual.transform.localScale = scale;
-        Object.Destroy(visual.GetComponent<Collider>());
 
+        MeshFilter filter = visual.AddComponent<MeshFilter>();
+        filter.sharedMesh = PasserTriangleMeshBuilder.BuildFrameMesh(tri);
+
+        MeshRenderer meshRenderer = visual.AddComponent<MeshRenderer>();
         if (role == BuildRole.ClientVisual || !Application.isBatchMode)
-            TrainingMaterialFix.ApplyPrimitiveRenderer(visual, PasserNeonGreen);
+            meshRenderer.sharedMaterial = TrainingMaterialFix.CreateLitMaterial(PasserNeonGreen);
         else
-        {
-            Renderer renderer = visual.GetComponent<Renderer>();
-            if (renderer != null)
-                renderer.enabled = false;
-        }
+            meshRenderer.enabled = false;
 
         if (role == BuildRole.ServerAuthority)
         {
@@ -119,28 +118,38 @@ public static class TrainingObjectFactory
 
             CollisionHelper.SetSlidablePhysicsLayer(root);
 
-            // Shooter-facing neon face (-local Z). Thin trigger slab on that plane — not a deep
-            // volume in front of the board (that made passes fire "too far forward").
-            float halfDepth = 0.5f * Mathf.Max(scale.z, 0.2f);
             const float triggerDepth = 0.22f;
-            GameObject hitFace = new GameObject("HitFace");
-            hitFace.transform.SetParent(root.transform, false);
-            hitFace.transform.localPosition = new Vector3(0f, 0f, -halfDepth);
-            hitFace.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
-            hitFace.layer = root.layer;
+            Transform primaryFace = null;
+            for (int edge = 0; edge < 3; edge++)
+            {
+                PasserTriangleMeshBuilder.WallSpec wall = PasserTriangleMeshBuilder.GetWall(tri, edge);
+                GameObject hitFace = new GameObject("HitFace_" + edge);
+                hitFace.transform.SetParent(root.transform, false);
+                hitFace.transform.localPosition = wall.Center + wall.Outward * (wall.Size.z * 0.5f + triggerDepth * 0.35f);
+                hitFace.transform.localRotation = wall.Rotation;
+                hitFace.layer = root.layer;
 
-            BoxCollider trigger = hitFace.AddComponent<BoxCollider>();
-            trigger.isTrigger = true;
-            // Centered on the neon face: half into the board, half a skin toward the shooter.
-            trigger.size = new Vector3(scale.x * 1.05f, scale.y * 1.05f, triggerDepth);
-            trigger.center = Vector3.zero;
+                BoxCollider trigger = hitFace.AddComponent<BoxCollider>();
+                trigger.isTrigger = true;
+                trigger.size = new Vector3(wall.Size.x * 1.02f, wall.Size.y * 1.02f, triggerDepth);
+                trigger.center = Vector3.zero;
+                ApplyBumperMaterial(trigger);
 
-            ApplyBumperMaterial(trigger);
+                if (edge == 0)
+                    primaryFace = hitFace.transform;
+            }
 
             PuckPasser passer = root.AddComponent<PuckPasser>();
             passer.passSpeed = speed;
-            passer.hitFace = hitFace.transform;
-            hitFace.AddComponent<PassBumperHitRelay>().passer = passer;
+            passer.hitFace = primaryFace;
+
+            foreach (Transform child in root.transform)
+            {
+                if (child == null || !child.name.StartsWith("HitFace_", System.StringComparison.Ordinal))
+                    continue;
+                PassBumperHitRelay relay = child.gameObject.AddComponent<PassBumperHitRelay>();
+                relay.passer = passer;
+            }
 
             SlidableObstacleSetup.ConfigurePasserServer(root, syncId, scale);
         }
@@ -247,22 +256,7 @@ public static class TrainingObjectFactory
         GameObject root = new GameObject("SlidableSheet_" + syncId);
         root.transform.SetPositionAndRotation(rootPos, Quaternion.Euler(0f, yRot, 0f));
 
-        GameObject visual = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        visual.name = "BoardVisual";
-        visual.transform.SetParent(root.transform, false);
-        visual.transform.localPosition = Vector3.zero;
-        visual.transform.localRotation = Quaternion.identity;
-        visual.transform.localScale = scale;
-        Object.Destroy(visual.GetComponent<Collider>());
-
-        if (role == BuildRole.ClientVisual || !Application.isBatchMode)
-            TrainingMaterialFix.ApplyPrimitiveRenderer(visual, SheetWhite);
-        else
-        {
-            Renderer renderer = visual.GetComponent<Renderer>();
-            if (renderer != null)
-                renderer.enabled = false;
-        }
+        BuildSheetVisuals(root.transform, scale, role);
 
         if (role == BuildRole.ServerAuthority)
         {
@@ -277,6 +271,26 @@ public static class TrainingObjectFactory
         var marker = root.AddComponent<TrainingSyncMarker>();
         marker.SyncId = syncId;
         return root;
+    }
+
+    private static void BuildSheetVisuals(Transform root, Vector3 scale, BuildRole role)
+    {
+        SlidableObstacleSetup.SheetRampGeometry g = SlidableObstacleSetup.ComputeSheetRampGeometry(scale);
+        bool showMesh = role == BuildRole.ClientVisual || !Application.isBatchMode;
+
+        GameObject visual = new GameObject("SheetSurfaceVisual");
+        visual.transform.SetParent(root, false);
+        visual.transform.localPosition = Vector3.zero;
+        visual.transform.localRotation = Quaternion.identity;
+
+        MeshFilter filter = visual.AddComponent<MeshFilter>();
+        filter.sharedMesh = SheetRampMeshBuilder.BuildSheetSolidMesh(g);
+
+        MeshRenderer renderer = visual.AddComponent<MeshRenderer>();
+        if (showMesh)
+            renderer.sharedMaterial = TrainingMaterialFix.CreateLitMaterial(SheetWhite);
+        else
+            renderer.enabled = false;
     }
 
     public static GameObject BuildCircularTarget(Vector3 position, int syncId, BuildRole role)

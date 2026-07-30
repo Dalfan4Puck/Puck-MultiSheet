@@ -10,6 +10,6 @@ public sealed class PassBumperHitRelay : MonoBehaviour
     private void OnTriggerEnter(Collider other)
     {
         if (passer != null)
-            passer.TryPassPuck(other);
+            passer.TryPassPuck(other, transform);
     }
 }

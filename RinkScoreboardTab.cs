@@ -686,7 +686,8 @@ namespace PHLPracticeModPack
                 if (pm == null) return 0;
                 int count = 0;
                 foreach (Player player in pm.GetPlayers())
-                    if (player != null) count++;
+                    if (player != null && !FakePlayerDetector.ShouldExcludeFromPopulation(player))
+                        count++;
                 return count;
             }
             catch { return 0; }
