@@ -24,7 +24,7 @@ namespace PHLPracticeModPack
             MultiSheetClientSettings.RenderAllRinks = renderAll;
             MultiSheetClientSettings.Save();
             ArenaLighting.RefreshRinkLightCulling();
-            Debug.Log("[PHLPractice] Render scope: " + (renderAll ? "all rinks" : "local rink only"));
+            PracticeLog.Info("[PHLPractice] Render scope: " + (renderAll ? "all rinks" : "local rink only"));
             CloneVisualProxy.LogRenderScopeStatus();
         }
 
@@ -70,7 +70,7 @@ namespace PHLPracticeModPack
             TrlReskinBridge.SetCompatibilityEnabled(false);
             ArenaLighting.EnterStockLook();
             TrlReskinBridge.RequestTrlRebuild();
-            Debug.Log("[PHLPractice] Limit Rink Changes — stock TRL + simple lighting.");
+            PracticeLog.Info("[PHLPractice] Limit Rink Changes — stock TRL + simple lighting.");
         }
 
         private static void EnterAllowMode()
@@ -78,7 +78,7 @@ namespace PHLPracticeModPack
             TrlReskinBridge.SetCompatibilityEnabled(true);
             ArenaLighting.ExitStockLook();
             TrlReskinBridge.RequestTrlRebuild();
-            Debug.Log("[PHLPractice] Allow Rink Changes — MultiSheet presentation active.");
+            PracticeLog.Info("[PHLPractice] Allow Rink Changes — MultiSheet presentation active.");
         }
     }
 }

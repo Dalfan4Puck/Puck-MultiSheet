@@ -479,6 +479,7 @@ namespace PHLPracticeModPack
                 return;
 
             byte index = (byte)rinkIndex;
+            ActiveRinkResolver.RememberLocalRink(rinkIndex);
             SendRequest(writer =>
             {
                 writer.WriteValueSafe(OpTeleport);

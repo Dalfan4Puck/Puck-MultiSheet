@@ -17,6 +17,9 @@ namespace PHLPracticeModPack
 
     internal static class RinkStripModeUtil
     {
+        /// <summary>Rink 1 (index 0) always runs PHL Tools — not voteable.</summary>
+        internal const int PhlToolsLockedRinkIndex = 0;
+
         internal const string EmptyRinkDropdownLabel = "None";
         /// <summary>Legacy label — still accepted when parsing saved UI state.</summary>
         internal const string EmptyRinkDropdownLabelLegacy = "Empty Rink";
@@ -35,6 +38,16 @@ namespace PHLPracticeModPack
         internal static bool IsPracticeMode(RinkStripMode mode)
         {
             return mode != RinkStripMode.Empty;
+        }
+
+        internal static bool IsStripModeLocked(int rinkIndex)
+        {
+            return rinkIndex == PhlToolsLockedRinkIndex;
+        }
+
+        internal static string StripModeLockedMessage(int rinkIndex)
+        {
+            return "Rink " + (rinkIndex + 1) + " is permanently PHL Tools.";
         }
 
         /// <summary>Max humans that may join a rink while this strip mode is active (0 = use server default).</summary>

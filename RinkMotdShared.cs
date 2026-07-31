@@ -158,12 +158,29 @@ namespace PHLPracticeModPack
 
     internal static class ActiveRinkResolver
     {
+        /// <summary>Rink the local player picked in the Rinks tab before teleport completes.</summary>
+        private static int rememberedLocalRinkIndex = -1;
+
+        internal static void RememberLocalRink(int rinkIndex)
+        {
+            if (rinkIndex >= 0)
+                rememberedLocalRinkIndex = rinkIndex;
+        }
+
+        internal static void ClearRememberedLocalRink()
+        {
+            rememberedLocalRinkIndex = -1;
+        }
+
         internal static int ResolveLocalRinkIndex()
         {
+            if (rememberedLocalRinkIndex >= 0)
+                return rememberedLocalRinkIndex;
+
             try
             {
                 NetworkManager nm = NetworkManager.Singleton;
-                if (nm != null && nm.IsConnectedClient && nm.IsServer)
+                if (nm != null && nm.IsConnectedClient)
                 {
                     int assigned = MultiRinkService.GetActiveRinkIndex(nm.LocalClientId);
                     if (assigned >= 0)

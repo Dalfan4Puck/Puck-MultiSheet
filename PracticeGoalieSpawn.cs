@@ -126,7 +126,7 @@ namespace PHLPracticeModPack
                 Debug.LogWarning("[PHLPractice] Goalie PlayerPosition markers not found — using NetZ fallback.");
             }
 
-            Debug.Log("[PHLPractice] Goalie crease offsets: blue=" + blueLocalPos.ToString("F2") +
+            PracticeLog.Info("[PHLPractice] Goalie crease offsets: blue=" + blueLocalPos.ToString("F2") +
                       " red=" + redLocalPos.ToString("F2") +
                       " (rink1 origin " + primaryOrigin.ToString("F1") + ").");
         }

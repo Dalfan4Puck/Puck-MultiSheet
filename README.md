@@ -49,15 +49,22 @@ Chunk sync + optional R-key practice pucks (PuckLargeLevel) when enabled.
 
 ## Config (`config/multi_rink.json`)
 
+Lives **only** beside the plugin DLL: `{Workshop or Plugins folder}/config/multi_rink.json`.  
+Dedicated hosts do **not** read a separate `./config/` under the server install root.
+
+Set **`RinkCount`** (1–9); the mod computes the 3-wide grid layout. Do not put coordinates in JSON.
+
 ```json
 {
-  "EnableMultiRink": true,
-  "UseAssetBundle": false,
-  "HideHangar": true,
-  "CloneTemplates": ["Rink", "Goal Blue", "Goal Red"],
-  "Rinks": [ … ]
+  "ConfigVersion": 7,
+  "RinkCount": 6,
+  "VerboseLogging": false,
+  "MotdTitle": "Welcome to PHL MultiSheet Practice",
+  "MotdSubtitle": "Six sheets, one server. Pick a rink below — press R for a puck."
 }
 ```
+
+Use lowercase JSON booleans (`false`, not Python `False`). Invalid JSON falls back to **6** rinks, not 9.
 
 ---
 
@@ -100,7 +107,7 @@ Build expects `../libs/Puck.dll` (copy from your Puck install: `Puck_Data/Manage
 
 Optional dev path: `.\deploy-qa.ps1 -DeployLocal` mirrors `dist\` into a local `Puck\Plugins\` folder (bypasses Workshop). Fully quit Puck before testing.
 
-Server **config** is shipped as `dist/config/multi_rink.json` (read from beside the plugin DLL). You can still override with game-cwd `./config/multi_rink.json` on dedicated hosts. Clients sync rink layout from the server MOTD list when running a matching build.
+Server **config** is shipped as `dist/config/multi_rink.json` beside `MultiSheet.dll` in the Workshop folder. Edit that file on the VPS (or republish Workshop). Clients sync rink layout from the server MOTD list when running a matching build.
 
 ### Practice radio (API)
 

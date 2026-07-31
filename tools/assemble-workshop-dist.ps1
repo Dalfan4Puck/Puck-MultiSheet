@@ -51,7 +51,7 @@ foreach ($name in @(
 
 $rinkExample = Join-Path $ProjectRoot "config\multi_rink.example.json"
 $rinkDest = Join-Path $dist "config\multi_rink.json"
-if ((Test-Path $rinkExample) -and -not (Test-Path $rinkDest)) {
+if (Test-Path $rinkExample) {
     Copy-Item $rinkExample $rinkDest -Force
 }
 

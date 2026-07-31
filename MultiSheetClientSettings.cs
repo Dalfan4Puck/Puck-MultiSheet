@@ -311,7 +311,7 @@ namespace PHLPracticeModPack
             }
 
             // Always log once so A/B mistakes (wrong file / Flush clobber / old DLL) are obvious.
-            Debug.Log("[PHLPractice] Client settings from " + loadedFromPath +
+            PracticeLog.Info("[PHLPractice] Client settings from " + loadedFromPath +
                       " (exists=" + File.Exists(loadedFromPath) + ")" +
                       " skipMotdUi=" + current.skipMotdUi +
                       " skipScoreboardUi=" + current.skipScoreboardUi +

@@ -23,7 +23,6 @@ namespace PHLPracticeModPack
                 TrainingObjectManager.SkipAutoStartForMultiRink = MultiRinkConfig.Current.EnableMultiRink;
                 PracticeLog.Verbose = MultiRinkConfig.Current.VerboseLogging;
                 FlamieLog.Verbose = PracticeLog.Verbose;
-                Debug.Log("[PHLPractice] VerboseLogging=" + PracticeLog.Verbose + " (FlamieLog + PracticeLog).");
                 MultiSheetClientSettings.Load();
                 MultiSheetClientSettings.ApplyLoadedPreferences();
                 FlamiePracFeatures.RadioServerDrivenOnly = true;

@@ -1444,6 +1444,27 @@ namespace PHLPracticeModPack
             root.Add(overlay);
         }
 
+        private static VisualElement MakeLockedPhlToolsStripBar(int barH, int fontSize, bool embedded)
+        {
+            VisualElement wrap = new VisualElement();
+            wrap.style.position = Position.Relative;
+            wrap.style.flexShrink = 0;
+            wrap.style.height = barH;
+
+            Button bar = MakeStripBarButton(
+                RinkStripModeUtil.DisplayName(RinkStripMode.PhlTools),
+                barH,
+                fontSize,
+                TextColor,
+                ElevatedBg);
+            bar.pickingMode = PickingMode.Ignore;
+            bar.SetEnabled(false);
+            bar.tooltip = RinkStripModeUtil.StripModeLockedMessage(RinkStripModeUtil.PhlToolsLockedRinkIndex);
+            SetBorder(bar, 2, CtaBg);
+            wrap.Add(bar);
+            return wrap;
+        }
+
         private static VisualElement MakeRinkStripButton(
             RinkMotdPayload payload,
             int rinkIndex,
@@ -1452,6 +1473,9 @@ namespace PHLPracticeModPack
         {
             int barH = embedded ? 28 : 32;
             int fontSize = embedded ? 10 : 11;
+
+            if (RinkStripModeUtil.IsStripModeLocked(rinkIndex))
+                return MakeLockedPhlToolsStripBar(barH, fontSize, embedded);
 
             RinkStripMode current = GetStripMode(payload, rinkIndex);
             bool activeMode = RinkStripModeUtil.IsPracticeMode(current);

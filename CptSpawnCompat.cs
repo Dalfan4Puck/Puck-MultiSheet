@@ -276,7 +276,7 @@ namespace PHLPracticeModPack
                 Debug.LogWarning("[PHLPractice] CPT marker scan failed: " + ex.Message);
             }
 
-            Debug.Log("[PHLPractice] CPT spawn markers cached: " + cachedMarkers.Count);
+            PracticeLog.Info("[PHLPractice] CPT spawn markers cached: " + cachedMarkers.Count);
         }
 
         private static Vector3 PrimaryRinkOrigin()

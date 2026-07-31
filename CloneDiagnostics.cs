@@ -343,7 +343,7 @@ namespace PHLPracticeModPack
 
         private static void LogSummary(Report report)
         {
-            Debug.Log("[PHLPractice] Clone health: playerZ=" +
+            PracticeLog.Info("[PHLPractice] Clone health: playerZ=" +
                       (report.playerPosition != null ? report.playerPosition.z.ToString("F1") : "?") +
                       " guess=" + (report.playerRinkGuess ?? "?") +
                       " cloneRenderers=" + report.renderers.Count +
@@ -351,7 +351,7 @@ namespace PHLPracticeModPack
 
             if (report.camera != null)
             {
-                Debug.Log("[PHLPractice]   camera=" + report.camera.name +
+                PracticeLog.Info("[PHLPractice]   camera=" + report.camera.name +
                           " z=" + report.camera.position.z.ToString("F1") +
                           " farClip=" + report.camera.farClipPlane.ToString("F0") +
                           " occlusionCulling=" + report.camera.useOcclusionCulling +
@@ -363,7 +363,7 @@ namespace PHLPracticeModPack
             for (int i = 0; i < report.rinks.Count; i++)
             {
                 RinkSummary s = report.rinks[i];
-                Debug.Log("[PHLPractice]   " + s.name + ": renderers=" + s.rendererCount +
+                PracticeLog.Info("[PHLPractice]   " + s.name + ": renderers=" + s.rendererCount +
                           " tris=" + s.totalTriangles +
                           " boundsZ~=" + s.boundsCenterZ.ToString("F1"));
                 LogIcePair(s.name, s.ice);
@@ -374,7 +374,7 @@ namespace PHLPracticeModPack
             {
                 RendererRow row = report.renderers[i];
                 if (!row.Enabled) continue;
-                Debug.Log("[PHLPractice]   [" + i + "] " + row.CloneRoot + "/" + row.Path +
+                PracticeLog.Info("[PHLPractice]   [" + i + "] " + row.CloneRoot + "/" + row.Path +
                           " tris=" + row.TriangleCount +
                           " mat=" + (row.Material ?? "?") +
                           " shader=" + (row.Shader ?? "?") +
@@ -398,7 +398,7 @@ namespace PHLPracticeModPack
                 return;
             }
 
-            Debug.Log("[PHLPractice]     " + rinkName + " " + label +
+            PracticeLog.Info("[PHLPractice]     " + rinkName + " " + label +
                       ": tris=" + row.TriangleCount +
                       " enabled=" + row.Enabled +
                       " boundsZ=" + row.BoundsCenter.z.ToString("F1") +

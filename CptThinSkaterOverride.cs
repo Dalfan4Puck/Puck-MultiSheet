@@ -30,14 +30,14 @@ namespace PHLPracticeModPack
                 NetworkManager nm = NetworkManager.Singleton;
                 if (nm != null && nm.IsServer && !nm.IsClient)
                 {
-                    Debug.Log("[PHLPractice] Dedicated server — skipping ThinSkaterBodies override (CPT file left untouched).");
+                    PracticeLog.Info("[PHLPractice] Dedicated server — skipping ThinSkaterBodies override (CPT file left untouched).");
                     return;
                 }
 
                 Type pluginCore = FindType(PluginCoreTypeName);
                 if (pluginCore == null)
                 {
-                    Debug.Log("[PHLPractice] CPT not loaded; ThinSkaterBodies override skipped.");
+                    PracticeLog.Info("[PHLPractice] CPT not loaded; ThinSkaterBodies override skipped.");
                     return;
                 }
 
@@ -63,7 +63,7 @@ namespace PHLPracticeModPack
                 // Client / host only: flip the one JSON key. Never dump the whole config.
                 PersistThinSkaterFlagOnly();
 
-                Debug.Log(was
+                PracticeLog.Info(was
                     ? "[PHLPractice] Forced CPT ThinSkaterBodies=false (was true); updated client JSON key only."
                     : "[PHLPractice] CPT ThinSkaterBodies already false.");
             }

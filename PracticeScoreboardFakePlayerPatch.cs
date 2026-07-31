@@ -3,16 +3,16 @@ using System.Linq;
 using System.Reflection;
 using HarmonyLib;
 using MaxPractice;
+using PuckChasers;
 using UnityEngine.UIElements;
 
 namespace PHLPracticeModPack
 {
     /// <summary>
-    /// Hide MaxPractice fake players (DummyRed/DummyBlue, traffic, passers) from the Tab
-    /// scoreboard without touching PlayerManager lists — filtering GetSpawnedPlayers breaks
-    /// AI goalie simulation; population counts stay in GoalieAIManager patches.
+    /// Hide practice / Puck Chasers fake players from the Tab scoreboard without touching
+    /// PlayerManager lists — filtering GetSpawnedPlayers breaks AI simulation.
     /// UIScoreboardController calls AddPlayer/StylePlayer/UpdatePlayerPing on spawn and
-    /// stat changes; block fakes at those entry points and purge any stragglers on Show.
+    /// stat changes; block fakes at those entry points and purge stragglers on Show/refresh.
     /// </summary>
     internal static class PracticeScoreboardFakePlayerFilter
     {
@@ -20,8 +20,15 @@ namespace PHLPracticeModPack
         {
             if (player == null)
                 return false;
-            if (GoalieAIManager.IsManipulatingFakePlayers || GoalieAIManager.bypassFilter)
-                return false;
+
+            // Puck Chasers — always hide regardless of MaxPractice spawn/replay bypass flags.
+            if (StandaloneFakePlayerDetector.IsAnyFakePlayer(player))
+                return true;
+            if (PuckChasers.GoalieAIManager.IsAIGoalie(player))
+                return true;
+            if (SkaterAIManager.IsAISkater(player))
+                return true;
+
             return FakePlayerDetector.ShouldExcludeFromPopulation(player);
         }
     }
@@ -117,6 +124,17 @@ namespace PHLPracticeModPack
         {
             if (__instance is UIScoreboard scoreboard)
                 PracticeScoreboardFakePlayerRows.Purge(scoreboard);
+        }
+    }
+
+    /// <summary>StyleServer refreshes header + player rows — purge bots that slipped in mid-game.</summary>
+    [HarmonyPatch(typeof(UIScoreboard), nameof(UIScoreboard.StyleServer))]
+    internal static class PracticeScoreboardPurgeFakePlayersOnStyleServerPatch
+    {
+        [HarmonyPostfix]
+        private static void Postfix(UIScoreboard __instance)
+        {
+            PracticeScoreboardFakePlayerRows.Purge(__instance);
         }
     }
 }

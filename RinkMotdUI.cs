@@ -33,6 +33,10 @@ namespace PHLPracticeModPack
             RequestRecaptureForStripChanges(previous, payload);
 
             int localRink = RinkPanelBuilder.GetLocalRinkIndex(payload);
+            if (localRink >= 0)
+                ActiveRinkResolver.RememberLocalRink(localRink);
+            GoaliePracticeLookTarget.RequestClientResync();
+
             int prevLocalRink = previous != null ? RinkPanelBuilder.GetLocalRinkIndex(previous) : -1;
             bool tilesNeedRefresh = payload.NeedsRinkTileRefresh(previous, localRink, prevLocalRink);
 
@@ -66,6 +70,7 @@ namespace PHLPracticeModPack
         internal static void OnDisconnected()
         {
             lastPayload = null;
+            ActiveRinkResolver.ClearRememberedLocalRink();
             RinkScoreboardTab.OnDisconnected();
         }
 

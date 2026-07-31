@@ -1,19 +1,26 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using HarmonyLib;
 using Newtonsoft.Json;
 using UnityEngine;
 
 namespace PHLPracticeModPack
 {
     /// <summary>
-    /// Server config for multi-rink layout. Copy config/multi_rink.example.json to
-    /// ./config/multi_rink.json beside the plugin DLL on the host.
+    /// Server config for multi-rink layout. One file only:
+    /// <c>{plugin}/config/multi_rink.json</c> (Workshop folder on dedicated hosts).
+    /// Rink positions are computed from <see cref="RinkCount"/> — never edited by hand.
     /// </summary>
     internal sealed class MultiRinkConfig
     {
-        public int ConfigVersion = 1;
+        public const int CurrentConfigVersion = 7;
+        public const int GridColumns = 3;
+        public const int MaxRinks = 9;
+        public const int DefaultRinkCount = 6;
+
+        public int ConfigVersion = CurrentConfigVersion;
+        /// <summary>How many sheets to clone (1–9). Layout is a 3-wide grid from rink 1 at (0,0).</summary>
+        public int RinkCount = DefaultRinkCount;
         /// <summary>When true, clone base-game Rink + goals for each configured slot (no AssetBundle).</summary>
         public bool EnableMultiRink = true;
         /// <summary>Legacy: open-world TestLevel bundle from PuckLargeLevel. Off by default.</summary>
@@ -29,41 +36,24 @@ namespace PHLPracticeModPack
             "Lights/Goal Blue",
             "Lights/Goal Red",
         };
-        /// <summary>
-        /// Rink spacing must be a multiple of the 32 m chunk grid so each rink's origin
-        /// lands exactly on a chunk center and the whole rink fits one chunk (±50 m window).
-        /// </summary>
         public float RinkSpacingZ = 128f;
-        /// <summary>
-        /// Column spacing for grid layouts. Same chunk-grid rule as RinkSpacingZ.
-        /// 64 m is the tightest lateral pitch the rectangular chunk-zone envelopes
-        /// allow (rinks are ~45 m wide, envelopes ±30 m on X).
-        /// </summary>
         public float RinkSpacingX = 64f;
-        /// <summary>Max players per rink (0 disables the cap). Enforced on chat and MOTD teleports.</summary>
         public int RinkCapacity = 5;
-        /// <summary>
-        /// Send rate (Hz) for objects on rinks OTHER than the one a client is standing
-        /// on. Own-rink objects always stream at the full sync tick rate. 0 disables
-        /// the throttle (vanilla full-rate broadcast of everything to everyone).
-        /// </summary>
         public int OffRinkSyncHz = 10;
-        /// <summary>Re-enable informational logging (clone/teleport/sync details).</summary>
         public bool VerboseLogging;
-        /// <summary>Welcome MOTD headline shown to joining clients.</summary>
         public string MotdTitle = "Welcome to PHL MultiSheet Practice";
-        /// <summary>Welcome MOTD subtitle shown to joining clients.</summary>
-        public string MotdSubtitle = "Nine sheets, one server. Pick a rink below — press R for a puck.";
-        public List<RinkSlot> Rinks = new List<RinkSlot>();
+        public string MotdSubtitle = "Six sheets, one server. Pick a rink below — press R for a puck.";
+
+        /// <summary>Legacy import only — coordinates in old JSON files are ignored.</summary>
+        [JsonProperty("Rinks")]
+        private List<RinkSlot> LegacyRinksJson;
+
+        /// <summary>Runtime grid built from <see cref="RinkCount"/>.</summary>
+        [JsonIgnore]
+        public List<RinkSlot> Rinks { get; private set; } = new List<RinkSlot>();
 
         public static MultiRinkConfig Current { get; private set; } = CreateDefaults();
 
-        /// <summary>
-        /// Pure clients do not read the host's multi_rink.json — they start on the
-        /// built-in default layout. Once the server's MOTD status arrives, replace the
-        /// rink list with the server's origins so BuildClientSide matches the host
-        /// (e.g. a 1-rink A/B must not still spawn nine client sheets).
-        /// </summary>
         public static void ApplyClientLayoutFromServer(RinkMotdPayload payload)
         {
             if (payload?.Rinks == null || payload.Rinks.Count == 0) return;
@@ -77,12 +67,12 @@ namespace PHLPracticeModPack
                 Vector3 origin = entry.Origin;
                 string id = string.IsNullOrEmpty(entry.Id) ? ("rink" + (i + 1)) : entry.Id;
                 string label = string.IsNullOrEmpty(entry.Label) ? ("Rink " + (i + 1)) : entry.Label;
-                string command = "/rink" + (i + 1);
-                rinks.Add(new RinkSlot(id, command, label, origin, origin));
+                rinks.Add(new RinkSlot(id, "/rink" + (i + 1), label, origin, origin));
             }
 
             if (rinks.Count == 0) return;
             cfg.Rinks = rinks;
+            cfg.RinkCount = rinks.Count;
             Current = cfg;
             PracticeLog.Info("[PHLPractice] Client layout synced from server (" + rinks.Count + " rink(s)).");
         }
@@ -91,82 +81,148 @@ namespace PHLPracticeModPack
         {
             try
             {
-                string path = ResolveConfigPath("multi_rink.json");
-                if (path == null || !File.Exists(path))
+                string path = GetConfigFilePath(createDir: true);
+                if (path == null)
                 {
                     Current = CreateDefaults();
-                    PracticeLog.Info("[PHLPractice] No config/multi_rink.json — using built-in rink layout.");
+                    Debug.LogWarning("[PHLPractice] Could not resolve plugin config directory — using 6-rink defaults.");
                     return;
                 }
 
-                var loaded = JsonConvert.DeserializeObject<MultiRinkConfig>(File.ReadAllText(path));
-                if (loaded?.Rinks == null || loaded.Rinks.Count == 0)
+                if (!File.Exists(path))
                 {
-                    Debug.LogWarning("[PHLPractice] multi_rink.json invalid — using defaults.");
+                    if (Application.isBatchMode)
+                    {
+                        WriteDefaultConfigFile(path);
+                        PracticeLog.Info("[PHLPractice] Created default config/multi_rink.json at " + path);
+                    }
+                    else
+                    {
+                        PracticeLog.Info("[PHLPractice] No config/multi_rink.json beside plugin — using 6-rink defaults.");
+                        Current = CreateDefaults();
+                        return;
+                    }
+                }
+
+                MultiRinkConfig loaded = JsonConvert.DeserializeObject<MultiRinkConfig>(File.ReadAllText(path));
+                if (loaded == null)
+                {
+                    Debug.LogWarning("[PHLPractice] multi_rink.json empty — using 6-rink defaults.");
                     Current = CreateDefaults();
                     return;
                 }
 
+                loaded.NormalizeAndBuildLayout(out string note);
                 Current = loaded;
-                Debug.Log("[PHLPractice] Loaded multi_rink.json from " + path + " (" + Current.Rinks.Count +
-                          " rinks, VerboseLogging=" + Current.VerboseLogging + ").");
+                PracticeLog.Info("[PHLPractice] Loaded multi_rink.json from " + path + " (" +
+                          Current.Rinks.Count + " rinks, VerboseLogging=" + Current.VerboseLogging +
+                          (string.IsNullOrEmpty(note) ? "" : ", " + note) + ").");
             }
             catch (Exception ex)
             {
-                Debug.LogWarning("[PHLPractice] Failed to load multi_rink.json: " + ex.Message);
+                Debug.LogWarning("[PHLPractice] Failed to load multi_rink.json: " + ex.Message +
+                                 " — using 6-rink defaults (fix JSON booleans: use false not False).");
                 Current = CreateDefaults();
             }
         }
 
-        /// <summary>
-        /// Dedicated: prefer operator ./config/ over Workshop-shipped defaults beside the DLL.
-        /// Client/listen-server: prefer config beside the plugin, then cwd.
-        /// </summary>
-        internal static string ResolveConfigPath(string fileName)
+        /// <summary>Single config location: <c>{plugin}/config/multi_rink.json</c>.</summary>
+        internal static string GetConfigFilePath(bool createDir)
         {
-            string cwdConfig = Path.Combine(Directory.GetCurrentDirectory(), "config", fileName);
-            if (Application.isBatchMode && File.Exists(cwdConfig))
-                return cwdConfig;
-
             try
             {
                 string pluginDir = Path.GetDirectoryName(typeof(MultiRinkConfig).Assembly.Location);
-                if (!string.IsNullOrEmpty(pluginDir))
-                {
-                    string besidePlugin = Path.Combine(pluginDir, "config", fileName);
-                    if (File.Exists(besidePlugin))
-                        return besidePlugin;
-                }
-            }
-            catch { }
+                if (string.IsNullOrEmpty(pluginDir))
+                    return null;
 
-            return File.Exists(cwdConfig) ? cwdConfig : null;
+                string configDir = Path.Combine(pluginDir, "config");
+                if (createDir && !Directory.Exists(configDir))
+                    Directory.CreateDirectory(configDir);
+                return Path.Combine(configDir, "multi_rink.json");
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        internal static void WriteDefaultConfigFile(string path)
+        {
+            MultiRinkConfig template = CreateDefaults();
+            string json = JsonConvert.SerializeObject(template.ToFileModel(), Formatting.Indented);
+            File.WriteAllText(path, json);
+        }
+
+        private void NormalizeAndBuildLayout(out string note)
+        {
+            note = null;
+            int count = RinkCount;
+
+            if (LegacyRinksJson != null && LegacyRinksJson.Count > 0)
+            {
+                if (count <= 0)
+                    count = LegacyRinksJson.Count;
+                note = "legacy Rinks[] coordinates ignored";
+            }
+
+            if (count <= 0)
+                count = DefaultRinkCount;
+
+            RinkCount = Mathf.Clamp(count, 1, MaxRinks);
+            Rinks = BuildRinkGrid(RinkCount, RinkSpacingX, RinkSpacingZ);
+            LegacyRinksJson = null;
+
+            if (string.IsNullOrEmpty(MotdSubtitle))
+                MotdSubtitle = RinkCount + " sheets, one server. Pick a rink below — press R for a puck.";
+        }
+
+        internal static List<RinkSlot> BuildRinkGrid(int count, float spacingX, float spacingZ)
+        {
+            count = Mathf.Clamp(count, 1, MaxRinks);
+            var list = new List<RinkSlot>(count);
+            for (int i = 0; i < count; i++)
+            {
+                float x = (i % GridColumns) * spacingX;
+                float z = (i / GridColumns) * spacingZ;
+                var origin = new Vector3(x, 0f, z);
+                int n = i + 1;
+                list.Add(new RinkSlot("rink" + n, "/rink" + n, "Rink " + n, origin, origin));
+            }
+            return list;
         }
 
         public static MultiRinkConfig CreateDefaults()
         {
-            // Nine rinks in a 3×3 world grid (3 columns on X, 3 rows on Z), each origin
-            // on the chunk grid so every rink still gets its own dedicated chunk
-            // (x ∈ {0,64,128}, z ∈ {0,128,256} are all multiples of 32 m).
-            // Rink 1 stays at (0,0) — vanilla clients must see it byte-identical.
-            var config = new MultiRinkConfig { EnableMultiRink = true, Rinks = new List<RinkSlot>() };
-            for (int i = 0; i < 9; i++)
-            {
-                float x = (i % 3) * config.RinkSpacingX;
-                float z = (i / 3) * config.RinkSpacingZ;
-                config.Rinks.Add(new RinkSlot(
-                    "rink" + (i + 1),
-                    "/rink" + (i + 1),
-                    "Rink " + (i + 1),
-                    new Vector3(x, 0f, z),
-                    new Vector3(x, 0f, z)));
-            }
+            var config = new MultiRinkConfig { EnableMultiRink = true, RinkCount = DefaultRinkCount };
+            config.NormalizeAndBuildLayout(out _);
             return config;
+        }
+
+        internal MultiRinkConfigFile ToFileModel()
+        {
+            return new MultiRinkConfigFile
+            {
+                ConfigVersion = CurrentConfigVersion,
+                RinkCount = RinkCount,
+                EnableMultiRink = EnableMultiRink,
+                UseAssetBundle = UseAssetBundle,
+                HideHangar = HideHangar,
+                CloneTemplates = CloneTemplates != null ? new List<string>(CloneTemplates) : null,
+                AssetBundleFile = AssetBundleFile,
+                LevelPrefabName = LevelPrefabName,
+                RinkSpacingZ = RinkSpacingZ,
+                RinkSpacingX = RinkSpacingX,
+                RinkCapacity = RinkCapacity,
+                OffRinkSyncHz = OffRinkSyncHz,
+                VerboseLogging = VerboseLogging,
+                MotdTitle = MotdTitle,
+                MotdSubtitle = MotdSubtitle,
+            };
         }
 
         public RinkSlot FindByCommand(string command)
         {
-            if (string.IsNullOrEmpty(command)) return null;
+            if (string.IsNullOrEmpty(command) || Rinks == null) return null;
             string normalized = command.Trim().ToLowerInvariant();
             for (int i = 0; i < Rinks.Count; i++)
             {
@@ -176,6 +232,26 @@ namespace PHLPracticeModPack
             }
             return null;
         }
+    }
+
+    /// <summary>On-disk JSON — set <see cref="RinkCount"/> and flags, not world coordinates.</summary>
+    internal sealed class MultiRinkConfigFile
+    {
+        public int ConfigVersion = MultiRinkConfig.CurrentConfigVersion;
+        public int RinkCount = MultiRinkConfig.DefaultRinkCount;
+        public bool EnableMultiRink = true;
+        public bool UseAssetBundle;
+        public bool HideHangar = true;
+        public List<string> CloneTemplates;
+        public string AssetBundleFile = "assets/puckobjects";
+        public string LevelPrefabName = "TestLevel";
+        public float RinkSpacingZ = 128f;
+        public float RinkSpacingX = 64f;
+        public int RinkCapacity = 5;
+        public int OffRinkSyncHz = 10;
+        public bool VerboseLogging;
+        public string MotdTitle = "Welcome to PHL MultiSheet Practice";
+        public string MotdSubtitle = "Six sheets, one server. Pick a rink below — press R for a puck.";
     }
 
     internal sealed class RinkSlot

@@ -33,7 +33,7 @@ namespace PHLPracticeModPack
                 InstallClientPresentation(harmony);
             }
 
-            Debug.Log("[PHLPractice] Patch install: role=" + ModRuntimeContext.RoleLabel +
+            PracticeLog.Info("[PHLPractice] Patch install: role=" + ModRuntimeContext.RoleLabel +
                       " dedicated=" + ModRuntimeContext.IsDedicatedGameServer +
                       " count=" + installedCount);
         }

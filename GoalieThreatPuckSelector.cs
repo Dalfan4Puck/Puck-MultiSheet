@@ -72,12 +72,14 @@ namespace PHLPracticeModPack
 
             if (passPractice)
             {
+                // Server publishes the drill puck — do not re-filter by local velocity/position
+                // (IsPassPracticeLookTarget rejected valid targets for skaters on other dots).
                 Puck look = ResolvePublishedLookPuck(rinkIndex);
-                if (look != null && IsPassPracticeLookTarget(player, look))
+                if (look != null)
                     return look;
 
                 Puck queued = ResolvePublishedQueuedLookPuck(rinkIndex);
-                if (queued != null && IsPassPracticeLookTarget(player, queued))
+                if (queued != null)
                     return queued;
 
                 return null;
@@ -256,6 +258,15 @@ namespace PHLPracticeModPack
             catch { }
 
             MultiRinkConfig cfg = MultiRinkConfig.Current;
+            if (player.PlayerBody != null
+                && RinkMotdUI.TryGetLastPayload(out RinkMotdPayload payload)
+                && payload?.Rinks != null
+                && payload.Rinks.Count > 0)
+            {
+                rinkIndex = RinkLocator.NearestRink(payload, player.PlayerBody.transform.position);
+                return rinkIndex >= 0;
+            }
+
             if (cfg?.Rinks == null || player.PlayerBody == null)
                 return false;
 

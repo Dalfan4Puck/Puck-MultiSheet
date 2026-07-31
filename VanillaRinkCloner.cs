@@ -217,14 +217,14 @@ namespace PHLPracticeModPack
         {
             if (state?.Root == null) return null;
 
-            Debug.Log("[PHLPractice] Vanilla multi-rink " + state.Role + " layout ready (" + state.CloneCount +
+            PracticeLog.Info("[PHLPractice] Vanilla multi-rink " + state.Role + " layout ready (" + state.CloneCount +
                       " clones, iceY=" + IceSurfaceY.ToString("F3") +
                       ", meshRebakes=" + combinedMeshRebakeCount + ").");
 
             if (state.Role == RinkCloneRole.Client)
             {
                 // Lights are cloned per offset slot during CloneOneSlot. Log the rig summary once.
-                Debug.Log("[PHLPractice] Light clone: " +
+                PracticeLog.Info("[PHLPractice] Light clone: " +
                           (cachedArenaLightSources != null ? cachedArenaLightSources.Count : 0) +
                           " arena fixture(s) near rink 1 → " +
                           (cachedUseSyntheticFill
@@ -584,7 +584,7 @@ namespace PHLPracticeModPack
                 cloned += CloneLightsForSlot(levelRoot, parent, slot, primaryOrigin);
             }
 
-            Debug.Log("[PHLPractice] Light clone: " +
+            PracticeLog.Info("[PHLPractice] Light clone: " +
                       (cachedArenaLightSources != null ? cachedArenaLightSources.Count : 0) +
                       " arena fixture(s) near rink 1 → " +
                       (cachedUseSyntheticFill

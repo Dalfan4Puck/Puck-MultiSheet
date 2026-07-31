@@ -129,7 +129,7 @@ namespace PHLPracticeModPack
             string focus = haveFocus
                 ? ("(" + fx.ToString("F0") + "," + fz.ToString("F0") + ")")
                 : "none";
-            Debug.Log("[PHLPractice] Render scope status: renderAll=" + renderAll +
+            PracticeLog.Info("[PHLPractice] Render scope status: renderAll=" + renderAll +
                       " needsAllSheet=" + RinkPreview.NeedsAllSheetLighting +
                       " focus=" + focus +
                       " drawEntries=" + EntryCount +

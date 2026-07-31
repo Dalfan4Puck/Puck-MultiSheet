@@ -479,7 +479,7 @@ public static class CustomLevelPlugin
             if (MultiSheetClientSettings.SkipClientBuild)
             {
                 clientBuildDone = true;
-                Debug.Log("[PHLPractice] skipClientBuild — client rink visuals skipped (FPS A/B).");
+                PracticeLog.Info("[PHLPractice] skipClientBuild — client rink visuals skipped (FPS A/B).");
                 InvokeClientBuildWhenReady();
                 return;
             }
@@ -553,9 +553,9 @@ public static class CustomLevelPlugin
         RinkPreview.NotifyClientBuildComplete();
         clientBuildDone = true;
         clientBuildCoroutine = null;
-        Debug.Log("[PHLPractice] Server confirmed MultiSheet — client layout built (" +
+        PracticeLog.Info("[PHLPractice] Server confirmed MultiSheet — client layout built (" +
                   (cfg.Rinks?.Count ?? 0) + " rink slot(s), frame-spread).");
-        Debug.Log("[PHLPractice] Client layout ready.");
+        PracticeLog.Info("[PHLPractice] Client layout ready.");
         InvokeClientBuildWhenReady();
     }
 
@@ -650,7 +650,7 @@ public static class CustomLevelPlugin
     {
         if (MultiSheetClientSettings.SkipClientBuild)
         {
-            Debug.Log("[PHLPractice] skipClientBuild — BuildClientSide no-op (FPS A/B).");
+            PracticeLog.Info("[PHLPractice] skipClientBuild — BuildClientSide no-op (FPS A/B).");
             return;
         }
 
@@ -669,7 +669,7 @@ public static class CustomLevelPlugin
         SpawnGroundPlane(cfg.Rinks, spawnedClientRoot);
         HideVanillaScoreboards();
         RinkPreview.NotifyClientBuildComplete();
-        Debug.Log("[PHLPractice] Client layout ready.");
+        PracticeLog.Info("[PHLPractice] Client layout ready.");
     }
 
     /// <summary>

@@ -1,5 +1,5 @@
-// ---- Pass service trace → server puck.log. Comment out the next line to disable all [PassSvc] lines. ----
-#define PASS_SERVICE_DEBUG_LOG
+// ---- Pass service trace → server puck.log. Uncomment the next line to enable [PassSvc] lines. ----
+// #define PASS_SERVICE_DEBUG_LOG
 
 using System;
 using System.Collections;

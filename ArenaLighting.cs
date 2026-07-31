@@ -128,7 +128,7 @@ namespace PHLPracticeModPack
             if (!enabled) SetAllRinkLightsEnabled(false);
             Apply();
             RefreshRinkLightCulling();
-            Debug.Log("[PHLPractice] Arena lighting " + (enabled ? "ON" : "OFF") + " — " +
+            PracticeLog.Info("[PHLPractice] Arena lighting " + (enabled ? "ON" : "OFF") + " — " +
                       rinkLights.Count + " clone light(s) " +
                       (enabled ? "culled to the local sheet" : "disabled") + ".");
         }
@@ -181,7 +181,7 @@ namespace PHLPracticeModPack
                     Ambient = RenderSettings.ambientLight;
                 }
                 SyncEnforcer();
-                Debug.Log("[PHLPractice] Arena lighting and day/night off — stock sun/sky/ambient, clone fills off.");
+                PracticeLog.Info("[PHLPractice] Arena lighting and day/night off — stock sun/sky/ambient, clone fills off.");
                 return;
             }
 
@@ -205,7 +205,7 @@ namespace PHLPracticeModPack
 
             SyncEnforcer();
 
-            Debug.Log("[PHLPractice] Arena lighting applied — " +
+            PracticeLog.Info("[PHLPractice] Arena lighting applied — " +
                       (stockLook
                           ? "stock look (Limit Rink Changes)"
                           : ("fills " + (skipFills ? "off" : "on") + ", " +
@@ -660,7 +660,7 @@ namespace PHLPracticeModPack
                 UnityEngine.Object.Destroy(cycles[i]);
             }
             if (cycles.Length > 0)
-                Debug.Log("[PHLPractice] Replaced " + cycles.Length + " vendored day/night driver(s) with the MultiSheet cycle.");
+                PracticeLog.Info("[PHLPractice] Replaced " + cycles.Length + " vendored day/night driver(s) with the MultiSheet cycle.");
         }
 
         private struct RinkLight

@@ -158,7 +158,7 @@ namespace PHLPracticeModPack
                 player.Server_SpawnCharacter(position, rot, PlayerRole.Goalie);
                 MultiRinkService.RefreshChunkSlot(player.PlayerBody);
                 ApplyInheritedRoleVelocity(player, inheritLinearVelocity, inheritAngularVelocity);
-                Debug.Log("[PHLPractice] Spawned client " + player.OwnerClientId + " as " + player.Team +
+                PracticeLog.Info("[PHLPractice] Spawned client " + player.OwnerClientId + " as " + player.Team +
                           " goalie at " + slot.Id + " pos=" + position.ToString("F2") +
                           " body=" + (player.PlayerBody != null
                               ? player.PlayerBody.transform.position.ToString("F2")
@@ -500,8 +500,7 @@ namespace PHLPracticeModPack
                 || GoalieAIManager.IsAIGoalieClientId(player.OwnerClientId)
                 || PuckChasers.StandaloneFakePlayerDetector.IsAnyFakeClientId(player.OwnerClientId))
             {
-                if (newPhase == PlayerPhase.Play) return false;
-                return true;
+                return false;
             }
 
             if (newPhase == PlayerPhase.PositionSelect && player.IsCharacterSpawned)

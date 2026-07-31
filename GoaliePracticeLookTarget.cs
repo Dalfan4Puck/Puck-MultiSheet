@@ -14,6 +14,7 @@ namespace PHLPracticeModPack
     internal static class GoaliePracticeLookTarget
     {
         private const string Channel = "multisheet-goalie-look-v2";
+        private const string ResyncChannel = "multisheet-goalie-look-req";
 
         private static readonly Dictionary<int, ulong> clientLookObjectIdByRink = new Dictionary<int, ulong>();
         private static readonly Dictionary<int, ulong> clientQueuedObjectIdByRink = new Dictionary<int, ulong>();
@@ -21,6 +22,30 @@ namespace PHLPracticeModPack
         private static readonly Dictionary<int, ulong> lastBroadcastQueuedByRink = new Dictionary<int, ulong>();
         private static CustomMessagingManager registeredMessaging;
         private static NetworkManager registeredManager;
+
+        /// <summary>Remote clients call after MOTD / scene ready so they catch look targets missed at connect.</summary>
+        internal static void RequestClientResync()
+        {
+            try
+            {
+                NetworkManager nm = NetworkManager.Singleton;
+                if (nm == null || !nm.IsConnectedClient || nm.IsServer)
+                    return;
+                if (nm.CustomMessagingManager == null)
+                    return;
+
+                using (FastBufferWriter writer = new FastBufferWriter(1, Allocator.Temp))
+                {
+                    writer.WriteValueSafe((byte)1);
+                    nm.CustomMessagingManager.SendNamedMessage(
+                        ResyncChannel,
+                        NetworkManager.ServerClientId,
+                        writer,
+                        NetworkDelivery.Reliable);
+                }
+            }
+            catch { }
+        }
 
         internal static void Initialize()
         {
@@ -65,11 +90,17 @@ namespace PHLPracticeModPack
             ulong lookId = ResolveObjectId(lookPuck);
             ulong queuedId = ResolveObjectId(queuedPuck);
 
-            // Hold the update until spawned drill pucks have network ids (clients need this).
+            // Primary not replicated yet — still publish queued holder so clients can look ahead.
             if (lookPuck != null && lookId == 0)
-                return;
-            if (queuedPuck != null && queuedId == 0)
-                queuedPuck = null;
+            {
+                if (queuedPuck == null || queuedId == 0)
+                    return;
+                lookId = 0;
+            }
+            else if (queuedPuck != null && queuedId == 0)
+            {
+                queuedId = 0;
+            }
 
             bool lookSame = lastBroadcastLookByRink.TryGetValue(rinkIndex, out ulong prevLook)
                 && prevLook == lookId;
@@ -141,8 +172,36 @@ namespace PHLPracticeModPack
             if (pm == null)
                 return false;
 
-            puck = pm.GetPuckByNetworkObjectId(objectId);
-            return puck != null && puck.gameObject != null;
+            try
+            {
+                puck = pm.GetPuckByNetworkObjectId(objectId);
+                if (puck != null && puck.gameObject != null)
+                    return true;
+            }
+            catch { }
+
+            // Fallback when the lookup table lags behind replication (seen on some joining clients).
+            try
+            {
+                var pucks = pm.GetPucks(false);
+                if (pucks != null)
+                {
+                    for (int i = 0; i < pucks.Count; i++)
+                    {
+                        Puck candidate = pucks[i];
+                        if (candidate?.NetworkObject == null || !candidate.NetworkObject.IsSpawned)
+                            continue;
+                        if (candidate.NetworkObject.NetworkObjectId != objectId)
+                            continue;
+                        puck = candidate;
+                        return puck.gameObject != null;
+                    }
+                }
+            }
+            catch { }
+
+            puck = null;
+            return false;
         }
 
         private static ulong ResolveObjectId(Puck puck)
@@ -166,7 +225,11 @@ namespace PHLPracticeModPack
             registeredManager = manager;
             registeredMessaging = manager.CustomMessagingManager;
             registeredMessaging.RegisterNamedMessageHandler(Channel, OnMessage);
+            registeredMessaging.RegisterNamedMessageHandler(ResyncChannel, OnResyncRequest);
             manager.OnClientConnectedCallback += OnClientConnected;
+
+            if (manager.IsConnectedClient && !manager.IsServer)
+                RequestClientResync();
         }
 
         private static void Detach()
@@ -181,6 +244,7 @@ namespace PHLPracticeModPack
             try
             {
                 registeredMessaging?.UnregisterNamedMessageHandler(Channel);
+                registeredMessaging?.UnregisterNamedMessageHandler(ResyncChannel);
             }
             catch { }
 
@@ -195,6 +259,26 @@ namespace PHLPracticeModPack
             if (clientId == NetworkManager.ServerClientId)
                 return;
 
+            SendSnapshotToClient(clientId);
+        }
+
+        private static void OnResyncRequest(ulong senderClientId, FastBufferReader reader)
+        {
+            try
+            {
+                NetworkManager nm = NetworkManager.Singleton;
+                if (nm == null || !nm.IsServer)
+                    return;
+                if (senderClientId == NetworkManager.ServerClientId)
+                    return;
+
+                SendSnapshotToClient(senderClientId);
+            }
+            catch { }
+        }
+
+        private static void SendSnapshotToClient(ulong clientId)
+        {
             foreach (KeyValuePair<int, ulong> pair in lastBroadcastLookByRink)
             {
                 ulong queuedId = 0;

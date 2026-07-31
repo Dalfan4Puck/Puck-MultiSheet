@@ -168,6 +168,17 @@ namespace PHLPracticeModPack
             if (FakePlayerDetector.IsAnyFakePlayer(player)) return;
 
             EnsureModeListSize(rinkIndex + 1);
+            if (RinkStripModeUtil.IsStripModeLocked(rinkIndex))
+            {
+                if (mode != RinkStripMode.PhlTools)
+                {
+                    QueuePrivate(player.OwnerClientId, RinkStripModeUtil.StripModeLockedMessage(rinkIndex));
+                    return;
+                }
+                QueuePrivate(player.OwnerClientId, RinkStripModeUtil.StripModeLockedMessage(rinkIndex));
+                return;
+            }
+
             if (GetServerMode(rinkIndex) == mode)
             {
                 QueuePrivate(player.OwnerClientId,
@@ -310,6 +321,9 @@ namespace PHLPracticeModPack
 
             nextReconcileAt = Time.unscaledTime + 2f;
 
+            if (RinkStripModeUtil.IsStripModeLocked(0) && serverModes[0] != RinkStripMode.PhlTools)
+                ApplyStripMode(0, RinkStripMode.PhlTools, announce: false);
+
             for (int i = 0; i < serverModes.Count; i++)
             {
                 if (serverModes[i] != RinkStripMode.PhlTools)
@@ -327,6 +341,9 @@ namespace PHLPracticeModPack
         private static void ApplyStripMode(int rinkIndex, RinkStripMode mode, bool announce)
         {
             EnsureModeListSize(rinkIndex + 1);
+
+            if (RinkStripModeUtil.IsStripModeLocked(rinkIndex))
+                mode = RinkStripMode.PhlTools;
 
             if (mode == RinkStripMode.PuckChasers
                 && TryGetChasersOccupiedRink(rinkIndex, out int chasersRink))

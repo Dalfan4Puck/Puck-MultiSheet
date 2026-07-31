@@ -116,7 +116,7 @@ namespace PHLPracticeModPack
             if (patched > 0)
             {
                 patchesInstalled = true;
-                Debug.Log("[PHLPractice] TRL compatibility: hooked " + patched + " apply point(s).");
+                PracticeLog.Info("[PHLPractice] TRL compatibility: hooked " + patched + " apply point(s).");
             }
         }
 
@@ -142,7 +142,7 @@ namespace PHLPracticeModPack
             }
             patchedMethods.Clear();
             patchesInstalled = false;
-            Debug.Log("[PHLPractice] TRL compatibility hooks removed (Limit Rink Changes).");
+            PracticeLog.Info("[PHLPractice] TRL compatibility hooks removed (Limit Rink Changes).");
         }
 
         private static bool TryPatch(string typeName, string methodName)

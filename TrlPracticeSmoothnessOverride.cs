@@ -23,7 +23,7 @@ namespace PHLPracticeModPack
 
             if (profileChanged || iceChanged || glassChanged > 0)
             {
-                Debug.Log("[PHLPractice] Practice smoothness override — ice/glass _Smoothness=0" +
+                PracticeLog.Info("[PHLPractice] Practice smoothness override — ice/glass _Smoothness=0" +
                           " (profile=" + (profileChanged ? "updated" : "ok") +
                           ", iceMat=" + (iceChanged ? "updated" : "ok") +
                           ", glassRenderers=" + glassChanged + ").");
