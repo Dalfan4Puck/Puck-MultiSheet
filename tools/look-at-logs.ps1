@@ -56,7 +56,11 @@ function Invoke-ScpFetch {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
     }
     if (Test-Path $LocalPath) {
-        return
+        # Puck.log always refresh — stale cache hid recent radio/verbose lines.
+        if ($LocalPath -notmatch 'Puck\.server\.log$') {
+            return
+        }
+        Remove-Item $LocalPath -Force -ErrorAction SilentlyContinue
     }
     $env:SSH_ASKPASS = $AskPassScript
     $env:SSH_ASKPASS_REQUIRE = "force"

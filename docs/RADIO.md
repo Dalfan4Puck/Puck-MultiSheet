@@ -16,7 +16,11 @@ Clients each call `/track?id=` and seek to:
 
 `seek = ServerTime.Time - trackStartServerTime`
 
-Late joiners get a snapshot on connect and hear the current song mid-track. Drift is corrected ~1 Hz if off by &gt;0.35s.
+Late joiners get a snapshot on connect and hear the current song mid-track. Drift is corrected ~1 Hz if off by >0.25s (not during the first 2s of a track). Clock start uses `PlayScheduled` for a clean intro.
+
+**Server-only advance:** the playlist advances when `ServerTime - trackStart >= duration`. Client end-reports do not advance the server playlist.
+
+**Prepare phase:** server broadcasts `clockStarted=false`. Clients download MP3 to Unity temp (`FlamiePracRadio/`), decode from disk, and report duration + ready. Server starts the clock when majority ready **and** a duration is known, or after a 15s timeout. Cache is cleared on disconnect.
 
 ### Skip vote
 
