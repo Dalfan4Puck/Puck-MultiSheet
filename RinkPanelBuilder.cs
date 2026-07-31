@@ -1021,8 +1021,6 @@ namespace PHLPracticeModPack
             bool embedded,
             int hereBannerH)
         {
-            RinkStripMode stripMode = GetStripMode(payload, index);
-            string capacityHint = RinkStripModeUtil.GetJoinCapacityHint(stripMode);
             // Full-bleed preview; tile height follows preview + strip only (no flex-grow gap).
             bool dense = payload.Rinks.Count > 6;
             int previewH = GetRinkPreviewHeight(dense, embedded);
@@ -1119,13 +1117,10 @@ namespace PHLPracticeModPack
             }
 
             tile.tooltip = isFull
-                ? (entry.Label + " is full"
-                    + (string.IsNullOrEmpty(capacityHint) ? "" : " — " + capacityHint))
+                ? entry.Label + " is full"
                 : isHere
-                    ? "Respawn at " + entry.Label
-                    : string.IsNullOrEmpty(capacityHint)
-                        ? "Teleport to " + entry.Label
-                        : "Teleport to " + entry.Label + " (" + capacityHint + ")";
+                    ? "You are here — " + entry.Label
+                    : "Teleport to " + entry.Label;
 
             // Static overview snap only — no live hover camera (FPS).
             // --- LIVE HOVER (disabled) — restore with RinkPreview live block ---
@@ -1147,14 +1142,23 @@ namespace PHLPracticeModPack
             else
             {
                 int rinkIndex = index;
-                tile.pickingMode = PickingMode.Position;
-                tile.focusable = true;
-                tile.RegisterCallback<PointerDownEvent>(delegate(PointerDownEvent evt)
+                if (!isHere)
                 {
-                    if (evt.button != 0) return;
-                    callbacks.OnSelectRink?.Invoke(rinkIndex);
-                    evt.StopPropagation();
-                });
+                    tile.pickingMode = PickingMode.Position;
+                    tile.focusable = true;
+                    tile.RegisterCallback<PointerDownEvent>(delegate(PointerDownEvent evt)
+                    {
+                        if (evt.button != 0) return;
+                        callbacks.OnSelectRink?.Invoke(rinkIndex);
+                        evt.StopPropagation();
+                    });
+                }
+                else
+                {
+                    tile.pickingMode = PickingMode.Ignore;
+                    tile.focusable = false;
+                }
+
                 tile.RegisterCallback<MouseEnterEvent>(delegate
                 {
                     if (!isHere) SetBorder(tile, 2, AccentBright);
@@ -1191,6 +1195,12 @@ namespace PHLPracticeModPack
             RinkStripMode current = GetStripMode(payload, rinkIndex);
             if (!RinkStripModeUtil.IsPracticeMode(current))
                 StripDropdownSelection.Remove(rinkIndex);
+
+            if (pending == RinkStripMode.PuckChasers
+                && RinkStripModeUtil.TryGetChasersOccupiedRink(payload?.StripModes, rinkIndex, out _))
+            {
+                StripDropdownSelection.Remove(rinkIndex);
+            }
         }
 
         internal static void ClearStripDropdownSelection(int rinkIndex)
@@ -1215,6 +1225,7 @@ namespace PHLPracticeModPack
         private const string StripMenuOverlayName = "StripPracticeMenuOverlay";
 
         private static VisualElement MakeStripPracticeDropdown(
+            RinkMotdPayload payload,
             int rinkIndex,
             RinkStripMode selected,
             int barH,
@@ -1259,7 +1270,7 @@ namespace PHLPracticeModPack
             trigger.RegisterCallback<PointerDownEvent>(evt =>
             {
                 if (evt.button != 0) return;
-                ShowCompactStripMenu(trigger, fontSize, mode =>
+                ShowCompactStripMenu(trigger, payload, rinkIndex, fontSize, mode =>
                 {
                     onSelected?.Invoke(mode);
                     caption.text = RinkStripModeUtil.DropdownLabel(mode);
@@ -1325,7 +1336,12 @@ namespace PHLPracticeModPack
             return button;
         }
 
-        private static void ShowCompactStripMenu(VisualElement anchor, int fontSize, Action<RinkStripMode> onPick)
+        private static void ShowCompactStripMenu(
+            VisualElement anchor,
+            RinkMotdPayload payload,
+            int rinkIndex,
+            int fontSize,
+            Action<RinkStripMode> onPick)
         {
             IPanel panel = anchor?.panel;
             if (panel == null) return;
@@ -1363,22 +1379,58 @@ namespace PHLPracticeModPack
 
             menu.RegisterCallback<PointerDownEvent>(evt => evt.StopPropagation());
 
+            bool chasersBlocked = RinkStripModeUtil.TryGetChasersOccupiedRink(
+                payload?.StripModes,
+                rinkIndex,
+                out int chasersRink);
+
             for (int i = 0; i < RinkStripModeUtil.DropdownModes.Length; i++)
             {
                 RinkStripMode mode = RinkStripModeUtil.DropdownModes[i];
                 string itemLabel = RinkStripModeUtil.DisplayName(mode);
-                Button item = MakeStripBarButton(itemLabel, StripMenuRowHeight, fontSize, TextColor, ElevatedBg);
+                bool blocked = mode == RinkStripMode.PuckChasers && chasersBlocked;
+                if (blocked)
+                    itemLabel = itemLabel + " (Rink " + (chasersRink + 1) + ")";
+
+                Color itemText = blocked ? MutedText : TextColor;
+                Color itemBg = blocked ? new Color(ElevatedBg.r, ElevatedBg.g, ElevatedBg.b, 0.65f) : ElevatedBg;
+                Button item = MakeStripBarButton(itemLabel, StripMenuRowHeight, fontSize, itemText, itemBg);
                 item.style.width = new Length(100, LengthUnit.Percent);
                 item.style.borderTopWidth = i > 0 ? 1 : 0;
                 item.style.borderTopColor = ColumnRule;
-                item.RegisterCallback<MouseEnterEvent>(_ => item.style.backgroundColor = ButtonHover);
-                item.RegisterCallback<MouseLeaveEvent>(_ => item.style.backgroundColor = ElevatedBg);
-                item.clicked += delegate
+                if (blocked)
                 {
-                    onPick?.Invoke(mode);
-                    CloseMenu();
-                };
+                    item.SetEnabled(false);
+                    item.tooltip = RinkStripModeUtil.ChasersBlockedMessage(chasersRink);
+                }
+                else
+                {
+                    item.RegisterCallback<MouseEnterEvent>(_ => item.style.backgroundColor = ButtonHover);
+                    item.RegisterCallback<MouseLeaveEvent>(_ => item.style.backgroundColor = ElevatedBg);
+                    item.clicked += delegate
+                    {
+                        onPick?.Invoke(mode);
+                        CloseMenu();
+                    };
+                }
                 menu.Add(item);
+            }
+
+            if (chasersBlocked)
+            {
+                Label hint = MakeLabel(
+                    RinkStripModeUtil.ChasersBlockedMessage(chasersRink),
+                    fontSize - 1,
+                    MutedText,
+                    FontStyle.Italic);
+                hint.style.whiteSpace = WhiteSpace.Normal;
+                hint.style.paddingLeft = 8;
+                hint.style.paddingRight = 8;
+                hint.style.paddingTop = 6;
+                hint.style.paddingBottom = 6;
+                hint.style.borderTopWidth = 1;
+                hint.style.borderTopColor = ColumnRule;
+                menu.Add(hint);
             }
 
             overlay.RegisterCallback<PointerDownEvent>(evt =>
@@ -1416,9 +1468,6 @@ namespace PHLPracticeModPack
             if (activeMode)
             {
                 string modeLabel = RinkStripModeUtil.DisplayName(current);
-                string capHint = RinkStripModeUtil.GetJoinCapacityHint(current);
-                if (!string.IsNullOrEmpty(capHint))
-                    modeLabel = modeLabel + " · " + capHint;
                 string removeLabel = RinkStripModeUtil.RemoveBarLabel(current);
 
                 Color idleBorder = votingToClear ? FullRed : CtaBg;
@@ -1459,6 +1508,11 @@ namespace PHLPracticeModPack
             RinkStripMode selected = GetStripDropdownSelection(payload, rinkIndex);
             PruneStripDropdownSelection(payload, rinkIndex);
             selected = GetStripDropdownSelection(payload, rinkIndex);
+            bool chasersBlocked = RinkStripModeUtil.TryGetChasersOccupiedRink(
+                payload?.StripModes,
+                rinkIndex,
+                out int chasersRink);
+            bool confirmBlocked = chasersBlocked && selected == RinkStripMode.PuckChasers;
             bool votingToApply = votingHere && voteProgress.Mode != RinkStripMode.Empty;
             Color voteAccent = CtaBg;
             Color barBg = votingHere
@@ -1477,6 +1531,7 @@ namespace PHLPracticeModPack
             wrap.Add(bar);
 
             VisualElement dropdown = MakeStripPracticeDropdown(
+                payload,
                 rinkIndex,
                 selected,
                 barH,
@@ -1491,15 +1546,27 @@ namespace PHLPracticeModPack
                 "\u2192",
                 barH,
                 fontSize + 2,
-                votingToApply ? TextColor : MutedText,
+                confirmBlocked ? MutedText : votingToApply ? TextColor : MutedText,
                 confirmBase);
             confirm.clicked += delegate
             {
+                if (confirmBlocked)
+                    return;
                 if (!StripDropdownSelection.TryGetValue(rinkIndex, out RinkStripMode pending)
                     || !RinkStripModeUtil.IsPracticeMode(pending))
                     return;
+                if (pending == RinkStripMode.PuckChasers
+                    && RinkStripModeUtil.TryGetChasersOccupiedRink(payload?.StripModes, rinkIndex, out _))
+                {
+                    return;
+                }
                 callbacks?.OnVoteStrip?.Invoke(rinkIndex, pending);
             };
+            if (confirmBlocked)
+            {
+                confirm.SetEnabled(false);
+                confirm.tooltip = RinkStripModeUtil.ChasersBlockedMessage(chasersRink);
+            }
             confirm.name = "StripConfirm_" + rinkIndex;
             confirm.style.width = embedded ? 30 : 34;
             confirm.style.minWidth = embedded ? 30 : 34;
@@ -1624,10 +1691,6 @@ namespace PHLPracticeModPack
                             : VoteBadgeOrange;
                 row.Add(MakeFeatureBadge(badgeText, badgeColor, embedded));
             }
-
-            string capBadge = RinkStripModeUtil.GetJoinCapacityBadge(stripMode);
-            if (!string.IsNullOrEmpty(capBadge))
-                row.Add(MakeFeatureBadge(capBadge, FullRed, embedded));
         }
 
         private static VisualElement MakeInlineOverlayChip(string text, int fontSize, Color color)

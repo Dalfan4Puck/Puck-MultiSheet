@@ -62,13 +62,54 @@ namespace PHLPracticeModPack
 
             EnsureConfig();
             RinkGeometry.ActiveOrigin = origin;
+            RinkGeometry.MarkerReferenceOrigin = GetPrimaryRinkOrigin();
             activeRinkIndex = rinkIndex;
 
             GoalieAIManager.SetAutoEnabled(true);
             SkaterAIManager.SetEnabled(true);
 
+            SpawnCenterIcePuck(origin);
+
             PracticeLog.Info("[PuckChasers] Enabled on rink " + (rinkIndex + 1) +
                              " origin=" + origin.ToString("F1"));
+        }
+
+        /// <summary>
+        /// Mode entry clears the sheet — give the chase a single puck at center ice so the
+        /// bots have something on their own rink to play with.
+        /// </summary>
+        private static void SpawnCenterIcePuck(Vector3 origin)
+        {
+            try
+            {
+                PuckManager pm = MonoBehaviourSingleton<PuckManager>.Instance;
+                if (pm == null) return;
+
+                Vector3 pos = new Vector3(
+                    origin.x,
+                    origin.y + VanillaRinkCloner.IceSurfaceY + 0.25f,
+                    origin.z);
+
+                Puck puck = null;
+                try
+                {
+                    var spawn = pm.GetType().GetMethod(
+                        "Server_SpawnPuck",
+                        new Type[] { typeof(Vector3), typeof(Quaternion), typeof(bool) });
+                    if (spawn != null)
+                        puck = spawn.Invoke(pm, new object[] { pos, Quaternion.identity, false }) as Puck;
+                }
+                catch { }
+
+                if (puck == null)
+                    puck = pm.Server_SpawnPuck(pos, Quaternion.identity);
+
+                PracticeLog.Info("[PuckChasers] Center-ice puck spawned: " + (puck != null));
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[PuckChasers] Center puck spawn failed: " + ex.Message);
+            }
         }
 
         private static void Stop()
@@ -88,6 +129,7 @@ namespace PHLPracticeModPack
             PossessionTracker.Reset();
             IceSituation.Reset();
             RinkGeometry.ActiveOrigin = Vector3.zero;
+            RinkGeometry.MarkerReferenceOrigin = Vector3.zero;
             activeRinkIndex = -1;
             PracticeLog.Info("[PuckChasers] Stopped.");
         }
@@ -109,6 +151,13 @@ namespace PHLPracticeModPack
             if (slot == null) return false;
             origin = slot.Origin;
             return true;
+        }
+
+        private static Vector3 GetPrimaryRinkOrigin()
+        {
+            MultiRinkConfig cfg = MultiRinkConfig.Current;
+            RinkSlot primary = cfg?.Rinks != null && cfg.Rinks.Count > 0 ? cfg.Rinks[0] : null;
+            return primary != null ? primary.Origin : Vector3.zero;
         }
 
         /// <summary>True when the given world position sits on the active Chasers rink.</summary>

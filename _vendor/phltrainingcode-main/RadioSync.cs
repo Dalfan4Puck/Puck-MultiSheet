@@ -26,13 +26,12 @@ public static class RadioSync
     public const byte FlagClockStarted = 1;
 
     private const float StateResyncSeconds = 30f;
-    private const float MinTrackSecondsBeforeEnd = 1.5f;
-    /// <summary>Offline / local shuffle gap between tracks.</summary>
+    /// <summary>Gap between tracks — clients decode the prefetched file during this window.</summary>
     public const float InterTrackGapSeconds = 2.5f;
-    /// <summary>Max wait for client track prep before the server starts anyway.</summary>
-    private const float ReadyTimeoutSeconds = 15f;
-    /// <summary>If the clock runs this long with no client duration, skip the stuck track.</summary>
-    private const float StuckWithoutDurationSeconds = 8f;
+    /// <summary>With listeners connected: max wait for the first duration report before skipping a broken track.</summary>
+    private const float NoDurationSkipSeconds = 45f;
+    /// <summary>With nobody listening: coarse rotation length for tracks whose duration was never learned.</summary>
+    private const float UnknownDurationFallbackSeconds = 240f;
     /// <summary>Re-poll phlstats /playlist so newly uploaded tracks enter the shuffle without a reboot.</summary>
     private const float PlaylistRefreshSeconds = 300f;
 
@@ -40,13 +39,11 @@ public static class RadioSync
     private static readonly List<string> shuffleOrder = new List<string>();
     private static readonly HashSet<ulong> skipVotes = new HashSet<ulong>();
     private static readonly HashSet<ulong> restartVotes = new HashSet<ulong>();
-    private static readonly HashSet<ulong> readyClients = new HashSet<ulong>();
     private static readonly Dictionary<string, float> durations = new Dictionary<string, float>(StringComparer.Ordinal);
 
     private static string currentTrackId = string.Empty;
     private static double trackStartServerTime;
     private static bool clockStarted;
-    private static float prepareStartedAt;
     private static int shuffleIndex;
     private static bool serverReady;
     private static bool fetchStarted;
@@ -72,11 +69,9 @@ public static class RadioSync
         skipVotes.Clear();
         restartVotes.Clear();
         durations.Clear();
-        readyClients.Clear();
         currentTrackId = string.Empty;
         trackStartServerTime = 0;
         clockStarted = false;
-        prepareStartedAt = 0f;
         shuffleIndex = 0;
         serverReady = false;
         fetchStarted = false;
@@ -105,8 +100,6 @@ public static class RadioSync
             return;
 
         PruneDisconnectedVoters(nm);
-        PruneDisconnectedReady(nm);
-        TryStartTrackWhenReady(nm);
         TryAutoAdvance(nm);
 
         if (Time.unscaledTime >= nextStateBroadcastAt)
@@ -122,20 +115,6 @@ public static class RadioSync
             skipVotes.RemoveWhere(id => !IsClientConnected(nm, id));
         if (restartVotes.Count > 0)
             restartVotes.RemoveWhere(id => !IsClientConnected(nm, id));
-    }
-
-    private static void PruneDisconnectedReady(NetworkManager nm)
-    {
-        if (readyClients.Count == 0)
-            return;
-
-        readyClients.RemoveWhere(id => !IsClientConnected(nm, id));
-    }
-
-    private static int CountReadyClients(NetworkManager nm)
-    {
-        PruneDisconnectedReady(nm);
-        return readyClients.Count;
     }
 
     private static int CountEligibleRadioClients(NetworkManager nm)
@@ -154,61 +133,6 @@ public static class RadioSync
         }
 
         return n;
-    }
-
-    private static void TryStartTrackWhenReady(NetworkManager nm)
-    {
-        if (clockStarted || string.IsNullOrEmpty(currentTrackId))
-            return;
-
-        int eligible = CountEligibleRadioClients(nm);
-        int have = CountReadyClients(nm);
-        int need = MajorityNeed(Math.Max(1, eligible));
-        bool timeout = prepareStartedAt > 0f
-            && Time.unscaledTime - prepareStartedAt >= ReadyTimeoutSeconds;
-
-        if (eligible == 0)
-        {
-            if (timeout)
-                StartTrackClock(nm);
-            return;
-        }
-
-        // Wait for a client duration report before starting the clock (unless prepare timeout).
-        if (!timeout && !HasKnownDuration(currentTrackId))
-            return;
-
-        if (have >= need || timeout)
-            StartTrackClock(nm);
-    }
-
-    private static bool HasKnownDuration(string trackId)
-    {
-        return !string.IsNullOrEmpty(trackId) &&
-               durations.TryGetValue(trackId, out float dur) &&
-               dur > 0.05f;
-    }
-
-    private static void StartTrackClock(NetworkManager nm)
-    {
-        if (clockStarted || string.IsNullOrEmpty(currentTrackId))
-            return;
-
-        trackStartServerTime = nm != null ? nm.ServerTime.Time : Time.realtimeSinceStartupAsDouble;
-        int ready = CountReadyClients(nm);
-        int eligible = CountEligibleRadioClients(nm);
-        clockStarted = true;
-        readyClients.Clear();
-        BroadcastState();
-        FlamieLog.Info("[FlamiePrac] RadioSync started '" + currentTrackId + "' ready=" + ready + "/" + eligible);
-    }
-
-    private static void BeginPreparePhase()
-    {
-        clockStarted = false;
-        trackStartServerTime = 0;
-        readyClients.Clear();
-        prepareStartedAt = Time.unscaledTime;
     }
 
     private static bool IsClientConnected(NetworkManager nm, ulong clientId)
@@ -265,10 +189,7 @@ public static class RadioSync
                 string id = ReadString(reader);
                 reader.ReadValueSafe(out float duration);
                 if (TryStoreDuration(id, duration) && id == currentTrackId)
-                {
                     BroadcastState();
-                    TryStartTrackWhenReady(nm);
-                }
                 break;
             }
             case ReqTrackEnded:
@@ -276,19 +197,9 @@ public static class RadioSync
                 ReadString(reader);
                 break;
             case ReqTrackReady:
-            {
-                string id = ReadString(reader);
-                if (!serverReady || clockStarted || string.IsNullOrEmpty(currentTrackId))
-                    break;
-                if (!string.Equals(id, currentTrackId, StringComparison.Ordinal))
-                    break;
-                readyClients.Add(senderClientId);
-                FlamieLog.Info("[FlamiePrac] RadioSync client ready " + senderClientId +
-                               " for '" + id + "' (" + CountReadyClients(nm) + "/" +
-                               CountEligibleRadioClients(nm) + ")");
-                TryStartTrackWhenReady(nm);
+                // 24/7 scheduled clock — ready reports are legacy no-ops.
+                ReadString(reader);
                 break;
-            }
         }
     }
 
@@ -333,17 +244,34 @@ public static class RadioSync
         string trackId = ReadString(reader);
         bool stateClockStarted = (flags & FlagClockStarted) != 0;
 
+        // Next shuffle pick (prefetch hint) — absent on older servers.
+        string nextTrackId = string.Empty;
+        try
+        {
+            nextTrackId = ReadString(reader);
+        }
+        catch
+        {
+            nextTrackId = string.Empty;
+        }
+
         if (string.IsNullOrEmpty(trackId))
             return;
 
         EnsureClientRadio(TrainingSync.Instance);
+        PendingClientState.NextTrackId = nextTrackId;
 
         if (RadioController.Instance != null)
+        {
             RadioController.Instance.ApplyServerState(
                 trackId, startServerTime, duration, voteCount, restartVoteCount, voteNeed, stateClockStarted);
+            RadioController.Instance.ApplyServerNextTrack(nextTrackId);
+        }
         else
+        {
             PendingClientState.Store(
                 trackId, startServerTime, duration, voteCount, restartVoteCount, voteNeed, stateClockStarted);
+        }
 
         try
         {
@@ -419,32 +347,7 @@ public static class RadioSync
 
     public static void ClientReportTrackReady(string trackId)
     {
-        if (string.IsNullOrEmpty(trackId))
-            return;
-
-        NetworkManager nm = NetworkManager.Singleton;
-        if (nm != null && nm.IsServer)
-        {
-            if (!serverReady || clockStarted || trackId != currentTrackId)
-                return;
-            readyClients.Add(nm.LocalClientId);
-            TryStartTrackWhenReady(nm);
-            return;
-        }
-
-        if (nm == null || !nm.IsClient || nm.CustomMessagingManager == null)
-            return;
-
-        using (FastBufferWriter writer = new FastBufferWriter(64, Allocator.Temp))
-        {
-            writer.WriteValueSafe(ReqTrackReady);
-            WriteString(writer, trackId);
-            nm.CustomMessagingManager.SendNamedMessage(
-                "FlamiePrac_RadioRequest",
-                NetworkManager.ServerClientId,
-                writer,
-                NetworkDelivery.Reliable);
-        }
+        // 24/7 scheduled clock — ready reports are no longer needed.
     }
 
     /// <summary>Offline / no Netcode: local client owns a simple shuffle.</summary>
@@ -460,6 +363,7 @@ public static class RadioSync
     private static IEnumerator ServerBootstrap()
     {
         LoadServerApiBase();
+        LoadPersistedDurations();
         yield return FetchPlaylistIds();
 
         if (playlistIds.Count == 0)
@@ -673,9 +577,24 @@ public static class RadioSync
         }
 
         currentTrackId = next;
-        BeginPreparePhase();
+        // 24/7 station: the clock always runs. The gap gives clients time to decode
+        // the (usually prefetched) file; a negative seek means "starts soon".
+        trackStartServerTime = NowServerTime() + InterTrackGapSeconds;
+        clockStarted = true;
         skipVotes.Clear();
         restartVotes.Clear();
+    }
+
+    /// <summary>Next shuffle pick — broadcast so clients can prefetch it during playback.</summary>
+    private static string PeekNextTrackId()
+    {
+        if (playlistIds.Count == 0)
+            return string.Empty;
+
+        if (shuffleIndex >= shuffleOrder.Count)
+            BuildShuffleOrder(currentTrackId);
+
+        return shuffleIndex < shuffleOrder.Count ? shuffleOrder[shuffleIndex] : string.Empty;
     }
 
     private static void RestartCurrentTrack()
@@ -683,11 +602,12 @@ public static class RadioSync
         if (string.IsNullOrEmpty(currentTrackId))
             return;
 
-        BeginPreparePhase();
+        trackStartServerTime = NowServerTime() + 1.0;
+        clockStarted = true;
         skipVotes.Clear();
         restartVotes.Clear();
         BroadcastState();
-        FlamieLog.Info("[FlamiePrac] RadioSync restart prepare '" + currentTrackId + "'");
+        FlamieLog.Info("[FlamiePrac] RadioSync restart '" + currentTrackId + "'");
     }
 
     /// <summary>Server chat / admin: count as a skip vote from this client.</summary>
@@ -754,7 +674,13 @@ public static class RadioSync
 
         if (!durations.TryGetValue(currentTrackId, out float duration))
         {
-            if (elapsed < StuckWithoutDurationSeconds)
+            // No verified length yet. With listeners connected, allow a full
+            // download+decode+report round-trip before treating the track as broken;
+            // with nobody listening, rotate on a coarse fallback so the station keeps moving.
+            float limit = CountEligibleRadioClients(nm) > 0
+                ? NoDurationSkipSeconds
+                : UnknownDurationFallbackSeconds;
+            if (elapsed < limit)
                 return;
 
             AdvanceToNextTrack(first: false);
@@ -773,43 +699,85 @@ public static class RadioSync
     }
 
     /// <summary>
-    /// Prefer longer estimates while a track plays — partial streams and loop glitches report short lengths.
-    /// Shorter corrections apply only once server elapsed time confirms the new end.
+    /// Clients decode complete cached files, so reports are authoritative — accept any
+    /// meaningful correction in either direction (the old prefer-longer rule left the
+    /// station in silence until a phantom long duration elapsed).
     /// </summary>
     private static bool TryStoreDuration(string trackId, float duration)
     {
-        if (string.IsNullOrEmpty(trackId) || duration <= 0.05f)
+        if (string.IsNullOrEmpty(trackId) || duration <= 0.05f || duration > 14400f)
             return false;
 
-        if (!durations.TryGetValue(trackId, out float existing))
+        if (durations.TryGetValue(trackId, out float existing) &&
+            Mathf.Abs(existing - duration) <= 0.5f)
         {
-            durations[trackId] = duration;
-            return true;
+            return false;
         }
 
-        if (duration > existing + 0.5f)
-        {
-            durations[trackId] = duration;
-            return true;
-        }
+        durations[trackId] = duration;
+        SavePersistedDurations();
+        return true;
+    }
 
-        if (duration + 0.75f < existing)
+    private static string DurationsFilePath =>
+        Path.Combine(Directory.GetCurrentDirectory(), "config", "radio_durations.json");
+
+    [Serializable]
+    private sealed class DurationsFile
+    {
+        public List<string> ids = new List<string>();
+        public List<float> seconds = new List<float>();
+    }
+
+    /// <summary>Learned track lengths survive restarts so the 24/7 clock never needs a listener.</summary>
+    private static void LoadPersistedDurations()
+    {
+        try
         {
-            if (clockStarted && trackId == currentTrackId)
+            string path = DurationsFilePath;
+            if (!File.Exists(path))
+                return;
+
+            DurationsFile file = JsonUtility.FromJson<DurationsFile>(File.ReadAllText(path));
+            if (file?.ids == null || file.seconds == null)
+                return;
+
+            int n = Math.Min(file.ids.Count, file.seconds.Count);
+            for (int i = 0; i < n; i++)
             {
-                NetworkManager nm = NetworkManager.Singleton;
-                double elapsed = nm != null ? nm.ServerTime.Time - trackStartServerTime : 0.0;
-                if (elapsed + 1.0 < duration)
-                    return false;
-                if (elapsed + 2.0 < existing - MinTrackSecondsBeforeEnd)
-                    return false;
+                if (!string.IsNullOrEmpty(file.ids[i]) && file.seconds[i] > 0.05f)
+                    durations[file.ids[i]] = file.seconds[i];
             }
 
-            durations[trackId] = duration;
-            return true;
+            if (durations.Count > 0)
+                FlamieLog.Info("[FlamiePrac] RadioSync loaded " + durations.Count + " persisted track duration(s).");
         }
+        catch (Exception ex)
+        {
+            FlamieLog.Warn("[FlamiePrac] RadioSync durations load failed: " + ex.Message);
+        }
+    }
 
-        return false;
+    private static void SavePersistedDurations()
+    {
+        try
+        {
+            var file = new DurationsFile();
+            foreach (KeyValuePair<string, float> kv in durations)
+            {
+                file.ids.Add(kv.Key);
+                file.seconds.Add(kv.Value);
+            }
+
+            string dir = Path.GetDirectoryName(DurationsFilePath);
+            if (!string.IsNullOrEmpty(dir))
+                Directory.CreateDirectory(dir);
+            File.WriteAllText(DurationsFilePath, JsonUtility.ToJson(file));
+        }
+        catch (Exception ex)
+        {
+            FlamieLog.Warn("[FlamiePrac] RadioSync durations save failed: " + ex.Message);
+        }
     }
 
     private static void BroadcastState()
@@ -841,6 +809,7 @@ public static class RadioSync
                 (ushort)Mathf.Clamp(RestartVoteCount, 0, ushort.MaxValue),
                 (ushort)Mathf.Clamp(VoteNeed, 0, ushort.MaxValue),
                 clockStarted);
+            RadioController.Instance.ApplyServerNextTrack(PeekNextTrackId());
         }
 
         try
@@ -853,8 +822,10 @@ public static class RadioSync
     private static FastBufferWriter BuildStateWriter()
     {
         durations.TryGetValue(currentTrackId, out float duration);
+        string nextId = PeekNextTrackId();
         byte[] idBytes = Encoding.UTF8.GetBytes(currentTrackId ?? string.Empty);
-        int size = 1 + 2 + 2 + 2 + 8 + 4 + 1 + 2 + idBytes.Length + 16;
+        byte[] nextIdBytes = Encoding.UTF8.GetBytes(nextId ?? string.Empty);
+        int size = 1 + 2 + 2 + 2 + 8 + 4 + 1 + 2 + idBytes.Length + 2 + nextIdBytes.Length + 16;
         FastBufferWriter writer = new FastBufferWriter(size, Allocator.Temp);
         writer.WriteValueSafe(MsgState);
         writer.WriteValueSafe((ushort)Mathf.Clamp(VoteCount, 0, ushort.MaxValue));
@@ -864,6 +835,7 @@ public static class RadioSync
         writer.WriteValueSafe(duration);
         writer.WriteValueSafe((byte)(clockStarted ? FlagClockStarted : 0));
         WriteString(writer, currentTrackId);
+        WriteString(writer, nextId);
         return writer;
     }
 
@@ -944,6 +916,8 @@ public static class RadioSync
     public static class PendingClientState
     {
         public static bool Has;
+        /// <summary>Latest prefetch hint from the server — read by RadioController after bootstrap.</summary>
+        public static string NextTrackId = string.Empty;
         public static string TrackId;
         public static double StartServerTime;
         public static float Duration;

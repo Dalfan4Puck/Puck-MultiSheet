@@ -35,25 +35,147 @@ namespace PHLPracticeModPack
             return SelectFastestApproaching(observer, null);
         }
 
-        private static Puck SelectPracticeLookPuck(Player player, int rinkIndex)
+        /// <summary>
+        /// Pass-practice and tip-practice track puck for any role; goalie-practice look
+        /// stays goalie-only.
+        /// </summary>
+        internal static bool TryGetPracticeTrackPuck(Player player, out Puck puck)
         {
-            if (GoaliePracticeLookTarget.TryGetLookPuck(rinkIndex, out Puck look)
-                && look != null
-                && !IsBehindGoalie(player, look)
-                && IsGoaliePracticeLookThreat(player, look))
+            puck = null;
+            if (player == null || !TryResolvePlayerRink(player, out int rinkIndex))
+                return false;
+
+            RinkStripMode mode = ResolveRinkMode(rinkIndex);
+            bool passPractice = mode == RinkStripMode.StretchPassing
+                || mode == RinkStripMode.PointPassing
+                || mode == RinkStripMode.LowCyclePassing;
+
+            if (passPractice || mode == RinkStripMode.TipPractice)
             {
-                return look;
+                puck = SelectPracticeLookPuck(player, rinkIndex);
+                return puck != null;
             }
 
-            // Look target is behind, settled after a save, or missing — prefer the next queued holder.
-            if (GoaliePracticeLookTarget.TryGetQueuedLookPuck(rinkIndex, out Puck queued)
-                && queued != null
-                && !IsBehindGoalie(player, queued))
+            if (player.Role != PlayerRole.Goalie || !IsPracticeLookRink(rinkIndex))
+                return false;
+
+            puck = SelectForPlayer(player);
+            return puck != null;
+        }
+
+        private static Puck SelectPracticeLookPuck(Player player, int rinkIndex)
+        {
+            RinkStripMode mode = ResolveRinkMode(rinkIndex);
+            bool passPractice = mode == RinkStripMode.StretchPassing
+                || mode == RinkStripMode.PointPassing
+                || mode == RinkStripMode.LowCyclePassing;
+
+            if (passPractice)
             {
-                return queued;
+                Puck look = ResolvePublishedLookPuck(rinkIndex);
+                if (look != null && IsPassPracticeLookTarget(player, look))
+                    return look;
+
+                Puck queued = ResolvePublishedQueuedLookPuck(rinkIndex);
+                if (queued != null && IsPassPracticeLookTarget(player, queued))
+                    return queued;
+
+                return null;
+            }
+
+            // Goalie practice and its tip-practice clone share the same look rules —
+            // the tipping skater gets exactly what the goalie gets.
+            if (GoaliePracticeLookTarget.TryGetLookPuck(rinkIndex, out Puck goalieLook)
+                && goalieLook != null
+                && !IsBehindGoalie(player, goalieLook)
+                && IsGoaliePracticeLookThreat(player, goalieLook))
+            {
+                return goalieLook;
+            }
+
+            if (GoaliePracticeLookTarget.TryGetQueuedLookPuck(rinkIndex, out Puck goalieQueued)
+                && goalieQueued != null
+                && !IsBehindGoalie(player, goalieQueued))
+            {
+                return goalieQueued;
             }
 
             return null;
+        }
+
+        private static Puck ResolvePublishedLookPuck(int rinkIndex)
+        {
+            try
+            {
+                NetworkManager nm = NetworkManager.Singleton;
+                if (nm != null && nm.IsServer)
+                    return RinkPracticeDrills.ResolveLookPuck(rinkIndex);
+            }
+            catch { }
+
+            return GoaliePracticeLookTarget.TryGetLookPuck(rinkIndex, out Puck look) ? look : null;
+        }
+
+        private static Puck ResolvePublishedQueuedLookPuck(int rinkIndex)
+        {
+            try
+            {
+                NetworkManager nm = NetworkManager.Singleton;
+                if (nm != null && nm.IsServer)
+                    return RinkPracticeDrills.ResolveQueuedLookPuck(rinkIndex);
+            }
+            catch { }
+
+            return GoaliePracticeLookTarget.TryGetQueuedLookPuck(rinkIndex, out Puck queued) ? queued : null;
+        }
+
+        /// <summary>Pass feeds — track drill holders even before launch velocity.</summary>
+        private static bool IsPassPracticeLookTarget(Player skater, Puck puck)
+        {
+            if (skater?.PlayerBody == null || puck?.transform == null)
+                return false;
+
+            if (puck.gameObject == null)
+                return false;
+
+            if (puck.Rigidbody == null)
+                return true;
+
+            if (puck.Rigidbody.isKinematic)
+                return true;
+
+            Vector3 vel = puck.Rigidbody.linearVelocity;
+            if (vel.magnitude < PracticeConstants.SettledPuckVelocity)
+                return true;
+
+            Vector3 toSkater = skater.PlayerBody.transform.position - puck.transform.position;
+            toSkater.y = 0f;
+            if (toSkater.sqrMagnitude < 0.01f)
+                return true;
+
+            float closing = Vector3.Dot(vel, toSkater.normalized);
+            return closing > -0.5f;
+        }
+
+        private static RinkStripMode ResolveRinkMode(int rinkIndex)
+        {
+            try
+            {
+                NetworkManager nm = NetworkManager.Singleton;
+                if (nm != null && nm.IsServer)
+                    return RinkStripVote.GetServerMode(rinkIndex);
+            }
+            catch { }
+
+            if (RinkMotdUI.TryGetLastPayload(out RinkMotdPayload payload)
+                && payload?.StripModes != null
+                && rinkIndex >= 0
+                && rinkIndex < payload.StripModes.Count)
+            {
+                return payload.StripModes[rinkIndex];
+            }
+
+            return RinkStripMode.Empty;
         }
 
         /// <summary>
@@ -149,7 +271,11 @@ namespace PHLPracticeModPack
                 if (nm != null && nm.IsServer)
                 {
                     RinkStripMode mode = RinkStripVote.GetServerMode(rinkIndex);
-                    return mode == RinkStripMode.GoaliePractice || mode == RinkStripMode.TipPractice;
+                    return mode == RinkStripMode.GoaliePractice
+                        || mode == RinkStripMode.TipPractice
+                        || mode == RinkStripMode.StretchPassing
+                        || mode == RinkStripMode.PointPassing
+                        || mode == RinkStripMode.LowCyclePassing;
                 }
             }
             catch { }
@@ -160,7 +286,11 @@ namespace PHLPracticeModPack
                 && rinkIndex < payload.StripModes.Count)
             {
                 RinkStripMode mode = payload.StripModes[rinkIndex];
-                return mode == RinkStripMode.GoaliePractice || mode == RinkStripMode.TipPractice;
+                return mode == RinkStripMode.GoaliePractice
+                    || mode == RinkStripMode.TipPractice
+                    || mode == RinkStripMode.StretchPassing
+                    || mode == RinkStripMode.PointPassing
+                    || mode == RinkStripMode.LowCyclePassing;
             }
 
             return false;

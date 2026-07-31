@@ -4,8 +4,9 @@ using UnityEngine;
 namespace PHLPracticeModPack
 {
     /// <summary>
-    /// Human goalies holding track-puck normally follow GetPlayerPuck (last touched).
-    /// Override for goalies so the camera tracks whichever puck is closing on them fastest.
+    /// Track-puck normally follows GetPlayerPuck (last touched).
+    /// Pass-practice rinks: skaters and goalies follow the active / queued feed puck.
+    /// Goalie-practice rinks: goalies follow the threatening practice shot.
     /// </summary>
     [HarmonyPatch(typeof(PuckManager), nameof(PuckManager.GetPlayerPuck))]
     internal static class GoalieTrackPuckPatch
@@ -20,7 +21,16 @@ namespace PHLPracticeModPack
                     return true;
 
                 Player player = playerManager.GetPlayerByClientId(clientId);
-                if (player == null || player.Role != PlayerRole.Goalie)
+                if (player == null)
+                    return true;
+
+                if (GoalieThreatPuckSelector.TryGetPracticeTrackPuck(player, out Puck practice))
+                {
+                    __result = practice;
+                    return false;
+                }
+
+                if (player.Role != PlayerRole.Goalie)
                     return true;
 
                 Puck threat = GoalieThreatPuckSelector.SelectForPlayer(player);

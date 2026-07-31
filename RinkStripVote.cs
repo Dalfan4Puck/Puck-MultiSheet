@@ -175,6 +175,13 @@ namespace PHLPracticeModPack
                 return;
             }
 
+            if (mode == RinkStripMode.PuckChasers
+                && TryGetChasersOccupiedRink(rinkIndex, out int chasersRink))
+            {
+                QueuePrivate(player.OwnerClientId, RinkStripModeUtil.ChasersBlockedMessage(chasersRink));
+                return;
+            }
+
             VoteManager votes = MonoBehaviourSingleton<VoteManager>.Instance;
             PlayerManager pm = MonoBehaviourSingleton<PlayerManager>.Instance;
             if (votes == null || pm == null)
@@ -320,6 +327,20 @@ namespace PHLPracticeModPack
         private static void ApplyStripMode(int rinkIndex, RinkStripMode mode, bool announce)
         {
             EnsureModeListSize(rinkIndex + 1);
+
+            if (mode == RinkStripMode.PuckChasers
+                && TryGetChasersOccupiedRink(rinkIndex, out int chasersRink))
+            {
+                if (announce)
+                {
+                    BroadcastChat(
+                        "Puck Chasers vote failed — " +
+                        RinkStripModeUtil.ChasersBlockedMessage(chasersRink),
+                        "#95a5a6");
+                }
+                return;
+            }
+
             serverModes[rinkIndex] = mode;
 
             TrainingObjectManager manager = TrainingObjectManager.Instance;
@@ -338,6 +359,11 @@ namespace PHLPracticeModPack
                     "Rink " + (rinkIndex + 1) + " practice mode " + label + ".",
                     "#e67e22");
             }
+        }
+
+        private static bool TryGetChasersOccupiedRink(int exceptRinkIndex, out int occupiedRinkIndex)
+        {
+            return RinkStripModeUtil.TryGetChasersOccupiedRink(serverModes, exceptRinkIndex, out occupiedRinkIndex);
         }
 
         private static void EnsureModeListSize(int count)

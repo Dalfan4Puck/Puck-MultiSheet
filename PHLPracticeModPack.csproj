@@ -59,6 +59,7 @@
     <Compile Include="GoalieThreatPuckSelector.cs" />
     <Compile Include="GoaliePracticeLookTarget.cs" />
     <Compile Include="GoalieTrackPuckPatch.cs" />
+    <Compile Include="StretchPassPractice.cs" />
     <Compile Include="RinkStripMode.cs" />
     <Compile Include="PuckChasersMode.cs" />
     <Compile Include="RinkStripVoteProgress.cs" />
@@ -75,6 +76,9 @@
     <Compile Include="PracticeFlow.cs" />
     <Compile Include="PracticeGoalieSpawn.cs" />
     <Compile Include="PracticeScoreboardFakePlayerPatch.cs" />
+    <Compile Include="NapSleepSync.cs" />
+    <Compile Include="NapSleepVfx.cs" />
+    <Compile Include="NapIdleService.cs" />
     <Compile Include="CustomLevelBridge.cs" />
   </ItemGroup>
 

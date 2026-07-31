@@ -598,6 +598,15 @@ public class RadioController : MonoBehaviour
         CancelPlayRoutine();
         CancelPlaylistRefresh();
 
+        if (prefetchRoutine != null)
+        {
+            StopCoroutine(prefetchRoutine);
+            prefetchRoutine = null;
+        }
+        prefetchTrackId = string.Empty;
+        AbortActivePrefetchRequest();
+        AbortActiveCacheRequest();
+
         ClearSpeakerOutputs();
         ReleaseActiveStreamHandler();
         if (playback != null)
@@ -669,12 +678,13 @@ public class RadioController : MonoBehaviour
                     RadioSync.PendingClientState.Duration,
                     RadioSync.PendingClientState.VoteCount,
                     RadioSync.PendingClientState.RestartVoteCount,
-                    RadioSync.PendingClientState.VoteNeed,
-                    RadioSync.PendingClientState.ClockStarted);
-                RadioSync.PendingClientState.Clear();
-            }
+                RadioSync.PendingClientState.VoteNeed,
+                RadioSync.PendingClientState.ClockStarted);
+            RadioSync.PendingClientState.Clear();
+            ApplyServerNextTrack(RadioSync.PendingClientState.NextTrackId);
+        }
 
-            float waitUntil = Time.realtimeSinceStartup + 8f;
+        float waitUntil = Time.realtimeSinceStartup + 8f;
             while (Time.realtimeSinceStartup < waitUntil && string.IsNullOrEmpty(syncedTrackId))
                 yield return null;
 
@@ -873,6 +883,8 @@ public class RadioController : MonoBehaviour
                 RadioSync.PendingClientState.ClockStarted);
             RadioSync.PendingClientState.Clear();
         }
+
+        ApplyServerNextTrack(RadioSync.PendingClientState.NextTrackId);
     }
 
     private IEnumerator RefreshPlaylistThenPlay(string trackId)
@@ -1051,8 +1063,13 @@ public class RadioController : MonoBehaviour
         float seek = ComputeServerSeekSeconds();
         if (seek < 0f)
         {
+            // Scheduled start is in the future — hold at 0 and poll every frame so
+            // playback begins on time (critical for very short clips).
             if (primary.isPlaying)
                 primary.Pause();
+            if (primary.time > 0.01f)
+                primary.time = 0f;
+            nextSyncSeekTime = 0f;
             return;
         }
 
@@ -1086,6 +1103,17 @@ public class RadioController : MonoBehaviour
                 HoldPlaybackAtEndIfNeeded();
                 return;
             }
+        }
+
+        // Paused with a valid live position (scheduled start reached, or tune-in): start now.
+        // The always-running server clock has no started/not-started transition to hook.
+        if (!primary.isPlaying)
+        {
+            primary.time = seek;
+            primary.Play();
+            if (Mathf.Abs(primary.time - seek) > SyncSeekVerifySeconds)
+                primary.time = seek;
+            return;
         }
 
         bool nearEnd = clipEndPos > 0f &&
@@ -1752,12 +1780,54 @@ public class RadioController : MonoBehaviour
     private void CancelPlayRoutine()
     {
         CancelAutoAdvanceDelay();
+        CancelSyncedLoadRetry();
+        // Stopping the coroutine strands its in-flight download — abort it explicitly.
+        AbortActiveCacheRequest();
         if (playRoutine == null)
             return;
 
         StopCoroutine(playRoutine);
         playRoutine = null;
+        loadingTrackIndex = -1;
     }
+
+    private void CancelSyncedLoadRetry()
+    {
+        if (syncedLoadRetryRoutine == null)
+            return;
+
+        StopCoroutine(syncedLoadRetryRoutine);
+        syncedLoadRetryRoutine = null;
+    }
+
+    private void ScheduleSyncedLoadRetry(int index)
+    {
+        CancelSyncedLoadRetry();
+        syncedLoadRetryRoutine = StartCoroutine(SyncedLoadRetry(index));
+    }
+
+    /// <summary>A failed load no longer waits for the next 30s resync — retry while the track is live.</summary>
+    private IEnumerator SyncedLoadRetry(int index)
+    {
+        yield return new WaitForSecondsRealtime(SyncedLoadRetrySeconds);
+        syncedLoadRetryRoutine = null;
+
+        if (!IsSyncedPlayback || tracks == null || index < 0 || index >= tracks.Length)
+            yield break;
+
+        TrackEntry entry = tracks[index];
+        if (entry == null || !string.Equals(entry.Id, syncedTrackId, StringComparison.Ordinal))
+            yield break;
+
+        if (playRoutine != null || (clips != null && clips[index] != null))
+            yield break;
+
+        FlamieLog.Info("[FlamiePrac] Radio retrying load for '" + entry.Title + "'");
+        RequestPlay(index, recordHistory: false);
+    }
+
+    /// <summary>Index the active play routine is loading — -1 when idle.</summary>
+    private int loadingTrackIndex = -1;
 
     private void RequestPlay(int index, bool recordHistory)
     {
@@ -1769,22 +1839,19 @@ public class RadioController : MonoBehaviour
         pendingStreamApply = false;
         pendingStreamApplyIndex = -1;
         int gen = ++playRequestGeneration;
+        loadingTrackIndex = index;
         playRoutine = StartCoroutine(PlayTrackRoutine(index, recordHistory, gen));
     }
 
+    /// <summary>
+    /// True only when the running routine is loading this exact index. Matching on the
+    /// synced track id alone deadlocked track changes: a stale load for the previous
+    /// track swallowed the new RequestPlay, applied the wrong clip, and sync then
+    /// blocked forever on the clip mismatch.
+    /// </summary>
     private bool IsLoadingSyncedTrack(int index)
     {
-        if (playRoutine == null || tracks == null || index < 0 || index >= tracks.Length)
-            return false;
-
-        TrackEntry entry = tracks[index];
-        if (entry == null)
-            return false;
-
-        if (!IsSyncedPlayback || string.IsNullOrEmpty(syncedTrackId))
-            return currentSong == index;
-
-        return string.Equals(entry.Id, syncedTrackId, StringComparison.Ordinal);
+        return playRoutine != null && loadingTrackIndex == index;
     }
 
     private void TryApplyPendingStreamClip()
@@ -1837,6 +1904,7 @@ public class RadioController : MonoBehaviour
         {
             advancingTrack = false;
             playRoutine = null;
+            loadingTrackIndex = -1;
             yield break;
         }
 
@@ -1846,6 +1914,7 @@ public class RadioController : MonoBehaviour
         {
             advancingTrack = false;
             playRoutine = null;
+            loadingTrackIndex = -1;
             yield break;
         }
 
@@ -1857,6 +1926,8 @@ public class RadioController : MonoBehaviour
                 SetStatus("Couldn't load track");
                 advancingTrack = false;
                 playRoutine = null;
+                loadingTrackIndex = -1;
+                ScheduleSyncedLoadRetry(index);
                 yield break;
             }
 
@@ -1876,6 +1947,7 @@ public class RadioController : MonoBehaviour
 
         advancingTrack = false;
         playRoutine = null;
+        loadingTrackIndex = -1;
     }
 
     private bool clipAppliedDuringStream;
@@ -1883,6 +1955,37 @@ public class RadioController : MonoBehaviour
     private int pendingStreamApplyIndex = -1;
     /// <summary>Streaming clips are owned by the handler until track change — disposing the request must not destroy them.</summary>
     private DownloadHandlerAudioClip activeStreamHandler;
+    /// <summary>In-flight cache download for the current track — abortable on skip (StopCoroutine never disposes it).</summary>
+    private UnityWebRequest activeCacheRequest;
+    /// <summary>In-flight cache download for the server's announced next track.</summary>
+    private UnityWebRequest activePrefetchRequest;
+    private Coroutine prefetchRoutine;
+    private string prefetchTrackId = string.Empty;
+    private Coroutine syncedLoadRetryRoutine;
+    private const float SyncedLoadRetrySeconds = 4f;
+    private const int MaxCachedTrackFiles = 12;
+
+    private void AbortActiveCacheRequest()
+    {
+        AbortAndDisposeRequest(ref activeCacheRequest);
+    }
+
+    private void AbortActivePrefetchRequest()
+    {
+        AbortAndDisposeRequest(ref activePrefetchRequest);
+    }
+
+    private static void AbortAndDisposeRequest(ref UnityWebRequest request)
+    {
+        if (request == null)
+            return;
+
+        try { request.Abort(); }
+        catch { }
+        try { request.Dispose(); }
+        catch { }
+        request = null;
+    }
 
     private void ReleaseActiveStreamHandler()
     {
@@ -2007,7 +2110,20 @@ public class RadioController : MonoBehaviour
 
         if (string.IsNullOrEmpty(entry.LocalPath))
         {
-            yield return EnsureTrackCachedOnDisk(entry, index, generation);
+            // A prefetch of this exact track may already be downloading — let it finish
+            // instead of racing it for the same cache file.
+            while (activePrefetchRequest != null &&
+                   string.Equals(prefetchTrackId, entry.Id, StringComparison.Ordinal))
+            {
+                if (!StillWantsTrack(index, generation))
+                    yield break;
+                yield return null;
+            }
+
+            yield return EnsureTrackCachedOnDisk(
+                entry,
+                () => StillWantsTrack(index, generation),
+                prefetchSlot: false);
             if (!StillWantsTrack(index, generation))
                 yield break;
 
@@ -2036,8 +2152,10 @@ public class RadioController : MonoBehaviour
 
     /// <summary>
     /// Puck's Unity build fails HTTP streamAudio decode on many MP3s. Cache bytes to disk, decode via file://.
+    /// No <c>using</c>: StopCoroutine never runs finally blocks, so the request lifetime is
+    /// managed via the abortable slot fields instead (fixes stale downloads finishing after skips).
     /// </summary>
-    private IEnumerator EnsureTrackCachedOnDisk(TrackEntry entry, int index, int generation)
+    private IEnumerator EnsureTrackCachedOnDisk(TrackEntry entry, Func<bool> stillWanted, bool prefetchSlot)
     {
         if (entry == null || string.IsNullOrEmpty(entry.SignedUrl))
             yield break;
@@ -2054,7 +2172,7 @@ public class RadioController : MonoBehaviour
         }
 
         Directory.CreateDirectory(RadioCacheDirectory);
-        string partPath = cachePath + ".part";
+        string partPath = cachePath + (prefetchSlot ? ".prefetch.part" : ".part");
         try
         {
             if (File.Exists(partPath))
@@ -2062,65 +2180,209 @@ public class RadioController : MonoBehaviour
         }
         catch { }
 
-        using (UnityWebRequest www = new UnityWebRequest(
-                   entry.SignedUrl,
-                   UnityWebRequest.kHttpVerbGET,
-                   new DownloadHandlerFile(partPath),
-                   null))
+        UnityWebRequest www = new UnityWebRequest(
+            entry.SignedUrl,
+            UnityWebRequest.kHttpVerbGET,
+            new DownloadHandlerFile(partPath),
+            null);
+        RadioApiUtil.ConfigureStreamRequest(www);
+
+        if (prefetchSlot)
         {
-            RadioApiUtil.ConfigureStreamRequest(www);
-            UnityWebRequestAsyncOperation download = www.SendWebRequest();
+            AbortActivePrefetchRequest();
+            activePrefetchRequest = www;
+        }
+        else
+        {
+            AbortActiveCacheRequest();
+            activeCacheRequest = www;
+        }
 
-            while (!download.isDone)
+        UnityWebRequestAsyncOperation download = www.SendWebRequest();
+
+        bool abandoned = false;
+        while (!download.isDone)
+        {
+            if (stillWanted != null && !stillWanted())
             {
-                if (!StillWantsTrack(index, generation))
-                    yield break;
-
-                yield return null;
+                abandoned = true;
+                break;
             }
 
-            if (!StillWantsTrack(index, generation))
-                yield break;
+            yield return null;
+        }
 
-            if (www.result != UnityWebRequest.Result.Success)
-            {
-                FlamieLog.Error("[FlamiePrac] Radio cache download failed for '" + entry.Title + "': " + www.error +
-                               (www.responseCode > 0 ? " (HTTP " + www.responseCode + ")" : string.Empty));
-                try
-                {
-                    if (File.Exists(partPath))
-                        File.Delete(partPath);
-                }
-                catch { }
+        bool success = !abandoned && www.result == UnityWebRequest.Result.Success;
+        string error = www.error;
+        long responseCode = www.responseCode;
 
-                entry.SignedUrl = null;
-                entry.UrlExpiresAtRealtime = -1f;
-                yield break;
-            }
+        if (prefetchSlot && activePrefetchRequest == www)
+            activePrefetchRequest = null;
+        if (!prefetchSlot && activeCacheRequest == www)
+            activeCacheRequest = null;
+        if (abandoned)
+        {
+            try { www.Abort(); }
+            catch { }
+        }
+        try { www.Dispose(); }
+        catch { }
 
+        if (!success)
+        {
             try
             {
-                if (File.Exists(cachePath))
-                    File.Delete(cachePath);
-                File.Move(partPath, cachePath);
-            }
-            catch (Exception ex)
-            {
-                FlamieLog.Error("[FlamiePrac] Radio cache finalize failed for '" + entry.Title + "': " + ex.Message);
-                entry.SignedUrl = null;
-                entry.UrlExpiresAtRealtime = -1f;
-                yield break;
-            }
-
-            long bytes = 0;
-            try
-            {
-                bytes = new FileInfo(cachePath).Length;
+                if (File.Exists(partPath))
+                    File.Delete(partPath);
             }
             catch { }
 
-            FlamieLog.Info("[FlamiePrac] Radio cached: " + entry.Title + " (" + bytes + " bytes)");
+            if (!abandoned)
+            {
+                FlamieLog.Error("[FlamiePrac] Radio cache download failed for '" + entry.Title + "': " + error +
+                               (responseCode > 0 ? " (HTTP " + responseCode + ")" : string.Empty));
+                entry.SignedUrl = null;
+                entry.UrlExpiresAtRealtime = -1f;
+            }
+
+            yield break;
         }
+
+        try
+        {
+            if (File.Exists(cachePath))
+                File.Delete(cachePath);
+            File.Move(partPath, cachePath);
+        }
+        catch (Exception ex)
+        {
+            FlamieLog.Error("[FlamiePrac] Radio cache finalize failed for '" + entry.Title + "': " + ex.Message);
+            entry.SignedUrl = null;
+            entry.UrlExpiresAtRealtime = -1f;
+            yield break;
+        }
+
+        long bytes = 0;
+        try
+        {
+            bytes = new FileInfo(cachePath).Length;
+        }
+        catch { }
+
+        FlamieLog.Info("[FlamiePrac] Radio cached" + (prefetchSlot ? " (prefetch)" : string.Empty) + ": " +
+                       entry.Title + " (" + bytes + " bytes)");
+        PruneRadioDiskCache();
+    }
+
+    /// <summary>Keep the on-disk MP3 cache bounded; never touch the current or prefetched track.</summary>
+    private void PruneRadioDiskCache()
+    {
+        try
+        {
+            if (!Directory.Exists(RadioCacheDirectory))
+                return;
+
+            FileInfo[] files = new DirectoryInfo(RadioCacheDirectory).GetFiles("*.mp3");
+            if (files.Length <= MaxCachedTrackFiles)
+                return;
+
+            Array.Sort(files, (a, b) => a.LastWriteTimeUtc.CompareTo(b.LastWriteTimeUtc));
+            string keepCurrent = GetRadioCachePath(syncedTrackId);
+            string keepNext = GetRadioCachePath(prefetchTrackId);
+
+            int toDelete = files.Length - MaxCachedTrackFiles;
+            for (int i = 0; i < files.Length && toDelete > 0; i++)
+            {
+                string full = files[i].FullName;
+                if (string.Equals(full, keepCurrent, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(full, keepNext, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    files[i].Delete();
+                    toDelete--;
+                }
+                catch { }
+            }
+        }
+        catch { }
+    }
+
+    /// <summary>Server prefetch hint: download the announced next track while the current one plays.</summary>
+    public void ApplyServerNextTrack(string nextTrackId)
+    {
+        if (Application.isBatchMode)
+            return;
+
+        nextTrackId = nextTrackId ?? string.Empty;
+        if (string.Equals(prefetchTrackId, nextTrackId, StringComparison.Ordinal))
+            return;
+
+        prefetchTrackId = nextTrackId;
+        if (prefetchRoutine != null)
+        {
+            StopCoroutine(prefetchRoutine);
+            prefetchRoutine = null;
+        }
+        AbortActivePrefetchRequest();
+
+        if (string.IsNullOrEmpty(nextTrackId))
+            return;
+
+        prefetchRoutine = StartCoroutine(PrefetchTrackRoutine(nextTrackId));
+    }
+
+    private IEnumerator PrefetchTrackRoutine(string trackId)
+    {
+        // Let the current track's own download win the connection first.
+        while (!libraryReady || playRoutine != null || activeCacheRequest != null)
+        {
+            if (!string.Equals(prefetchTrackId, trackId, StringComparison.Ordinal))
+            {
+                prefetchRoutine = null;
+                yield break;
+            }
+
+            yield return new WaitForSecondsRealtime(0.5f);
+        }
+
+        int index = FindTrackIndex(trackId);
+        if (index < 0 || tracks[index] == null || !string.IsNullOrEmpty(tracks[index].LocalPath))
+        {
+            prefetchRoutine = null;
+            yield break;
+        }
+
+        TrackEntry entry = tracks[index];
+        bool cached = false;
+        try
+        {
+            string cachePath = GetRadioCachePath(entry.Id);
+            cached = File.Exists(cachePath) && new FileInfo(cachePath).Length > 0;
+        }
+        catch { }
+
+        if (cached)
+        {
+            prefetchRoutine = null;
+            yield break;
+        }
+
+        yield return EnsureSignedUrl(index, force: false);
+        if (!string.Equals(prefetchTrackId, trackId, StringComparison.Ordinal))
+        {
+            prefetchRoutine = null;
+            yield break;
+        }
+
+        yield return EnsureTrackCachedOnDisk(
+            entry,
+            () => string.Equals(prefetchTrackId, trackId, StringComparison.Ordinal),
+            prefetchSlot: true);
+        prefetchRoutine = null;
     }
 
     private IEnumerator LoadClipFromDisk(int index, TrackEntry entry, int generation)
@@ -2665,6 +2927,7 @@ public class RadioController : MonoBehaviour
             if (generation != playRequestGeneration)
                 yield break;
 
+            loadingTrackIndex = index;
             yield return EnsureSignedUrl(index, force: false);
             if (generation != playRequestGeneration)
                 yield break;
@@ -2679,6 +2942,7 @@ public class RadioController : MonoBehaviour
                     ApplyClipToOutputs(index, recordHistory: true);
                 advancingTrack = false;
                 playRoutine = null;
+                loadingTrackIndex = -1;
                 yield break;
             }
 
@@ -2689,6 +2953,7 @@ public class RadioController : MonoBehaviour
         SetStatus("No playable tracks");
         advancingTrack = false;
         playRoutine = null;
+        loadingTrackIndex = -1;
     }
 
     public void NextSong()

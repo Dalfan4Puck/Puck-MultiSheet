@@ -108,7 +108,8 @@ namespace PHLPracticeModPack
                 }
 
                 Current = loaded;
-                PracticeLog.Info($"[PHLPractice] Loaded multi-rink config from {path} ({Current.Rinks.Count} rinks, multiRink={Current.EnableMultiRink}, bundle={Current.UseAssetBundle}).");
+                Debug.Log("[PHLPractice] Loaded multi_rink.json from " + path + " (" + Current.Rinks.Count +
+                          " rinks, VerboseLogging=" + Current.VerboseLogging + ").");
             }
             catch (Exception ex)
             {
@@ -118,10 +119,15 @@ namespace PHLPracticeModPack
         }
 
         /// <summary>
-        /// Prefer config beside the Workshop/plugin DLL, then game-cwd ./config/ (legacy dedicated layout).
+        /// Dedicated: prefer operator ./config/ over Workshop-shipped defaults beside the DLL.
+        /// Client/listen-server: prefer config beside the plugin, then cwd.
         /// </summary>
         internal static string ResolveConfigPath(string fileName)
         {
+            string cwdConfig = Path.Combine(Directory.GetCurrentDirectory(), "config", fileName);
+            if (Application.isBatchMode && File.Exists(cwdConfig))
+                return cwdConfig;
+
             try
             {
                 string pluginDir = Path.GetDirectoryName(typeof(MultiRinkConfig).Assembly.Location);
@@ -134,8 +140,7 @@ namespace PHLPracticeModPack
             }
             catch { }
 
-            string cwd = Path.Combine(".", "config", fileName);
-            return File.Exists(cwd) ? cwd : null;
+            return File.Exists(cwdConfig) ? cwdConfig : null;
         }
 
         public static MultiRinkConfig CreateDefaults()

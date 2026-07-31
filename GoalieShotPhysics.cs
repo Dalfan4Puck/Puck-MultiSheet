@@ -87,7 +87,7 @@ namespace PHLPracticeModPack
         internal static GoalieShotStyle PickShotStyle(float distanceT)
         {
             float roll = UnityEngine.Random.value;
-            if (distanceT > 0.45f && roll < 0.42f)
+            if (distanceT > 0.55f && roll < 0.32f)
                 return GoalieShotStyle.Rainbow;
 
             // Close-range loft clears the crossbar too easily — prefer flat / mild rise.
@@ -478,8 +478,8 @@ namespace PHLPracticeModPack
             {
                 case GoalieShotStyle.Rainbow:
                     // Rainbow only used past mid-range; keep apex usable but under crossbar path.
-                    minDeg = Mathf.Lerp(20f, 32f, distT);
-                    maxDeg = Mathf.Lerp(40f, 56f, distT);
+                    minDeg = Mathf.Lerp(18f, 26f, distT);
+                    maxDeg = Mathf.Lerp(32f, 44f, distT);
                     break;
                 case GoalieShotStyle.Rising:
                     // Close: mild lift only. Far: allow a steeper rise into the net.
@@ -928,6 +928,7 @@ namespace PHLPracticeModPack
 
             float maxPeak = iceY + ResolveTipMaxPeak(feedKind, style);
             float maxTipHeight = iceY + ResolveTipMaxArrivalHeight(feedKind, style);
+            float minTipHeight = iceY + ResolveTipMinArrivalHeight(feedKind, style);
 
             float bestError = float.MaxValue;
             Vector3 bestVelocity = Vector3.zero;
@@ -960,6 +961,7 @@ namespace PHLPracticeModPack
                             iceY,
                             maxPeak,
                             maxTipHeight,
+                            minTipHeight,
                             style,
                             model,
                             out Vector3 hitPoint,
@@ -982,11 +984,15 @@ namespace PHLPracticeModPack
             if (bestError > 2.8f || bestVelocity.sqrMagnitude < 0.01f)
             {
                 float mph = UnityEngine.Random.Range(
+                    feedKind == TipFeedKind.LongStraight || feedKind == TipFeedKind.AtTipper
+                        ? 48f
+                        : feedKind == TipFeedKind.OnNet
+                            ? 52f
+                            : PracticeConstants.TipShotMinSpeedMph,
                     feedKind == TipFeedKind.LongStraight || feedKind == TipFeedKind.OnNet
-                        ? 58f : PracticeConstants.TipShotMinSpeedMph,
-                    PracticeConstants.TipShotMaxSpeedMph);
-                bool highArc = feedKind == TipFeedKind.HighLooperTipper
-                    || feedKind == TipFeedKind.HighLooperNet;
+                        ? 62f
+                        : PracticeConstants.TipShotMaxSpeedMph);
+                bool highArc = feedKind == TipFeedKind.HighLooperTipper;
                 Vector3? ballistic = CalculateBallisticVelocity(
                     spawnPos, tipTarget, PracticeHelpers.MphToMps(mph), highArc, ceilingY);
                 if (!ballistic.HasValue)
@@ -1009,14 +1015,15 @@ namespace PHLPracticeModPack
             switch (feedKind)
             {
                 case TipFeedKind.OnNet:
-                    return UnityEngine.Random.value < 0.35f ? TipShotStyle.Ice : TipShotStyle.Direct;
+                    return UnityEngine.Random.value < 0.45f ? TipShotStyle.SoftLift : TipShotStyle.Direct;
                 case TipFeedKind.LongStraight:
-                    return TipShotStyle.Direct;
+                    return UnityEngine.Random.value < 0.55f ? TipShotStyle.SoftLift : TipShotStyle.Direct;
                 case TipFeedKind.WideTipper:
-                    return TipShotStyle.Direct;
+                    return UnityEngine.Random.value < 0.5f ? TipShotStyle.SoftLift : TipShotStyle.Direct;
                 case TipFeedKind.HighLooperTipper:
-                case TipFeedKind.HighLooperNet:
                     return TipShotStyle.HighArc;
+                case TipFeedKind.HighLooperNet:
+                    return UnityEngine.Random.value < 0.55f ? TipShotStyle.SoftLift : TipShotStyle.Direct;
                 default:
                     return PickTipShotStyleRandom();
             }
@@ -1024,18 +1031,15 @@ namespace PHLPracticeModPack
 
         private static TipShotStyle PickTipShotStyleRandom()
         {
-            float roll = UnityEngine.Random.value;
-            if (roll < 0.22f)
-                return TipShotStyle.Ice;
-            if (roll < 0.72f)
-                return TipShotStyle.Direct;
-            return TipShotStyle.SoftLift;
+            return UnityEngine.Random.value < 0.55f ? TipShotStyle.Direct : TipShotStyle.SoftLift;
         }
 
         private static float ResolveTipMaxPeak(TipFeedKind feedKind, TipShotStyle style)
         {
-            if (feedKind == TipFeedKind.HighLooperTipper || feedKind == TipFeedKind.HighLooperNet)
-                return 3.35f;
+            if (feedKind == TipFeedKind.HighLooperTipper)
+                return 1.75f;
+            if (feedKind == TipFeedKind.HighLooperNet)
+                return 1.45f;
             if (style == TipShotStyle.SoftLift)
                 return 1.85f;
             return 1.55f;
@@ -1043,23 +1047,36 @@ namespace PHLPracticeModPack
 
         private static float ResolveTipMaxArrivalHeight(TipFeedKind feedKind, TipShotStyle style)
         {
-            if (feedKind == TipFeedKind.HighLooperTipper || feedKind == TipFeedKind.HighLooperNet)
-                return 1.85f;
+            if (feedKind == TipFeedKind.HighLooperTipper)
+                return 1.15f;
+            if (feedKind == TipFeedKind.HighLooperNet)
+                return 0.95f;
             if (feedKind == TipFeedKind.OnNet)
-                return 1.35f;
-            if (style == TipShotStyle.Ice)
-                return 0.35f;
+                return 1.15f;
             if (style == TipShotStyle.SoftLift)
                 return 1.45f;
             return 1.25f;
         }
 
-        private static float ResolveTipMaxSearchAngleDeg(TipFeedKind feedKind, TipShotStyle style)
+        private static float ResolveTipMinArrivalHeight(TipFeedKind feedKind, TipShotStyle style)
         {
             if (feedKind == TipFeedKind.HighLooperTipper || feedKind == TipFeedKind.HighLooperNet)
-                return 34f;
+                return 0.65f;
+            if (feedKind == TipFeedKind.OnNet)
+                return 0.5f;
+            if (style == TipShotStyle.SoftLift)
+                return 0.58f;
+            return 0.52f;
+        }
+
+        private static float ResolveTipMaxSearchAngleDeg(TipFeedKind feedKind, TipShotStyle style)
+        {
+            if (feedKind == TipFeedKind.HighLooperTipper)
+                return 18f;
+            if (feedKind == TipFeedKind.HighLooperNet)
+                return 14f;
             if (feedKind == TipFeedKind.LongStraight)
-                return 9f;
+                return 16f;
             if (feedKind == TipFeedKind.OnNet)
                 return 16f;
             if (style == TipShotStyle.SoftLift)
@@ -1069,28 +1086,36 @@ namespace PHLPracticeModPack
 
         private static float[] PickTipSpeedCandidatesMph(TipFeedKind feedKind)
         {
-            float slow = UnityEngine.Random.Range(44f, 56f);
-            float medium = UnityEngine.Random.Range(54f, 66f);
-            float firm = UnityEngine.Random.Range(64f, 78f);
-            float bullet = UnityEngine.Random.Range(72f, 82f);
+            float slow = UnityEngine.Random.Range(44f, 54f);
+            float medium = UnityEngine.Random.Range(50f, 60f);
+            float firm = UnityEngine.Random.Range(58f, 68f);
+            float bullet = UnityEngine.Random.Range(66f, 74f);
 
-            if (feedKind == TipFeedKind.LongStraight
-                || feedKind == TipFeedKind.HighLooperNet
-                || feedKind == TipFeedKind.OnNet)
+            if (feedKind == TipFeedKind.LongStraight || feedKind == TipFeedKind.AtTipper)
             {
-                float primary = UnityEngine.Random.value < 0.55f ? firm : bullet;
-                return new[] { primary, medium, firm, bullet };
+                float primary = UnityEngine.Random.value < 0.65f ? slow : medium;
+                return new[] { primary, slow, medium, firm };
             }
 
-            if (feedKind == TipFeedKind.HighLooperTipper)
+            if (feedKind == TipFeedKind.OnNet)
+            {
+                float primary = UnityEngine.Random.value < 0.55f ? medium : firm;
+                return new[] { primary, slow, medium, firm };
+            }
+
+            if (feedKind == TipFeedKind.HighLooperNet)
             {
                 float primary = UnityEngine.Random.value < 0.5f ? medium : firm;
                 return new[] { primary, slow, medium, firm };
             }
 
-            float defaultPrimary = UnityEngine.Random.value < 0.45f ? medium
-                : UnityEngine.Random.value < 0.5f ? slow
-                : firm;
+            if (feedKind == TipFeedKind.HighLooperTipper)
+            {
+                float primary = UnityEngine.Random.value < 0.65f ? firm : bullet;
+                return new[] { primary, firm, bullet, medium };
+            }
+
+            float defaultPrimary = UnityEngine.Random.value < 0.5f ? medium : slow;
             return new[] { defaultPrimary, slow, medium, firm };
         }
 
@@ -1109,8 +1134,8 @@ namespace PHLPracticeModPack
                     maxDeg = Mathf.Lerp(4f, 8f, distT);
                     break;
                 case TipShotStyle.HighArc:
-                    minDeg = Mathf.Lerp(14f, 18f, distT);
-                    maxDeg = Mathf.Lerp(26f, 32f, distT);
+                    minDeg = Mathf.Lerp(8f, 11f, distT);
+                    maxDeg = Mathf.Lerp(14f, 18f, distT);
                     break;
                 case TipShotStyle.SoftLift:
                     minDeg = Mathf.Lerp(5f, 8f, distT);
@@ -1124,8 +1149,23 @@ namespace PHLPracticeModPack
 
             if (feedKind == TipFeedKind.LongStraight)
             {
-                minDeg = 0.8f;
-                maxDeg = Mathf.Lerp(4f, 8f, distT);
+                minDeg = Mathf.Lerp(4f, 6f, distT);
+                maxDeg = Mathf.Lerp(9f, 14f, distT);
+            }
+            else if (feedKind == TipFeedKind.HighLooperNet)
+            {
+                minDeg = Mathf.Lerp(5f, 7f, distT);
+                maxDeg = Mathf.Lerp(9f, 13f, distT);
+            }
+            else if (feedKind == TipFeedKind.HighLooperTipper)
+            {
+                minDeg = Mathf.Lerp(9f, 11f, distT);
+                maxDeg = Mathf.Lerp(13f, 17f, distT);
+            }
+            else if (feedKind == TipFeedKind.OnNet)
+            {
+                minDeg = Mathf.Lerp(3.5f, 5.5f, distT);
+                maxDeg = Mathf.Lerp(7f, 12f, distT);
             }
         }
 
@@ -1143,31 +1183,31 @@ namespace PHLPracticeModPack
             float heightErr = Mathf.Abs(hitPoint.y - tipTarget.y);
             planar += heightErr * 1.35f;
 
+            if (hitPoint.y < iceY + 0.48f)
+                planar += 2.5f;
+
             if (feedKind == TipFeedKind.OnNet || feedKind == TipFeedKind.HighLooperNet)
             {
-                planar += Mathf.Abs(hitPoint.z - tipTarget.z) * 0.35f;
+                if (hitPoint.y > iceY + CrossbarHeight + 0.08f)
+                    planar += 4f + (hitPoint.y - iceY - CrossbarHeight) * 5f;
                 return planar;
             }
 
             switch (style)
             {
-                case TipShotStyle.Ice:
-                    if (hitPoint.y > iceY + 0.4f)
-                        planar += 1.2f;
-                    break;
                 case TipShotStyle.Direct:
-                    if (hitPoint.y < iceY + 0.25f)
-                        planar += 0.55f;
+                    if (hitPoint.y < iceY + 0.48f)
+                        planar += 1.4f;
                     if (hitPoint.y > iceY + 1.35f)
                         planar += 1.6f;
                     break;
                 case TipShotStyle.HighArc:
-                    if (hitPoint.y < iceY + 0.35f)
-                        planar += 0.45f;
+                    if (hitPoint.y < iceY + 0.55f)
+                        planar += 0.85f;
                     break;
                 case TipShotStyle.SoftLift:
-                    if (hitPoint.y < iceY + 0.45f)
-                        planar += 0.7f;
+                    if (hitPoint.y < iceY + 0.5f)
+                        planar += 1.2f;
                     if (hitPoint.y > iceY + 1.65f)
                         planar += 1.4f;
                     break;
@@ -1185,6 +1225,7 @@ namespace PHLPracticeModPack
             float iceY,
             float maxPeakY,
             float maxTipHeightY,
+            float minTipHeightY,
             TipShotStyle style,
             PuckFlightModel model,
             out Vector3 hitPoint,
@@ -1202,7 +1243,6 @@ namespace PHLPracticeModPack
             float peakY = pos.y;
             float ceilingLimit = ceilingY - CeilingClearance;
             float iceLimit = iceY + IceContactMargin;
-            bool requireAirborne = style == TipShotStyle.SoftLift || style == TipShotStyle.HighArc;
             bool leftLaunchBand = false;
             bool touchedIce = false;
 
@@ -1217,7 +1257,7 @@ namespace PHLPracticeModPack
                 if (pos.y > iceY + IceContactMargin + 0.12f)
                     leftLaunchBand = true;
 
-                if (requireAirborne && leftLaunchBand && pos.y <= iceLimit)
+                if (leftLaunchBand && pos.y <= iceLimit)
                     touchedIce = true;
 
                 if (CrossedGoalPlane(prevZ, pos.z, tipPlaneZ, shootFromPositiveZ, out float fraction))
@@ -1230,10 +1270,10 @@ namespace PHLPracticeModPack
                     if (hitPoint.y > maxTipHeightY)
                         return false;
 
-                    if (requireAirborne && touchedIce)
+                    if (hitPoint.y < minTipHeightY)
                         return false;
 
-                    if (style == TipShotStyle.Ice && hitPoint.y > iceY + 0.45f)
+                    if (touchedIce)
                         return false;
 
                     return true;

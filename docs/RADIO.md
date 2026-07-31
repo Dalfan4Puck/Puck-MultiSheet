@@ -16,11 +16,13 @@ Clients each call `/track?id=` and seek to:
 
 `seek = ServerTime.Time - trackStartServerTime`
 
-Late joiners get a snapshot on connect and hear the current song mid-track. Drift is corrected ~1 Hz if off by >0.25s (not during the first 2s of a track). Clock start uses `PlayScheduled` for a clean intro.
+Late joiners get a snapshot on connect and hear the current song mid-track. Drift is corrected ~1 Hz if off by >0.25s (not during the first 2s of a track).
 
-**Server-only advance:** the playlist advances when `ServerTime - trackStart >= duration`. Client end-reports do not advance the server playlist.
+**24/7 scheduled clock:** the station never waits on clients. Each advance sets `trackStartServerTime = now + 2.5s` (gap for decode) and the clock is always "started"; a negative seek means "starts soon" and clients hold at 0, polling every frame so short clips begin on time. There is no ready gate — a joiner who hasn't cached anything can never stall the queue.
 
-**Prepare phase:** server broadcasts `clockStarted=false`. Clients download MP3 to Unity temp (`FlamiePracRadio/`), decode from disk, and report duration + ready. Server starts the clock when majority ready **and** a duration is known, or after a 15s timeout. Cache is cleared on disconnect.
+**Server-only advance:** the playlist advances when `ServerTime - trackStart >= duration`. Durations come from client decode reports (full-file decodes are authoritative — corrections apply in either direction) and are **persisted to `config/radio_durations.json`** on the server, so the rotation keeps correct timing across restarts even with zero listeners. Unknown-duration tracks: skip after 45s with listeners connected, rotate on a 240s fallback with none.
+
+**Prefetch:** every state snapshot includes the next shuffle pick. Clients download it to the disk cache (`FlamiePracRadio/`, pruned to 12 files) while the current track plays, so track changes only need a local decode. Skips abort any in-flight download immediately (stale downloads no longer finish in the background). Failed loads retry after 4s instead of waiting for the 30s resync.
 
 ### Skip vote
 

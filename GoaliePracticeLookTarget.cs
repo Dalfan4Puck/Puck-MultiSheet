@@ -65,6 +65,12 @@ namespace PHLPracticeModPack
             ulong lookId = ResolveObjectId(lookPuck);
             ulong queuedId = ResolveObjectId(queuedPuck);
 
+            // Hold the update until spawned drill pucks have network ids (clients need this).
+            if (lookPuck != null && lookId == 0)
+                return;
+            if (queuedPuck != null && queuedId == 0)
+                queuedPuck = null;
+
             bool lookSame = lastBroadcastLookByRink.TryGetValue(rinkIndex, out ulong prevLook)
                 && prevLook == lookId;
             bool queuedSame = lastBroadcastQueuedByRink.TryGetValue(rinkIndex, out ulong prevQueued)

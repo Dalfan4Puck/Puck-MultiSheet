@@ -26,6 +26,8 @@ namespace PHLPracticeModPack
 
             PracticeFlowClient.OnLocalDisconnected();
 
+            NapSleepSync.OnLocalDisconnect();
+
             MinimapSessionOverride.RestoreOnDisconnect();
             MinimapSessionOverride.ResetJoinSession();
             GoalieShotPhysics.ResetCeilingCache();

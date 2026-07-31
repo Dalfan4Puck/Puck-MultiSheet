@@ -138,6 +138,9 @@ namespace PHLPracticeModPack
             AddSlidableKeybindRow(host, body, embedded);
             AddMinimapKeybindRow(host, body, embedded);
             AddDualRow(body, embedded, "Spawn Objects: /passer, /pushbeam, /sheet", null);
+            AddDualRow(body, embedded, "Stretch Passing: /sp · /sp hard · soft · air · normal", null);
+            AddDualRow(body, embedded, "Point Passing: /sp point · /sp rim · /sp normal", null);
+            AddDualRow(body, embedded, "Low Cycle Passing: /sp indirect · /sp rim · /sp normal", null);
         }
 
         internal static void FillRadioInfoSection(VisualElement host, bool embedded)

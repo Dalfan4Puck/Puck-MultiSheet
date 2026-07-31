@@ -64,6 +64,18 @@ namespace PHLPracticeModPack
                     return false;
                 }
 
+                if (command == "/sp" || command == "/stretchpass")
+                {
+                    string[] parts = trimmed.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                    string styleArg = parts.Length > 1 ? parts[1] : "normal";
+                    if (StretchPassPractice.TryHandleChat(clientId, styleArg, out string spReply)
+                        && !string.IsNullOrEmpty(spReply))
+                    {
+                        QueuePrivate(clientId, spReply);
+                    }
+                    return false;
+                }
+
                 if (EmptyPucksCommand.TryHandle(command, clientId, out string epMessage))
                 {
                     if (!string.IsNullOrEmpty(epMessage))
@@ -98,7 +110,10 @@ namespace PHLPracticeModPack
                 if (slot == null) return true;
 
                 if (MultiRinkService.TryAssignRink(clientId, slot, out string message))
-                    QueuePrivate(clientId, message);
+                {
+                    if (!string.IsNullOrEmpty(message))
+                        QueuePrivate(clientId, message);
+                }
                 else
                     QueuePrivate(clientId, message ?? "Could not switch rink.");
 

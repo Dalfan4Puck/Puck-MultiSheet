@@ -493,9 +493,12 @@ namespace PHLPracticeModPack
             if (player == null) return true;
 
             // MaxPractice AI goalies spawn with PlayerPosition=null on purpose.
+            // Puck Chasers bots (8111xxx) place their own bodies on the active Chasers
+            // rink — SpawnPositionless would drop them at rink 1 (no active rink id).
             if (FakePlayerDetector.IsFakePlayer(player)
                 || GoalieAIManager.IsAIGoalie(player)
-                || GoalieAIManager.IsAIGoalieClientId(player.OwnerClientId))
+                || GoalieAIManager.IsAIGoalieClientId(player.OwnerClientId)
+                || PuckChasers.StandaloneFakePlayerDetector.IsAnyFakeClientId(player.OwnerClientId))
             {
                 if (newPhase == PlayerPhase.Play) return false;
                 return true;

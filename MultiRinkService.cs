@@ -60,6 +60,14 @@ namespace PHLPracticeModPack
                 return false;
             }
 
+            MultiRinkConfig cfg = MultiRinkConfig.Current;
+            int targetIndex = cfg?.Rinks != null ? cfg.Rinks.IndexOf(slot) : -1;
+            if (targetIndex >= 0 && IsAlreadyOnRink(clientId, targetIndex, player))
+            {
+                message = "";
+                return true;
+            }
+
             if (player.PlayerBody == null)
             {
                 // Pre-spawn rink pick (practice flow): remember the choice and flip the
@@ -175,6 +183,38 @@ namespace PHLPracticeModPack
         internal static void OnClientDisconnected(ulong clientId)
         {
             ActiveRinkByClient.Remove(clientId);
+        }
+
+        private static bool IsAlreadyOnRink(ulong clientId, int targetIndex, Player player)
+        {
+            if (targetIndex < 0)
+                return false;
+
+            MultiRinkConfig cfg = MultiRinkConfig.Current;
+            if (cfg?.Rinks == null || targetIndex >= cfg.Rinks.Count)
+                return false;
+
+            string activeId = GetActiveRinkId(clientId);
+            RinkSlot target = cfg.Rinks[targetIndex];
+            if (target == null)
+                return false;
+
+            if (activeId != target.Id)
+                return false;
+
+            // Assigned rink id alone is not enough — no body means the initial spawn
+            // (or a retry after a failed spawn) still needs to run.
+            if (player?.PlayerBody == null)
+                return false;
+
+            try
+            {
+                return RinkLocator.NearestRink(cfg, player.PlayerBody.transform.position) == targetIndex;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         /// <summary>Center-ice spawn point for a rink (shared by teleports and fresh spawns).</summary>

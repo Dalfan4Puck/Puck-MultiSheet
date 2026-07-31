@@ -210,8 +210,7 @@ namespace PHLPracticeModPack
         {
             get
             {
-                float v = Load().radioVolume;
-                return Mathf.Clamp01(v <= 0f ? 0.1f : v);
+                return Mathf.Clamp01(Load().radioVolume);
             }
             set { Load().radioVolume = Mathf.Clamp01(value); }
         }

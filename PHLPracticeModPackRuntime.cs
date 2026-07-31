@@ -10,6 +10,10 @@ namespace PHLPracticeModPack
             RinkMotdService.Tick();
             RinkStripVote.Tick();
             GoaliePracticeLookTarget.TickAttach();
+            NapSleepSync.TickAttach();
+            NapIdleService.Tick();
+            if (ModRuntimeContext.ShouldInstallClientPresentation())
+                NapSleepVfx.Tick();
             ChatOutbound.Tick();
             if (ModRuntimeContext.ShouldInstallClientPresentation())
             {

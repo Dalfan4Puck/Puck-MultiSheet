@@ -23,6 +23,7 @@ namespace PHLPracticeModPack
                 TrainingObjectManager.SkipAutoStartForMultiRink = MultiRinkConfig.Current.EnableMultiRink;
                 PracticeLog.Verbose = MultiRinkConfig.Current.VerboseLogging;
                 FlamieLog.Verbose = PracticeLog.Verbose;
+                Debug.Log("[PHLPractice] VerboseLogging=" + PracticeLog.Verbose + " (FlamieLog + PracticeLog).");
                 MultiSheetClientSettings.Load();
                 MultiSheetClientSettings.ApplyLoadedPreferences();
                 FlamiePracFeatures.RadioServerDrivenOnly = true;
@@ -32,6 +33,7 @@ namespace PHLPracticeModPack
                 RinkMotdService.Initialize();
                 RinkStripVote.Initialize();
                 GoaliePracticeLookTarget.Initialize();
+                NapSleepSync.Initialize();
 
                 runtimeObject = new GameObject("PHLPracticeModPackRuntime");
                 runtimeObject.AddComponent<PHLPracticeModPackRuntime>();
@@ -84,6 +86,8 @@ namespace PHLPracticeModPack
                 RinkMotdService.Teardown();
                 RinkStripVote.Teardown();
                 GoaliePracticeLookTarget.Teardown();
+                NapSleepSync.Teardown();
+                NapIdleService.Teardown();
                 FlamiePracFeatures.RadioServerDrivenOnly = false;
                 RadioHudUI.ShouldSuppressStandalone = null;
                 LargeLevelHost.Disable();

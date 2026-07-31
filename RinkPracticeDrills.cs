@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using MaxPractice;
@@ -9,7 +9,7 @@ namespace PHLPracticeModPack
 {
     /// <summary>
     /// Per-rink persistent save/tip practice (MaxPractice /saveprac + /tipprac logic).
-    /// Runs until the rink strip mode changes or tools are cleared — no 2-minute timer.
+    /// Runs until the rink strip mode changes or tools are cleared â€” no 2-minute timer.
     /// Multiple rinks may run Goalie or Tip practice independently (separate loops, queues, pucks).
     /// </summary>
     internal static class RinkPracticeDrills
@@ -22,9 +22,9 @@ namespace PHLPracticeModPack
         private const float IceClampMargin = 0.85f;
         private const float IceCornerRadius = 7.5f;
 
-        // Goalie strip mode — wide release-speed spread; arrival cadence fixed at the net.
+        // Goalie strip mode â€” wide release-speed spread; arrival cadence fixed at the net.
         private const float GoalieFastShotChance = 0.55f;
-        /// <summary>Fixed cadence at the net — releases are scheduled backwards from this interval.</summary>
+        /// <summary>Fixed cadence at the net â€” releases are scheduled backwards from this interval.</summary>
         private const float GoalieSaveInterval = 2f;
         /// <summary>Pucks sit at the spawn point this long before the first release.</summary>
         private const float GoalieQueueVisibleLeadTime = 2.75f;
@@ -41,6 +41,8 @@ namespace PHLPracticeModPack
         private const float GoalieShotMinDist = 8f;
         /// <summary>Most of the sheet in front of the defended net (~94-length rink).</summary>
         private const float GoalieShotMaxDist = 52f;
+        /// <summary>Tip practice: the tipper stands in front of the net â€” close spawns feel on top of them.</summary>
+        private const float TipShotMinDist = 16f;
         private const float GoalieSpawnBehindGoalMargin = 0.75f;
         private const float NetHalfWidth = 0.91f;
         private const float NetHeight = 1.22f;
@@ -69,15 +71,23 @@ namespace PHLPracticeModPack
             internal GoalieShotPhysics.TipFeedKind FeedKind;
         }
 
-        /// <summary>Tip cadence multiplier — 15% faster than MaxPractice defaults.</summary>
+        /// <summary>Tip cadence multiplier â€” 15% faster than MaxPractice defaults.</summary>
         private const float TipPaceScale = 1f / 1.15f;
-        private const int TipHoldQueueDepth = 2;
-        /// <summary>Queued + in-flight — max 2 visible (typically 1 held + 1 flying).</summary>
-        private const int TipMaxTotalPucks = 2;
-        private const int TipMaxFlyingPucks = 1;
+        private const int TipHoldQueueDepth = 3;
+        /// <summary>Queued + in-flight â€” three pucks cycle 1â†’2â†’3â†’1.</summary>
+        private const int TipMaxTotalPucks = 3;
+        private const int TipMaxFlyingPucks = 2;
         private const float TipQueueVisibleLeadTime = 1.35f;
-        private const float TipMissedShotSafetySeconds = 2.25f;
-        private const float TipPostArrivalDespawnGrace = 0.55f;
+        private const float TipMissedShotSafetySeconds = 3.5f;
+        private const float TipHighArcSafetySeconds = 5.5f;
+        private const float TipPostArrivalDespawnGrace = 0.65f;
+        private const float TipNetFeedDespawnGrace = 1.15f;
+        /// <summary>Sim vs physics drift â€” high rainbow feeds need extra time before cleanup.</summary>
+        private const float TipHighArcTravelBuffer = 1.4f;
+        private const float TipNetFeedTravelBuffer = 1.25f;
+        /// <summary>Hard cap on feed spawn distance from the tipper (along-ice).</summary>
+        private const float TipMaxSpawnBack = 28f;
+        private const float RinkPuckClearMargin = 4f;
 
         private static readonly Dictionary<int, Coroutine> saveLoops = new Dictionary<int, Coroutine>();
         private static readonly Dictionary<int, Coroutine> tipLoops = new Dictionary<int, Coroutine>();
@@ -86,26 +96,149 @@ namespace PHLPracticeModPack
             new Dictionary<int, List<PendingGoalieShot>>();
         private static readonly Dictionary<int, List<PendingTipShot>> tipPendingShots =
             new Dictionary<int, List<PendingTipShot>>();
-        /// <summary>Next planned goal-plane arrival (server time) per rink — drives dynamic release times.</summary>
+        /// <summary>Next planned goal-plane arrival (server time) per rink â€” drives dynamic release times.</summary>
         private static readonly Dictionary<int, float> goalieNextGoalArrival =
             new Dictionary<int, float>();
-        /// <summary>Next planned tipper-arrival (server time) per rink — tip shoot/reload cadence.</summary>
+        /// <summary>Next planned tipper-arrival (server time) per rink â€” tip shoot/reload cadence.</summary>
         private static readonly Dictionary<int, float> tipNextTipArrival =
             new Dictionary<int, float>();
         private static readonly Dictionary<Puck, float> goaliePuckSafetyExpireAt = new Dictionary<Puck, float>();
         private static readonly Dictionary<Puck, float> goaliePuckCrossedGoalAt = new Dictionary<Puck, float>();
-        /// <summary>Planned net arrival — used to drop saved/settled pucks from track-look.</summary>
+        /// <summary>Planned net arrival â€” used to drop saved/settled pucks from track-look.</summary>
         private static readonly Dictionary<Puck, float> goaliePuckExpectedArrivalAt = new Dictionary<Puck, float>();
         private static readonly Dictionary<Puck, float> tipPuckSafetyExpireAt = new Dictionary<Puck, float>();
         private static readonly Dictionary<Puck, float> tipPuckArriveAt = new Dictionary<Puck, float>();
+        private static readonly Dictionary<Puck, GoalieShotPhysics.TipFeedKind> tipPuckFeedKind =
+            new Dictionary<Puck, GoalieShotPhysics.TipFeedKind>();
 
         internal static void ApplyMode(int rinkIndex, RinkStripMode mode)
         {
             StopRink(rinkIndex);
-            if (mode == RinkStripMode.GoaliePractice)
-                StartSaveLoop(rinkIndex);
-            else if (mode == RinkStripMode.TipPractice)
-                StartTipLoop(rinkIndex);
+
+            if (ShouldClearPucksOnModeEntry(mode))
+                ClearLoosePucksOnRink(rinkIndex);
+
+            // Tip practice is a clone of goalie practice (same shot loop at the blue net);
+            // the skater standing in front tips the incoming feeds.
+            if (mode == RinkStripMode.GoaliePractice || mode == RinkStripMode.TipPractice)
+                StartSaveLoop(rinkIndex, mode);
+            else
+                StretchPassPractice.Apply(rinkIndex, mode);
+        }
+
+        private static bool ShouldClearPucksOnModeEntry(RinkStripMode mode)
+        {
+            return mode == RinkStripMode.GoaliePractice
+                || mode == RinkStripMode.TipPractice
+                || mode == RinkStripMode.StretchPassing
+                || mode == RinkStripMode.PointPassing
+                || mode == RinkStripMode.LowCyclePassing
+                || mode == RinkStripMode.PuckChasers;
+        }
+
+        /// <summary>Remove every puck on a sheet before practice modes start (no keep-closest).</summary>
+        internal static void ClearLoosePucksOnRink(int rinkIndex)
+        {
+            MultiRinkConfig cfg = MultiRinkConfig.Current;
+            if (cfg?.Rinks == null || rinkIndex < 0 || rinkIndex >= cfg.Rinks.Count)
+                return;
+
+            RinkSlot slot = cfg.Rinks[rinkIndex];
+            if (slot == null)
+                return;
+
+            try
+            {
+                PuckManager pm = MonoBehaviourSingleton<PuckManager>.Instance;
+
+                for (int pass = 0; pass < 2; pass++)
+                {
+                    List<Puck> onRink = CollectAllPucksOnRink(slot, pm);
+                    if (onRink.Count == 0)
+                        break;
+
+                    for (int i = 0; i < onRink.Count; i++)
+                        ForceDestroyLoosePuck(pm, onRink[i]);
+                }
+            }
+            catch (Exception ex)
+            {
+                PracticeLog.Info("[PHLPractice] Rink puck clear failed: " + ex.Message);
+            }
+        }
+
+        private static List<Puck> CollectAllPucksOnRink(RinkSlot slot, PuckManager pm)
+        {
+            var found = new HashSet<Puck>();
+            var list = new List<Puck>();
+
+            if (pm != null)
+            {
+                List<Puck> managed = null;
+                try { managed = pm.GetPucks(true); }
+                catch { }
+
+                if (managed != null)
+                {
+                    for (int i = 0; i < managed.Count; i++)
+                        TryAddPuckOnRink(managed[i], slot, found, list);
+                }
+            }
+
+            Puck[] scenePucks = UnityEngine.Object.FindObjectsByType<Puck>(FindObjectsSortMode.None);
+            for (int i = 0; i < scenePucks.Length; i++)
+                TryAddPuckOnRink(scenePucks[i], slot, found, list);
+
+            return list;
+        }
+
+        private static void TryAddPuckOnRink(Puck puck, RinkSlot slot, HashSet<Puck> found, List<Puck> list)
+        {
+            if (puck == null || puck.gameObject == null || found.Contains(puck))
+                return;
+            if (!IsWorldOnRink(puck.transform.position, slot))
+                return;
+
+            found.Add(puck);
+            list.Add(puck);
+        }
+
+        private static void ForceDestroyLoosePuck(PuckManager pm, Puck puck)
+        {
+            if (puck == null || puck.gameObject == null)
+                return;
+
+            CustomLevelPlugin.ProtectedPucks.Remove(puck);
+
+            try
+            {
+                if (puck.Rigidbody != null)
+                {
+                    puck.Rigidbody.isKinematic = false;
+                    puck.Rigidbody.linearVelocity = Vector3.zero;
+                    puck.Rigidbody.angularVelocity = Vector3.zero;
+                }
+            }
+            catch { }
+
+            if (pm != null)
+            {
+                try { pm.Server_DespawnPuck(puck); }
+                catch { }
+            }
+
+            if (puck != null && puck.gameObject != null)
+            {
+                try { UnityEngine.Object.Destroy(puck.gameObject); }
+                catch { }
+            }
+        }
+
+        private static bool IsWorldOnRink(Vector3 worldPos, RinkSlot slot)
+        {
+            Vector3 local = worldPos - slot.Origin;
+            return Mathf.Abs(local.x) <= IceHalfWidth + RinkPuckClearMargin
+                   && Mathf.Abs(local.z) <= IceHalfLength + RinkPuckClearMargin;
         }
 
         private const float GoalieLookMinClosingSpeed = 0.75f;
@@ -119,6 +252,11 @@ namespace PHLPracticeModPack
         {
             if (rinkIndex < 0)
                 return null;
+
+            RinkStripMode mode = RinkStripVote.GetServerMode(rinkIndex);
+            if (mode == RinkStripMode.StretchPassing || mode == RinkStripMode.PointPassing
+                || mode == RinkStripMode.LowCyclePassing)
+                return StretchPassPractice.ResolveLookPuck(rinkIndex);
 
             Puck flying = ResolveBestFlyingLookPuck(rinkIndex);
             if (flying != null)
@@ -134,21 +272,11 @@ namespace PHLPracticeModPack
                 return null;
 
             RinkStripMode mode = RinkStripVote.GetServerMode(rinkIndex);
-            if (mode == RinkStripMode.TipPractice)
-            {
-                if (tipPendingShots.TryGetValue(rinkIndex, out List<PendingTipShot> tipQueue)
-                    && tipQueue != null
-                    && tipQueue.Count > 0
-                    && tipQueue[0].Puck != null
-                    && tipQueue[0].Puck.gameObject != null)
-                {
-                    return tipQueue[0].Puck;
-                }
+            if (mode == RinkStripMode.StretchPassing || mode == RinkStripMode.PointPassing
+                || mode == RinkStripMode.LowCyclePassing)
+                return StretchPassPractice.ResolveQueuedLookPuck(rinkIndex);
 
-                return null;
-            }
-
-            if (mode == RinkStripMode.GoaliePractice
+            if ((mode == RinkStripMode.GoaliePractice || mode == RinkStripMode.TipPractice)
                 && goaliePendingShots.TryGetValue(rinkIndex, out List<PendingGoalieShot> queue)
                 && queue != null
                 && queue.Count > 0
@@ -166,26 +294,10 @@ namespace PHLPracticeModPack
             if (!rinkPucks.TryGetValue(rinkIndex, out List<Puck> flying) || flying == null || flying.Count == 0)
                 return null;
 
-            RinkStripMode mode = RinkStripVote.GetServerMode(rinkIndex);
-            bool tipMode = mode == RinkStripMode.TipPractice;
-
             Vector3 aimPos = default;
             bool haveAim = false;
             if (TryGetRinkSlot(rinkIndex, out RinkSlot slot))
-            {
-                if (tipMode)
-                {
-                    Player tipper = FindSkaterOnRink(rinkIndex, slot);
-                    if (tipper?.PlayerBody != null)
-                    {
-                        aimPos = tipper.PlayerBody.transform.position;
-                        haveAim = true;
-                    }
-                }
-
-                if (!haveAim)
-                    haveAim = TryGetNetWorld(slot, PlayerTeam.Blue, out aimPos);
-            }
+                haveAim = TryGetNetWorld(slot, PlayerTeam.Blue, out aimPos);
 
             Puck best = null;
             float bestScore = float.MinValue;
@@ -199,18 +311,9 @@ namespace PHLPracticeModPack
                 if (goaliePuckCrossedGoalAt.ContainsKey(puck))
                     continue;
 
-                // Tip feed already reached the tipper — hand look to the next queued holder.
-                if (tipMode
-                    && tipPuckArriveAt.TryGetValue(puck, out float tipArriveAt)
-                    && Time.time >= tipArriveAt + TipPostArrivalDespawnGrace * 0.35f)
-                {
-                    continue;
-                }
-
                 Vector3 puckPos = puck.transform.position;
-                // Past the defended net = behind the goalie — hand look off to the queue.
-                if (!tipMode
-                    && haveAim
+                // Past the defended net = behind the goalie â€” hand look off to the queue.
+                if (haveAim
                     && IsPuckPastDefendedGoal(puckPos, aimPos, isShootingAtRedGoal: false))
                     continue;
 
@@ -222,19 +325,16 @@ namespace PHLPracticeModPack
                 Vector3 vel = puck.Rigidbody != null ? puck.Rigidbody.linearVelocity : Vector3.zero;
                 float closing = Vector3.Dot(vel, toAim / dist);
 
-                // Saved / rebounding pucks in the crease — hand look to the next queued holder.
-                if (!tipMode)
-                {
-                    if (closing < GoalieLookMinClosingSpeed)
-                        continue;
+                // Saved / rebounding pucks in the crease â€” hand look to the next queued holder.
+                if (closing < GoalieLookMinClosingSpeed)
+                    continue;
 
-                    if (goaliePuckExpectedArrivalAt.TryGetValue(puck, out float goalieArriveAt)
-                        && Time.time >= goalieArriveAt + GoaliePostArrivalLookHandoff)
-                    {
-                        float speed = vel.magnitude;
-                        if (speed < PracticeConstants.SettledPuckVelocity)
-                            continue;
-                    }
+                if (goaliePuckExpectedArrivalAt.TryGetValue(puck, out float goalieArriveAt)
+                    && Time.time >= goalieArriveAt + GoaliePostArrivalLookHandoff)
+                {
+                    float speed = vel.magnitude;
+                    if (speed < PracticeConstants.SettledPuckVelocity)
+                        continue;
                 }
 
                 // Prefer approaching shots; keep a distance bias so the soonest threat wins ties.
@@ -298,6 +398,7 @@ namespace PHLPracticeModPack
             foreach (int k in rinkPucks.Keys) indices.Add(k);
             foreach (int k in indices)
                 StopRink(k);
+            StretchPassPractice.StopAll();
         }
 
         internal static void TickReconcile()
@@ -311,19 +412,19 @@ namespace PHLPracticeModPack
             for (int i = 0; i < count; i++)
             {
                 RinkStripMode mode = RinkStripVote.GetServerMode(i);
-                bool wantGoalie = mode == RinkStripMode.GoaliePractice;
-                bool wantTip = mode == RinkStripMode.TipPractice;
+                bool wantSaveLoop = mode == RinkStripMode.GoaliePractice
+                    || mode == RinkStripMode.TipPractice;
 
-                if (!wantGoalie && saveLoops.ContainsKey(i))
+                if (!wantSaveLoop && saveLoops.ContainsKey(i))
                     StopRink(i);
-                else if (!wantTip && tipLoops.ContainsKey(i))
-                    StopRink(i);
+                else if (tipLoops.ContainsKey(i))
+                    StopRink(i); // legacy tip loop â€” replaced by the goalie-clone save loop
 
-                if (wantGoalie && !saveLoops.ContainsKey(i))
-                    StartSaveLoop(i);
-                else if (wantTip && !tipLoops.ContainsKey(i))
-                    StartTipLoop(i);
+                if (wantSaveLoop && !saveLoops.ContainsKey(i))
+                    StartSaveLoop(i, mode);
             }
+
+            StretchPassPractice.TickReconcile();
         }
 
         private static void StopRink(int rinkIndex)
@@ -344,29 +445,22 @@ namespace PHLPracticeModPack
             CleanupPendingGoalieShots(rinkIndex);
             CleanupPendingTipShots(rinkIndex);
             CleanupRinkPucks(rinkIndex);
+            StretchPassPractice.Stop(rinkIndex);
             GoaliePracticeLookTarget.ClearRink(rinkIndex);
         }
 
-        private static void StartSaveLoop(int rinkIndex)
+        private static void StartSaveLoop(int rinkIndex, RinkStripMode stripMode)
         {
             MonoBehaviour host = CoroutineHost;
             if (host == null) return;
             if (saveLoops.ContainsKey(rinkIndex)) return;
 
-            Coroutine loop = host.StartCoroutine(SavePracticeLoop(rinkIndex));
+            Coroutine loop = host.StartCoroutine(SavePracticeLoop(rinkIndex, stripMode));
             saveLoops[rinkIndex] = loop;
-            PracticeLog.Info("[PHLPractice] Rink " + (rinkIndex + 1) + " save practice started (persistent).");
-        }
-
-        private static void StartTipLoop(int rinkIndex)
-        {
-            MonoBehaviour host = CoroutineHost;
-            if (host == null) return;
-            if (tipLoops.ContainsKey(rinkIndex)) return;
-
-            Coroutine loop = host.StartCoroutine(TipPracticeLoop(rinkIndex));
-            tipLoops[rinkIndex] = loop;
-            PracticeLog.Info("[PHLPractice] Rink " + (rinkIndex + 1) + " tip practice started (persistent).");
+            PracticeLog.Info("[PHLPractice] Rink " + (rinkIndex + 1)
+                + (stripMode == RinkStripMode.TipPractice
+                    ? " tip practice (goalie-clone) started (persistent)."
+                    : " save practice started (persistent)."));
         }
 
         private static bool ShouldRun(int rinkIndex, RinkStripMode expected)
@@ -383,13 +477,13 @@ namespace PHLPracticeModPack
             }
         }
 
-        private static IEnumerator SavePracticeLoop(int rinkIndex)
+        private static IEnumerator SavePracticeLoop(int rinkIndex, RinkStripMode stripMode)
         {
             const bool isShootingAtRedGoal = false;
 
             try
             {
-                while (ShouldRun(rinkIndex, RinkStripMode.GoaliePractice))
+                while (ShouldRun(rinkIndex, stripMode))
                 {
                     if (!TryGetRinkSlot(rinkIndex, out RinkSlot slot)
                         || !TryGetNetWorld(slot, PlayerTeam.Blue, out Vector3 targetGoalPos))
@@ -404,14 +498,14 @@ namespace PHLPracticeModPack
 
                     while (queue.Count < GoalieHoldQueueDepth
                            && CountGoaliePracticePucks(rinkIndex) < GoalieMaxTotalPucks
-                           && ShouldRun(rinkIndex, RinkStripMode.GoaliePractice))
+                           && ShouldRun(rinkIndex, stripMode))
                     {
-                        if (!TryEnqueueGoalieShot(rinkIndex, slot, targetGoalPos, queue))
+                        if (!TryEnqueueGoalieShot(rinkIndex, slot, targetGoalPos, queue, stripMode))
                             break;
                     }
 
                     // Cap full of flying pucks + empty queue used to spin forever because
-                    // cleanup never ran on this path — force room, then retry enqueue.
+                    // cleanup never ran on this path â€” force room, then retry enqueue.
                     if (queue.Count == 0)
                     {
                         CheckAndCleanupGoaliePucks(rinkIndex, isShootingAtRedGoal, targetGoalPos);
@@ -419,7 +513,7 @@ namespace PHLPracticeModPack
                             ForceDestroyOldestFlyingPuck(rinkIndex);
 
                         if (CountGoaliePracticePucks(rinkIndex) < GoalieMaxTotalPucks)
-                            TryEnqueueGoalieShot(rinkIndex, slot, targetGoalPos, queue);
+                            TryEnqueueGoalieShot(rinkIndex, slot, targetGoalPos, queue, stripMode);
 
                         if (queue.Count == 0)
                         {
@@ -440,14 +534,14 @@ namespace PHLPracticeModPack
                         goalieNextGoalArrival[rinkIndex] = adjusted.GoalArrivalAt + GoalieSaveInterval;
                     }
 
-                    while (Time.time < releaseAt && ShouldRun(rinkIndex, RinkStripMode.GoaliePractice))
+                    while (Time.time < releaseAt && ShouldRun(rinkIndex, stripMode))
                     {
                         yield return new WaitForSeconds(0.05f);
                         CheckAndCleanupGoaliePucks(rinkIndex, isShootingAtRedGoal, targetGoalPos);
                         RefreshLookTarget(rinkIndex);
                     }
 
-                    if (!ShouldRun(rinkIndex, RinkStripMode.GoaliePractice))
+                    if (!ShouldRun(rinkIndex, stripMode))
                         break;
 
                     PruneDeadPendingShots(queue);
@@ -469,8 +563,8 @@ namespace PHLPracticeModPack
 
                     if (queue.Count < GoalieHoldQueueDepth
                         && CountGoaliePracticePucks(rinkIndex) < GoalieMaxTotalPucks
-                        && ShouldRun(rinkIndex, RinkStripMode.GoaliePractice))
-                        TryEnqueueGoalieShot(rinkIndex, slot, targetGoalPos, queue);
+                        && ShouldRun(rinkIndex, stripMode))
+                        TryEnqueueGoalieShot(rinkIndex, slot, targetGoalPos, queue, stripMode);
 
                     CheckAndCleanupGoaliePucks(rinkIndex, isShootingAtRedGoal, targetGoalPos);
                     RefreshLookTarget(rinkIndex);
@@ -549,6 +643,7 @@ namespace PHLPracticeModPack
         private static void PlanGoalieShot(
             RinkSlot slot,
             Vector3 targetGoalPos,
+            float minDist,
             out Vector3 spawnPos,
             out Vector3 aimPoint,
             out bool isFastShot)
@@ -559,10 +654,10 @@ namespace PHLPracticeModPack
             Vector3 attackDir = blueEndGoal ? Vector3.back : Vector3.forward;
             float goalLineZ = targetGoalPos.z;
 
-            spawnPos = BuildFallbackGoalieSpawn(slot, targetGoalPos, attackDir, iceY);
+            spawnPos = BuildFallbackGoalieSpawn(slot, targetGoalPos, attackDir, iceY, minDist);
             for (int attempt = 0; attempt < 16; attempt++)
             {
-                float dist = UnityEngine.Random.Range(GoalieShotMinDist, GoalieShotMaxDist);
+                float dist = UnityEngine.Random.Range(minDist, GoalieShotMaxDist);
                 float yaw = UnityEngine.Random.Range(-75f, 75f);
                 Vector3 offset = Quaternion.Euler(0f, yaw, 0f) * attackDir * dist;
                 Vector3 candidate = targetGoalPos + offset;
@@ -575,7 +670,7 @@ namespace PHLPracticeModPack
                 Vector3 netFlat = new Vector3(targetGoalPos.x, 0f, targetGoalPos.z);
                 Vector3 spawnFlat = new Vector3(candidate.x, 0f, candidate.z);
                 float actualDist = Vector3.Distance(spawnFlat, netFlat);
-                if (actualDist < GoalieShotMinDist * 0.85f || actualDist > GoalieShotMaxDist * 1.05f)
+                if (actualDist < minDist * 0.85f || actualDist > GoalieShotMaxDist * 1.05f)
                     continue;
 
                 spawnPos = candidate;
@@ -588,9 +683,9 @@ namespace PHLPracticeModPack
         }
 
         private static Vector3 BuildFallbackGoalieSpawn(
-            RinkSlot slot, Vector3 targetGoalPos, Vector3 attackDir, float iceY)
+            RinkSlot slot, Vector3 targetGoalPos, Vector3 attackDir, float iceY, float minDist)
         {
-            float dist = UnityEngine.Random.Range(GoalieShotMinDist, GoalieShotMaxDist * 0.65f);
+            float dist = UnityEngine.Random.Range(minDist, Mathf.Max(GoalieShotMaxDist * 0.65f, minDist + 4f));
             Vector3 spawn = targetGoalPos + attackDir * dist;
             spawn.y = iceY;
             spawn = ClampToRinkLocal(spawn, slot);
@@ -610,12 +705,14 @@ namespace PHLPracticeModPack
             int rinkIndex,
             RinkSlot slot,
             Vector3 targetGoalPos,
-            List<PendingGoalieShot> queue)
+            List<PendingGoalieShot> queue,
+            RinkStripMode stripMode)
         {
             if (CountGoaliePracticePucks(rinkIndex) >= GoalieMaxTotalPucks)
                 return false;
 
-            PlanGoalieShot(slot, targetGoalPos, out Vector3 spawnPos, out Vector3 aimPoint, out bool isFastShot);
+            float minDist = stripMode == RinkStripMode.TipPractice ? TipShotMinDist : GoalieShotMinDist;
+            PlanGoalieShot(slot, targetGoalPos, minDist, out Vector3 spawnPos, out Vector3 aimPoint, out bool isFastShot);
 
             Puck puck = PracticePuckSpawn.SpawnAt(spawnPos, Quaternion.identity, Vector3.zero);
             if (puck == null || puck.Rigidbody == null)
@@ -697,8 +794,7 @@ namespace PHLPracticeModPack
             {
                 while (ShouldRun(rinkIndex, RinkStripMode.TipPractice))
                 {
-                    if (!TryGetRinkSlot(rinkIndex, out RinkSlot slot)
-                        || !TryGetNetWorld(slot, PlayerTeam.Blue, out Vector3 targetGoalPos))
+                    if (!TryGetRinkSlot(rinkIndex, out RinkSlot slot))
                     {
                         yield return new WaitForSeconds(1f);
                         continue;
@@ -706,6 +802,12 @@ namespace PHLPracticeModPack
 
                     Player tipper = FindSkaterOnRink(rinkIndex, slot);
                     if (tipper == null || tipper.PlayerBody == null)
+                    {
+                        yield return new WaitForSeconds(1f);
+                        continue;
+                    }
+
+                    if (!TryGetNetWorld(slot, PlayerTeam.Blue, out Vector3 targetGoalPos))
                     {
                         yield return new WaitForSeconds(1f);
                         continue;
@@ -785,7 +887,7 @@ namespace PHLPracticeModPack
                     }
 
                     FireTipShot(ref shot, slot, rinkIndex, targetGoalPos);
-                    TrackTipPuck(rinkIndex, shot.Puck, shot.FireAt, shot.TravelTime);
+                    TrackTipPuck(rinkIndex, shot.Puck, shot.TravelTime, shot.FeedKind);
                     RefreshLookTarget(rinkIndex);
 
                     // Second puck already (or now) reloading while the first flies.
@@ -892,7 +994,7 @@ namespace PHLPracticeModPack
                 return false;
 
             Vector3 tipperPos = tipper.PlayerBody.transform.position;
-            PlanTipShot(slot, tipperPos, targetGoalPos, out Vector3 spawnPos, out Vector3 tipTarget, out GoalieShotPhysics.TipFeedKind feedKind);
+            PlanTipShot(slot, tipper, tipperPos, targetGoalPos, out Vector3 spawnPos, out Vector3 tipTarget, out GoalieShotPhysics.TipFeedKind feedKind);
 
             Puck puck = PracticePuckSpawn.SpawnAt(spawnPos, Quaternion.identity, Vector3.zero);
             if (puck == null || puck.Rigidbody == null)
@@ -901,10 +1003,11 @@ namespace PHLPracticeModPack
             PrepareTipPuckAt(puck, spawnPos);
 
             bool shootFromPositiveZ = spawnPos.z > tipTarget.z;
+            float crossingPlaneZ = ResolveTipCrossingPlaneZ(feedKind, tipperPos.z, targetGoalPos.z);
             if (!GoalieShotPhysics.TryBuildTipLaunch(
                     spawnPos,
                     tipTarget,
-                    tipTarget.z,
+                    crossingPlaneZ,
                     shootFromPositiveZ,
                     puck,
                     feedKind,
@@ -966,12 +1069,13 @@ namespace PHLPracticeModPack
             if (tipper?.PlayerBody != null)
             {
                 Vector3 tipperPos = tipper.PlayerBody.transform.position;
-                RetargetTipShot(slot, tipperPos, targetGoalPos, feedKind, ref tipTarget);
+                RetargetTipShot(slot, tipper, tipperPos, targetGoalPos, feedKind, ref tipTarget);
                 bool shootFromPositiveZ = shot.SpawnPos.z > tipTarget.z;
+                float crossingPlaneZ = ResolveTipCrossingPlaneZ(feedKind, tipperPos.z, targetGoalPos.z);
                 if (GoalieShotPhysics.TryBuildTipLaunch(
                         shot.SpawnPos,
                         tipTarget,
-                        tipTarget.z,
+                        crossingPlaneZ,
                         shootFromPositiveZ,
                         shot.Puck,
                         feedKind,
@@ -992,15 +1096,73 @@ namespace PHLPracticeModPack
             shot.LaunchVelocity = launchVel;
         }
 
-        private static void TrackTipPuck(int rinkIndex, Puck puck, float fireAt, float travelTime)
+        private static float ResolveTipCrossingPlaneZ(
+            GoalieShotPhysics.TipFeedKind feedKind,
+            float tipperPlaneZ,
+            float netPlaneZ)
+        {
+            if (feedKind == GoalieShotPhysics.TipFeedKind.OnNet
+                || feedKind == GoalieShotPhysics.TipFeedKind.HighLooperNet)
+            {
+                return netPlaneZ;
+            }
+
+            return tipperPlaneZ;
+        }
+
+        private static float ResolveTipTravelBuffer(GoalieShotPhysics.TipFeedKind feedKind)
+        {
+            if (feedKind == GoalieShotPhysics.TipFeedKind.HighLooperTipper)
+                return TipHighArcTravelBuffer;
+            if (feedKind == GoalieShotPhysics.TipFeedKind.HighLooperNet
+                || feedKind == GoalieShotPhysics.TipFeedKind.OnNet)
+            {
+                return TipNetFeedTravelBuffer;
+            }
+
+            return 1.1f;
+        }
+
+        private static float ResolveTipSafetySeconds(GoalieShotPhysics.TipFeedKind feedKind)
+        {
+            if (feedKind == GoalieShotPhysics.TipFeedKind.HighLooperTipper
+                || feedKind == GoalieShotPhysics.TipFeedKind.HighLooperNet)
+            {
+                return TipHighArcSafetySeconds;
+            }
+
+            return TipMissedShotSafetySeconds;
+        }
+
+        private static float ResolveTipDespawnGrace(GoalieShotPhysics.TipFeedKind feedKind)
+        {
+            if (feedKind == GoalieShotPhysics.TipFeedKind.OnNet
+                || feedKind == GoalieShotPhysics.TipFeedKind.HighLooperNet)
+            {
+                return TipNetFeedDespawnGrace;
+            }
+
+            if (feedKind == GoalieShotPhysics.TipFeedKind.HighLooperTipper)
+                return TipPostArrivalDespawnGrace + 0.35f;
+
+            return TipPostArrivalDespawnGrace;
+        }
+
+        private static void TrackTipPuck(
+            int rinkIndex,
+            Puck puck,
+            float travelTime,
+            GoalieShotPhysics.TipFeedKind feedKind)
         {
             TrackPuck(rinkIndex, puck);
             if (puck == null)
                 return;
 
-            float expectedArrival = fireAt + travelTime;
+            float bufferedTravel = Mathf.Max(travelTime, 0.15f) * ResolveTipTravelBuffer(feedKind);
+            float expectedArrival = Time.time + bufferedTravel;
             tipPuckArriveAt[puck] = expectedArrival;
-            tipPuckSafetyExpireAt[puck] = expectedArrival + TipMissedShotSafetySeconds;
+            tipPuckSafetyExpireAt[puck] = expectedArrival + ResolveTipSafetySeconds(feedKind);
+            tipPuckFeedKind[puck] = feedKind;
         }
 
         private static void ForceDestroyOldestFlyingTipPuck(int rinkIndex)
@@ -1008,18 +1170,49 @@ namespace PHLPracticeModPack
             if (!rinkPucks.TryGetValue(rinkIndex, out List<Puck> puckList) || puckList == null)
                 return;
 
-            while (puckList.Count > 0)
+            float now = Time.time;
+            if (TryDestroyOldestArrivedTipPuck(puckList, now))
+                return;
+
+            // Last resort â€” only cull when well past expected flight time.
+            for (int i = 0; i < puckList.Count; i++)
             {
-                Puck oldest = puckList[0];
-                if (oldest == null || oldest.gameObject == null)
-                {
-                    puckList.RemoveAt(0);
+                Puck p = puckList[i];
+                if (p == null || p.gameObject == null)
                     continue;
+                if (tipPuckArriveAt.TryGetValue(p, out float arriveAt) && now < arriveAt + 1.5f)
+                    continue;
+
+                DestroyTipPuck(p, puckList, i);
+                return;
+            }
+        }
+
+        private static bool TryDestroyOldestArrivedTipPuck(List<Puck> puckList, float now)
+        {
+            for (int i = 0; i < puckList.Count; i++)
+            {
+                Puck p = puckList[i];
+                if (p == null || p.gameObject == null)
+                    continue;
+
+                if (tipPuckSafetyExpireAt.TryGetValue(p, out float safetyAt) && now >= safetyAt)
+                {
+                    DestroyTipPuck(p, puckList, i);
+                    return true;
                 }
 
-                DestroyTipPuck(oldest, puckList, 0);
-                break;
+                GoalieShotPhysics.TipFeedKind feed = GoalieShotPhysics.TipFeedKind.AtTipper;
+                tipPuckFeedKind.TryGetValue(p, out feed);
+                if (tipPuckArriveAt.TryGetValue(p, out float arriveAt)
+                    && now >= arriveAt + ResolveTipDespawnGrace(feed))
+                {
+                    DestroyTipPuck(p, puckList, i);
+                    return true;
+                }
             }
+
+            return false;
         }
 
         private static void CheckAndCleanupTipPucks(int rinkIndex)
@@ -1039,15 +1232,19 @@ namespace PHLPracticeModPack
 
                 try
                 {
+                    GoalieShotPhysics.TipFeedKind feed = GoalieShotPhysics.TipFeedKind.AtTipper;
+                    tipPuckFeedKind.TryGetValue(p, out feed);
+                    float despawnGrace = ResolveTipDespawnGrace(feed);
+
                     bool pastArrival = tipPuckArriveAt.TryGetValue(p, out float arriveAt)
-                        && now >= arriveAt + TipPostArrivalDespawnGrace;
+                        && now >= arriveAt + despawnGrace;
                     bool safetyExpired = tipPuckSafetyExpireAt.TryGetValue(p, out float safetyExpireAt)
                         && now >= safetyExpireAt;
                     bool settled = pastArrival
                         && p.Rigidbody != null
                         && p.Rigidbody.linearVelocity.magnitude < PracticeConstants.SettledPuckVelocity;
 
-                    if (pastArrival || safetyExpired || settled)
+                    if (safetyExpired || (pastArrival && settled))
                         DestroyTipPuck(p, puckList, i);
                 }
                 catch { puckList.RemoveAt(i); }
@@ -1056,14 +1253,8 @@ namespace PHLPracticeModPack
             while (puckList.Count > TipMaxFlyingPucks
                    || CountTipPracticePucks(rinkIndex) > TipMaxTotalPucks)
             {
-                if (puckList.Count == 0)
+                if (!TryDestroyOldestArrivedTipPuck(puckList, now))
                     break;
-
-                Puck oldest = puckList[0];
-                if (oldest != null)
-                    DestroyTipPuck(oldest, puckList, 0);
-                else
-                    puckList.RemoveAt(0);
             }
         }
 
@@ -1073,6 +1264,7 @@ namespace PHLPracticeModPack
             {
                 tipPuckSafetyExpireAt.Remove(puck);
                 tipPuckArriveAt.Remove(puck);
+                tipPuckFeedKind.Remove(puck);
             }
             if (puck != null && puck.gameObject != null)
             {
@@ -1085,6 +1277,7 @@ namespace PHLPracticeModPack
 
         private static void PlanTipShot(
             RinkSlot slot,
+            Player tipper,
             Vector3 tipperPos,
             Vector3 targetGoalPos,
             out Vector3 spawnPos,
@@ -1109,68 +1302,60 @@ namespace PHLPracticeModPack
             else
                 feedKind = GoalieShotPhysics.TipFeedKind.OnNet;
 
-            float arrivalHeight = iceY + UnityEngine.Random.Range(0.35f, 1.05f);
             switch (feedKind)
             {
                 case GoalieShotPhysics.TipFeedKind.LongStraight:
                 {
-                    float back = UnityEngine.Random.Range(26f, 46f);
+                    float back = ClampTipSpawnBack(UnityEngine.Random.Range(12f, 26f));
                     spawnPos = tipperPos + awayFromNet * back
-                        + Vector3.right * UnityEngine.Random.Range(-4f, 4f);
-                    tipTarget = new Vector3(
-                        tipperPos.x + UnityEngine.Random.Range(-0.55f, 0.55f),
-                        arrivalHeight,
-                        tipperPos.z + UnityEngine.Random.Range(-0.45f, 0.45f));
+                        + Vector3.right * UnityEngine.Random.Range(-9f, 9f);
+                    tipTarget = SampleTipperAimPoint(tipper, tipperPos, targetGoalPos, iceY, allowNet: false);
                     break;
                 }
                 case GoalieShotPhysics.TipFeedKind.WideTipper:
                 {
-                    float back = UnityEngine.Random.Range(24f, 42f);
-                    float side = UnityEngine.Random.Range(2.5f, 5.5f) * (UnityEngine.Random.value > 0.5f ? 1f : -1f);
+                    float back = ClampTipSpawnBack(UnityEngine.Random.Range(12f, 20f));
+                    float side = UnityEngine.Random.Range(2.5f, 6.5f) * (UnityEngine.Random.value > 0.5f ? 1f : -1f);
                     spawnPos = tipperPos + awayFromNet * back
-                        + Vector3.right * side * 0.55f;
-                    tipTarget = new Vector3(
-                        tipperPos.x + side,
-                        iceY + UnityEngine.Random.Range(0.35f, 1.15f),
-                        tipperPos.z + UnityEngine.Random.Range(-0.75f, 0.75f));
+                        + Vector3.right * side * 0.45f;
+                    tipTarget = SampleTipperAimPoint(tipper, tipperPos, targetGoalPos, iceY, allowNet: false);
+                    tipTarget.x = tipperPos.x + side + UnityEngine.Random.Range(-0.35f, 0.35f);
+                    tipTarget.y = Mathf.Max(tipTarget.y, iceY + 0.55f);
                     break;
                 }
                 case GoalieShotPhysics.TipFeedKind.HighLooperTipper:
                 {
-                    float back = UnityEngine.Random.Range(30f, 50f);
+                    float back = ClampTipSpawnBack(UnityEngine.Random.Range(14f, 24f));
                     spawnPos = tipperPos + awayFromNet * back
-                        + Vector3.right * UnityEngine.Random.Range(-5f, 5f);
-                    tipTarget = new Vector3(
-                        tipperPos.x + UnityEngine.Random.Range(-1.1f, 1.1f),
-                        iceY + UnityEngine.Random.Range(0.55f, 1.35f),
-                        tipperPos.z + UnityEngine.Random.Range(-0.9f, 0.9f));
+                        + Vector3.right * UnityEngine.Random.Range(-8f, 8f);
+                    tipTarget = SampleTipperAimPoint(tipper, tipperPos, targetGoalPos, iceY, allowNet: false);
+                    tipTarget.y = Mathf.Max(tipTarget.y, iceY + UnityEngine.Random.Range(0.65f, 1.15f));
                     break;
                 }
                 case GoalieShotPhysics.TipFeedKind.HighLooperNet:
                 {
-                    float back = UnityEngine.Random.Range(32f, 52f);
+                    float back = ClampTipSpawnBack(UnityEngine.Random.Range(14f, 26f));
                     spawnPos = tipperPos + awayFromNet * back
-                        + Vector3.right * UnityEngine.Random.Range(-3.5f, 3.5f);
-                    tipTarget = SampleNetTipTarget(targetGoalPos, iceY, highArrival: true);
+                        + Vector3.right * UnityEngine.Random.Range(-2.5f, 2.5f);
+                    tipTarget = SampleTipperAimPoint(tipper, tipperPos, targetGoalPos, iceY, allowNet: true);
+                    tipTarget.y = Mathf.Max(tipTarget.y, iceY + UnityEngine.Random.Range(0.75f, 1.15f));
                     break;
                 }
                 case GoalieShotPhysics.TipFeedKind.OnNet:
                 {
-                    float back = UnityEngine.Random.Range(22f, 40f);
+                    float back = ClampTipSpawnBack(UnityEngine.Random.Range(10f, 20f));
                     spawnPos = tipperPos + awayFromNet * back
-                        + Vector3.right * UnityEngine.Random.Range(-2.5f, 2.5f);
-                    tipTarget = SampleNetTipTarget(targetGoalPos, iceY, highArrival: false);
+                        + Vector3.right * UnityEngine.Random.Range(-2f, 2f);
+                    tipTarget = SampleTipperAimPoint(tipper, tipperPos, targetGoalPos, iceY, allowNet: true);
+                    tipTarget.y = Mathf.Max(tipTarget.y, iceY + UnityEngine.Random.Range(0.55f, 0.95f));
                     break;
                 }
-                default: // AtTipper — medium-long straight feed through the slot
+                default: // AtTipper â€” medium feed through the slot
                 {
-                    float back = UnityEngine.Random.Range(18f, 34f);
+                    float back = ClampTipSpawnBack(UnityEngine.Random.Range(10f, 18f));
                     spawnPos = tipperPos + awayFromNet * back
-                        + Vector3.right * UnityEngine.Random.Range(-3.5f, 3.5f);
-                    tipTarget = new Vector3(
-                        tipperPos.x + UnityEngine.Random.Range(-0.65f, 0.65f),
-                        iceY + UnityEngine.Random.Range(0.3f, 1.05f),
-                        tipperPos.z + UnityEngine.Random.Range(-0.55f, 0.55f));
+                        + Vector3.right * UnityEngine.Random.Range(-6f, 6f);
+                    tipTarget = SampleTipperAimPoint(tipper, tipperPos, targetGoalPos, iceY, allowNet: false);
                     break;
                 }
             }
@@ -1180,25 +1365,82 @@ namespace PHLPracticeModPack
             spawnPos.y = iceY;
 
             tipTarget = ClampToRinkLocal(tipTarget, slot);
-            tipTarget.y = Mathf.Max(tipTarget.y, iceY + 0.05f);
+            tipTarget.y = Mathf.Max(tipTarget.y, iceY + 0.5f);
+        }
+
+        private static float ClampTipSpawnBack(float back)
+        {
+            return Mathf.Clamp(back, 8f, TipMaxSpawnBack);
         }
 
         private static Vector3 SampleNetTipTarget(Vector3 netCenter, float iceY, bool highArrival)
         {
             float y = highArrival
-                ? iceY + UnityEngine.Random.Range(0.65f, 1.25f)
-                : iceY + UnityEngine.Random.Range(0.25f, 1.05f);
+                ? iceY + UnityEngine.Random.Range(0.75f, 1.35f)
+                : iceY + UnityEngine.Random.Range(0.55f, 1.15f);
             return new Vector3(
-                netCenter.x + UnityEngine.Random.Range(-0.8f, 0.8f),
+                netCenter.x + UnityEngine.Random.Range(-0.65f, 0.65f),
                 y,
                 netCenter.z);
         }
 
+        /// <summary>Pick stick blade, chest, or net with modest variance.</summary>
+        private static Vector3 SampleTipperAimPoint(
+            Player tipper,
+            Vector3 tipperPos,
+            Vector3 netCenter,
+            float iceY,
+            bool allowNet)
+        {
+            float roll = UnityEngine.Random.value;
+            if (allowNet && roll < 0.18f)
+                return SampleNetTipTarget(netCenter, iceY, highArrival: roll < 0.09f);
+
+            float aimRoll = UnityEngine.Random.value;
+            Vector3 point;
+            if (aimRoll < 0.42f)
+                point = GetStickBladePosition(tipper, tipperPos, iceY);
+            else if (aimRoll < 0.78f)
+                point = GetBodyChestPosition(tipperPos, iceY);
+            else
+            {
+                Vector3 stick = GetStickBladePosition(tipper, tipperPos, iceY);
+                Vector3 body = GetBodyChestPosition(tipperPos, iceY);
+                point = Vector3.Lerp(body, stick, UnityEngine.Random.Range(0.35f, 0.85f));
+            }
+
+            point.x += UnityEngine.Random.Range(-0.4f, 0.4f);
+            point.y += UnityEngine.Random.Range(-0.1f, 0.2f);
+            point.z += UnityEngine.Random.Range(-0.35f, 0.35f);
+            point.y = Mathf.Max(point.y, iceY + 0.5f);
+            return point;
+        }
+
+        private static Vector3 GetStickBladePosition(Player player, Vector3 fallbackBodyPos, float iceY)
+        {
+            try
+            {
+                if (player?.Stick != null)
+                    return player.Stick.BladeHandlePosition;
+                if (player?.PlayerBody?.Stick != null)
+                    return player.PlayerBody.Stick.BladeHandlePosition;
+            }
+            catch { }
+
+            return new Vector3(fallbackBodyPos.x, iceY + 0.08f, fallbackBodyPos.z);
+        }
+
+        private static Vector3 GetBodyChestPosition(Vector3 bodyPos, float iceY)
+        {
+            return new Vector3(bodyPos.x, iceY + 0.95f, bodyPos.z);
+        }
+
         /// <summary>
-        /// Light retarget at release — net/wide feeds keep their aim; only slot feeds track the tipper closely.
+        /// Retarget at release â€” net feeds aim at the net; slot feeds track stick/body with variance.
         /// </summary>
         private static void RetargetTipShot(
             RinkSlot slot,
+            Player tipper,
             Vector3 tipperPos,
             Vector3 targetGoalPos,
             GoalieShotPhysics.TipFeedKind feedKind,
@@ -1209,45 +1451,40 @@ namespace PHLPracticeModPack
             switch (feedKind)
             {
                 case GoalieShotPhysics.TipFeedKind.OnNet:
+                    tipTarget = SampleTipperAimPoint(tipper, tipperPos, targetGoalPos, iceY, allowNet: true);
+                    tipTarget.y = Mathf.Max(tipTarget.y, iceY + 0.55f);
+                    break;
+
                 case GoalieShotPhysics.TipFeedKind.HighLooperNet:
-                    tipTarget = SampleNetTipTarget(
-                        targetGoalPos,
-                        iceY,
-                        highArrival: feedKind == GoalieShotPhysics.TipFeedKind.HighLooperNet);
+                    tipTarget = SampleTipperAimPoint(tipper, tipperPos, targetGoalPos, iceY, allowNet: true);
+                    tipTarget.y = Mathf.Max(tipTarget.y, iceY + 0.85f);
                     break;
 
                 case GoalieShotPhysics.TipFeedKind.WideTipper:
                 {
                     float side = tipTarget.x - tipperPos.x;
                     if (Mathf.Abs(side) < 1.5f)
-                        side = UnityEngine.Random.Range(2.2f, 4.8f) * (UnityEngine.Random.value > 0.5f ? 1f : -1f);
-                    tipTarget.x = tipperPos.x + side + UnityEngine.Random.Range(-0.35f, 0.35f);
-                    tipTarget.z = tipperPos.z + UnityEngine.Random.Range(-0.55f, 0.55f);
-                    tipTarget.y = Mathf.Max(tipTarget.y, iceY + 0.35f);
+                        side = UnityEngine.Random.Range(2.2f, 4.5f) * (UnityEngine.Random.value > 0.5f ? 1f : -1f);
+                    tipTarget = SampleTipperAimPoint(tipper, tipperPos, targetGoalPos, iceY, allowNet: false);
+                    tipTarget.x = tipperPos.x + side + UnityEngine.Random.Range(-0.3f, 0.3f);
+                    tipTarget.y = Mathf.Max(tipTarget.y, iceY + 0.55f);
                     break;
                 }
 
                 case GoalieShotPhysics.TipFeedKind.HighLooperTipper:
-                    tipTarget.x = tipperPos.x + UnityEngine.Random.Range(-1.0f, 1.0f);
-                    tipTarget.z = tipperPos.z + UnityEngine.Random.Range(-0.75f, 0.75f);
-                    tipTarget.y = Mathf.Max(tipTarget.y, iceY + 0.55f);
+                    tipTarget = SampleTipperAimPoint(tipper, tipperPos, targetGoalPos, iceY, allowNet: false);
+                    tipTarget.y = Mathf.Max(tipTarget.y, iceY + 0.65f);
                     break;
 
                 case GoalieShotPhysics.TipFeedKind.LongStraight:
-                    tipTarget.x = tipperPos.x + UnityEngine.Random.Range(-0.7f, 0.7f);
-                    tipTarget.z = tipperPos.z + UnityEngine.Random.Range(-0.5f, 0.5f);
-                    tipTarget.y = Mathf.Max(tipTarget.y, iceY + 0.35f);
-                    break;
-
+                case GoalieShotPhysics.TipFeedKind.AtTipper:
                 default:
-                    tipTarget.x = tipperPos.x + UnityEngine.Random.Range(-0.55f, 0.55f);
-                    tipTarget.z = tipperPos.z + UnityEngine.Random.Range(-0.45f, 0.45f);
-                    tipTarget.y = Mathf.Max(tipTarget.y, iceY + 0.3f);
+                    tipTarget = SampleTipperAimPoint(tipper, tipperPos, targetGoalPos, iceY, allowNet: false);
                     break;
             }
 
             tipTarget = ClampToRinkLocal(tipTarget, slot);
-            tipTarget.y = Mathf.Max(tipTarget.y, iceY + 0.05f);
+            tipTarget.y = Mathf.Max(tipTarget.y, iceY + 0.5f);
         }
 
         private static void PrepareTipPuckAt(Puck puck, Vector3 spawnPos)
@@ -1309,6 +1546,16 @@ namespace PHLPracticeModPack
                 return false;
             slot = cfg.Rinks[rinkIndex];
             return slot != null;
+        }
+
+        internal static bool TryGetSkaterOnRink(int rinkIndex, out Player skater, out RinkSlot slot)
+        {
+            skater = null;
+            if (!TryGetRinkSlot(rinkIndex, out slot))
+                return false;
+
+            skater = FindSkaterOnRink(rinkIndex, slot);
+            return skater != null;
         }
 
         private static bool TryGetNetWorld(RinkSlot slot, PlayerTeam team, out Vector3 netPos)
@@ -1554,7 +1801,7 @@ namespace PHLPracticeModPack
             }
         }
 
-        /// <summary>Uniform net target — low, mid, and high slots equally likely.</summary>
+        /// <summary>Uniform net target â€” low, mid, and high slots equally likely.</summary>
         private static Vector3 RandomNetTargetOffset()
         {
             return new Vector3(

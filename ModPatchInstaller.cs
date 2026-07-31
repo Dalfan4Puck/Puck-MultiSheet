@@ -70,6 +70,11 @@ namespace PHLPracticeModPack
             typeof(PracticePositionSelectTogglePatch),
             typeof(PracticeBlockPositionRolePatch),
             typeof(RinkStripVoteCastVotePatch),
+            typeof(NapSleepSync_ToggleNapPatch),
+            typeof(NapSleepSync_StandUpPatch),
+            typeof(NapSleepSync_ClearClientPatch),
+            typeof(NapIdleService_StandUpPatch),
+            typeof(NapIdleService_ClearClientPatch),
         };
 
         private static readonly Type[] ClientPatchTypes =

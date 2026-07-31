@@ -414,10 +414,18 @@ namespace PHLPracticeModPack
 
                 if (MultiRinkService.TryAssignRink(senderClientId, slot, out string message))
                 {
-                    PracticeLog.Info("[PHLPractice] MOTD teleport client=" + senderClientId + " -> " + slot.Id);
+                    if (!string.IsNullOrEmpty(message))
+                    {
+                        PracticeLog.Info("[PHLPractice] MOTD teleport client=" + senderClientId + " -> " + slot.Id);
+                        QueuePrivateChat(senderClientId, message);
+                    }
                 }
-                QueuePrivateChat(senderClientId, message ?? "Could not switch rink.");
+                else
+                {
+                    QueuePrivateChat(senderClientId, message ?? "Could not switch rink.");
+                }
                 BroadcastStatus();
+                return;
             }
             catch (Exception ex)
             {
@@ -465,6 +473,11 @@ namespace PHLPracticeModPack
         internal static void ClientRequestTeleport(int rinkIndex)
         {
             if (rinkIndex < 0 || rinkIndex > 255) return;
+            // Only skip when the local player is already spawned on that sheet.
+            if (RinkLocator.LocalPlayerBodyPosition().HasValue
+                && rinkIndex == ActiveRinkResolver.ResolveLocalRinkIndex())
+                return;
+
             byte index = (byte)rinkIndex;
             SendRequest(writer =>
             {
