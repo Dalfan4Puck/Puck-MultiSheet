@@ -78,6 +78,7 @@ namespace PHLPracticeModPack
         private bool _lastLightShowAll;
         private int _lastSubmitted;
         private int _lastMirrorOn;
+        private Vector3 _lastArenaScale = Vector3.one;
 
         private const float MirrorCullSeconds = 0.25f;
 
@@ -103,7 +104,51 @@ namespace PHLPracticeModPack
             _instance._mirrors.Clear();
             _instance._lastSubmitted = 0;
             _instance._lastMirrorOn = 0;
+            _instance._lastArenaScale = Vector3.one;
             RinkRenderFocus.Clear();
+        }
+
+        /// <summary>
+        /// Rebuild GPU draw matrices when CTU arena scale changes (including unbind back to 1.0).
+        /// Static-batch verts live in rink-1 world space; scale about primary origin, then place at clone offset.
+        /// </summary>
+        internal static void ApplyArenaScale(Vector3 scale)
+        {
+            if (_instance == null || _instance._buckets.Count == 0) return;
+
+            _instance._lastArenaScale = scale;
+            MultiRinkConfig cfg = MultiRinkConfig.Current;
+            Vector3 primaryOrigin = cfg?.Rinks != null && cfg.Rinks.Count > 0 && cfg.Rinks[0] != null
+                ? cfg.Rinks[0].Origin
+                : Vector3.zero;
+
+            bool identity = Mathf.Approximately(scale.x, 1f)
+                && Mathf.Approximately(scale.y, 1f)
+                && Mathf.Approximately(scale.z, 1f);
+
+            foreach (var kv in _instance._buckets)
+            {
+                List<DrawEntry> list = kv.Value;
+                for (int i = 0; i < list.Count; i++)
+                {
+                    DrawEntry e = list[i];
+                    Vector3 worldOffset = new Vector3(e.OriginX, 0f, e.OriginZ);
+                    e.Matrix = BuildCloneDrawMatrix(primaryOrigin, worldOffset, scale, identity);
+                    list[i] = e;
+                }
+            }
+        }
+
+        private static Matrix4x4 BuildCloneDrawMatrix(
+            Vector3 primaryOrigin, Vector3 worldOffset, Vector3 scale, bool identity)
+        {
+            if (identity)
+                return Matrix4x4.Translate(worldOffset);
+
+            Vector3 rinkOrigin = primaryOrigin + worldOffset;
+            return Matrix4x4.Translate(rinkOrigin)
+                * Matrix4x4.Scale(scale)
+                * Matrix4x4.Translate(-primaryOrigin);
         }
 
         internal static void RefreshMaterials()
@@ -219,10 +264,19 @@ namespace PHLPracticeModPack
 
         private static void OnBeginCameraRendering(ScriptableRenderContext context, Camera camera)
         {
-            if (_instance == null || camera == null) return;
-            if (!RinkPreview.IsPreviewCamera(camera)) return;
-            if (!RinkPreview.TryGetPreviewOrigin(camera, out float ox, out float oz)) return;
-            _instance.DrawBucketForOrigin(camera, ox, oz);
+            if (_instance == null || camera == null || !camera.isActiveAndEnabled) return;
+
+            if (RinkPreview.IsPreviewCamera(camera))
+            {
+                if (RinkPreview.TryGetPreviewOrigin(camera, out float ox, out float oz))
+                    _instance.DrawBucketForOrigin(camera, ox, oz);
+                return;
+            }
+
+            // RT / offscreen cameras are not gameplay (MOTD capture uses preview path above).
+            if (camera.targetTexture != null) return;
+
+            _instance.SubmitGameplay(camera);
         }
 
         private static void ResolveMaterial(ref DrawEntry entry)
@@ -243,41 +297,46 @@ namespace PHLPracticeModPack
 
         private void LateUpdate()
         {
-            _lastSubmitted = 0;
             MaybeCullMirrors();
+            RefreshLightsOnFocusChange();
+        }
 
+        /// <summary>Queue DrawMesh for this camera during the render loop (not LateUpdate).</summary>
+        private void SubmitGameplay(Camera camera)
+        {
+            if (camera == null || _buckets.Count == 0) return;
+
+            _lastSubmitted = 0;
+
+            bool renderAll = RinkRenderFocus.RenderAll;
+            if (renderAll)
+            {
+                DrawAllBuckets(camera);
+                return;
+            }
+
+            float fx = 0f, fz = 0f;
+            if (!RinkRenderFocus.TryGetGameplayFocus(out fx, out fz)) return;
+            if (RinkRenderFocus.IsPrimaryOrigin(fx, fz)) return;
+
+            DrawBucketForOrigin(camera, fx, fz);
+        }
+
+        private void RefreshLightsOnFocusChange()
+        {
             bool renderAll = RinkRenderFocus.RenderAll;
             float fx = 0f, fz = 0f;
             bool focused = !renderAll && RinkRenderFocus.TryGetGameplayFocus(out fx, out fz);
 
-            // Clone fill lights must follow teleports even when there are no mirrors.
             bool lightFocusChanged = renderAll != _lastLightShowAll
                 || (focused && (fx != _lastLightFx || fz != _lastLightFz))
                 || (!focused && !renderAll && !float.IsNaN(_lastLightFx));
-            if (lightFocusChanged)
-            {
-                _lastLightShowAll = renderAll;
-                _lastLightFx = focused ? fx : float.NaN;
-                _lastLightFz = focused ? fz : float.NaN;
-                ArenaLighting.RefreshRinkLightCulling();
-            }
+            if (!lightFocusChanged) return;
 
-            if (_buckets.Count == 0) return;
-
-            if (renderAll)
-            {
-                DrawAllBuckets(RinkRenderFocus.FindGameplayCamera());
-                return;
-            }
-
-            // No body and no last focus: submit nothing (never fall back to all sheets).
-            if (!focused) return;
-
-            // Proxy entries only exist for offset clones — rink 1 uses vanilla geometry.
-            if (RinkRenderFocus.IsPrimaryOrigin(fx, fz))
-                return;
-
-            DrawBucketForOrigin(RinkRenderFocus.FindGameplayCamera(), fx, fz);
+            _lastLightShowAll = renderAll;
+            _lastLightFx = focused ? fx : float.NaN;
+            _lastLightFz = focused ? fz : float.NaN;
+            ArenaLighting.RefreshRinkLightCulling();
         }
 
         private void MaybeCullMirrors()

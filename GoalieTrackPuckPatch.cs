@@ -24,6 +24,9 @@ namespace PHLPracticeModPack
                 if (player == null)
                     return true;
 
+                if (!GoalieThreatPuckSelector.ShouldOverrideGetPlayerPuck(player))
+                    return true;
+
                 if (GoalieThreatPuckSelector.TryGetPracticeTrackPuck(player, out Puck practice))
                 {
                     __result = practice;

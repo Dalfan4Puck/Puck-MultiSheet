@@ -7,6 +7,7 @@ namespace PHLPracticeModPack
     {
         private void Update()
         {
+            ModPatchInstaller.TickDeferredInstalls();
             RinkMotdService.Tick();
             RinkStripVote.Tick();
             GoaliePracticeLookTarget.TickAttach();

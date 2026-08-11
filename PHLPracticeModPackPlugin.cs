@@ -26,6 +26,7 @@ namespace PHLPracticeModPack
                 MultiSheetClientSettings.Load();
                 MultiSheetClientSettings.ApplyLoadedPreferences();
                 FlamiePracFeatures.RadioServerDrivenOnly = true;
+                FlamiePracFeatures.IsSlidablePhysicsLocked = RinkStripModeUtil.IsSlidablePhysicsLocked;
                 // Never show the legacy top-left radio chip — Rinks tab embeds radio when ready.
                 RadioHudUI.ShouldSuppressStandalone = () => true;
                 LargeLevelHost.TryEnable(harmony);
@@ -36,6 +37,7 @@ namespace PHLPracticeModPack
 
                 runtimeObject = new GameObject("PHLPracticeModPackRuntime");
                 runtimeObject.AddComponent<PHLPracticeModPackRuntime>();
+                PremiumMembersAnnouncer.Install(runtimeObject);
                 if (ModRuntimeContext.ShouldInstallClientPresentation())
                 {
                     runtimeObject.AddComponent<StockPuckHider>();
@@ -83,11 +85,13 @@ namespace PHLPracticeModPack
                 }
 
                 RinkMotdService.Teardown();
+                PremiumMembersAnnouncer.Teardown();
                 RinkStripVote.Teardown();
                 GoaliePracticeLookTarget.Teardown();
                 NapSleepSync.Teardown();
                 NapIdleService.Teardown();
                 FlamiePracFeatures.RadioServerDrivenOnly = false;
+                FlamiePracFeatures.IsSlidablePhysicsLocked = null;
                 RadioHudUI.ShouldSuppressStandalone = null;
                 LargeLevelHost.Disable();
                 PracticeFlowClient.Reset();

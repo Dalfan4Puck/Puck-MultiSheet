@@ -109,6 +109,55 @@ namespace PHLPracticeModPack
                 into.Add(serverModes[i]);
         }
 
+        /// <summary>When the last real player leaves, clear practice modes on rinks 2–6.</summary>
+        internal static void OnServerEmptied()
+        {
+            NetworkManager nm = NetworkManager.Singleton;
+            if (nm == null || !nm.IsServer)
+                return;
+            if (FakePlayerDetector.CountRealConnectedClients() > 0)
+                return;
+
+            MultiRinkConfig cfg = MultiRinkConfig.Current;
+            if (cfg?.Rinks == null || !cfg.EnableMultiRink)
+                return;
+
+            int count = cfg.Rinks.Count;
+            if (count <= 1)
+                return;
+
+            EnsureModeListSize(count);
+
+            const int firstResetIndex = 1;
+            const int lastResetIndex = 5;
+            bool changed = false;
+            for (int i = firstResetIndex; i <= lastResetIndex && i < count; i++)
+            {
+                if (serverModes[i] == RinkStripMode.Empty)
+                    continue;
+                ApplyStripMode(i, RinkStripMode.Empty, announce: false);
+                changed = true;
+            }
+
+            if (!changed)
+                return;
+
+            try
+            {
+                VoteManager votes = MonoBehaviourSingleton<VoteManager>.Instance;
+                if (votes != null)
+                    CancelOpenVote(votes, announce: false);
+            }
+            catch { }
+
+            CurrentProgress = RinkStripVoteProgress.None;
+            RinkMotdUI.ApplyStripVoteProgress(RinkStripVoteProgress.None);
+            RinkScoreboardTab.ApplyStripVoteProgress(RinkStripVoteProgress.None);
+
+            FlamieLog.ServerSync("[PHLPractice] Server empty — reset rinks 2–6 to Empty.");
+            RinkMotdService.BroadcastStatus();
+        }
+
         /// <summary>Client: start or cast a strip vote for the given rink + mode.</summary>
         internal static void ClientRequestVote(int rinkIndex, RinkStripMode mode)
         {
@@ -293,6 +342,7 @@ namespace PHLPracticeModPack
             if (count <= 0) count = 6;
 
             EnsureModeListSize(count);
+            RinkMotdService.EnsureLandingZoneSlidableDefaults();
             for (int i = 0; i < count; i++)
             {
                 RinkStripMode mode = i == 0 ? RinkStripMode.PhlTools : RinkStripMode.Empty;

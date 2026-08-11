@@ -11,6 +11,8 @@ namespace PHLPracticeModPack
     internal static class ModPatchInstaller
     {
         private static int installedCount;
+        private static Harmony installedHarmony;
+        private static bool ctuCompatInstalled;
 
         internal static int InstalledCount => installedCount;
 
@@ -18,10 +20,13 @@ namespace PHLPracticeModPack
         {
             if (harmony == null) throw new ArgumentNullException(nameof(harmony));
 
+            installedHarmony = harmony;
             installedCount = 0;
+            ctuCompatInstalled = false;
             ModRuntimeContext.Initialize();
 
             PatchTypes(harmony, SharedPatchTypes);
+            TryInstallDeferredCtuCompat(harmony);
 
             // Server sim patches: dedicated always; joinable clients keep them for host / no-op prefixes.
             if (ModRuntimeContext.IsDedicatedGameServer || ModRuntimeContext.ShouldInstallClientPatches())
@@ -51,11 +56,54 @@ namespace PHLPracticeModPack
                 TrlReskinBridge.SetHarmony(harmony);
         }
 
+        /// <summary>
+        /// CTU loads after MultiSheet on dedicated servers — retry until its assembly is present.
+        /// </summary>
+        internal static bool TryInstallDeferredCtuCompat(Harmony harmony)
+        {
+            if (ctuCompatInstalled) return true;
+            harmony = harmony ?? installedHarmony;
+            if (harmony == null) return false;
+            if (AccessTools.TypeByName("CompetitivePuckTweaks.src.ArenaUniformScaleRuntimeSync") == null)
+                return false;
+
+            InstallCtuMultiRinkCompat(harmony);
+            PatchNestedTypes(harmony, typeof(RSpawnPuckDebounce), "CtuRSpawnDebouncePatch");
+            ctuCompatInstalled = true;
+            PracticeLog.Info("[PHLPractice] CTU multi-rink compat patches installed (deferred).");
+            return true;
+        }
+
+        internal static void TickDeferredInstalls()
+        {
+            if (ctuCompatInstalled) return;
+            TryInstallDeferredCtuCompat(installedHarmony);
+        }
+
+        private static void InstallCtuMultiRinkCompat(Harmony harmony)
+        {
+            PatchNestedTypes(
+                harmony,
+                typeof(CtuArenaMultiRinkCompat),
+                "ResolveCenterIcePatch",
+                "GetCenterIcePatch",
+                "ScalePointFromCenterPatch",
+                "ApplyScaledWorldTransformPatch",
+                "ApplyFromConfigPostfixPatch",
+                "ScaleGeometryRootsPatch",
+                "BuildScaledLocalMeshPatch",
+                "CtuVisualProxyLateUpdateSkipPatch",
+                "VisualProxyApplyPatch",
+                "GoalApplyFromConfigPatch",
+                "GetOpeningTowardCenterWorldPatch",
+                "GoalFrameBundledMeshPatch");
+        }
+
         private static void PatchServerManual(Harmony harmony)
         {
             PracticeFlowServer.InstallSpawnPatch(harmony);
             PatchTypes(harmony, ServerPatchTypes);
-            PatchNestedTypes(harmony, typeof(CptSpawnCompat), "MovementStartClaimPrefixPatch", "MovementStartCompatPatch", "MovementStartNreFinalizerPatch");
+            PatchNestedTypes(harmony, typeof(CptSpawnCompat), "MovementStartClaimPrefixPatch", "MovementStartCompatPatch", "MovementStartNreFinalizerPatch", "PlayerBodyPostSpawnCompatPatch");
         }
 
         private static readonly Type[] SharedPatchTypes =

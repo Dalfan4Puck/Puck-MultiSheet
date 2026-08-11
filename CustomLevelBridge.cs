@@ -301,6 +301,7 @@ public static class CustomLevelPlugin
             if (spawnedServerRoot != null) { UnityEngine.Object.Destroy(spawnedServerRoot); spawnedServerRoot = null; }
             if (spawnedClientRoot != null) { UnityEngine.Object.Destroy(spawnedClientRoot); spawnedClientRoot = null; }
 
+            ModPatchInstaller.TryInstallDeferredCtuCompat(null);
             TryPatchPracticeHelpers();
 
             bool isServer = NetworkManager.Singleton?.IsServer ?? true;
@@ -393,7 +394,11 @@ public static class CustomLevelPlugin
             // Pure clients only expand bounds once the server is confirmed (see
             // ConfirmPracticeServer) so vanilla servers keep their vanilla bounds.
             if (isServer)
+            {
                 ExpandWorldBounds(cfg.Rinks);
+                if (cfg.EnableMultiRink && !cfg.UseAssetBundle)
+                    CtuArenaMultiRinkCompat.NotifyMultiRinkLayoutReady();
+            }
             PracticeLog.Info("[PHLPractice] Level hooks complete (vanillaMultiRink=" +
                 (cfg.EnableMultiRink && !cfg.UseAssetBundle) + ", bundle=" + (cfg.UseAssetBundle && bundle != null) + ").");
         }
@@ -556,6 +561,8 @@ public static class CustomLevelPlugin
         PracticeLog.Info("[PHLPractice] Server confirmed MultiSheet — client layout built (" +
                   (cfg.Rinks?.Count ?? 0) + " rink slot(s), frame-spread).");
         PracticeLog.Info("[PHLPractice] Client layout ready.");
+        if (cfg.EnableMultiRink && !cfg.UseAssetBundle)
+            CtuArenaMultiRinkCompat.NotifyMultiRinkLayoutReady();
         InvokeClientBuildWhenReady();
     }
 

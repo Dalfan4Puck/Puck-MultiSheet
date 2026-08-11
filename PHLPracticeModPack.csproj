@@ -41,6 +41,8 @@
     <Compile Include="TrlPracticeSmoothnessOverride.cs" />
     <Compile Include="LocalBodyShadowFix.cs" />
     <Compile Include="CptSpawnCompat.cs" />
+    <Compile Include="CtuArenaMultiRinkCompat.cs" />
+    <Compile Include="RSpawnPuckDebounce.cs" />
     <Compile Include="ArenaRenderCatalog.cs" />
     <Compile Include="CloneDiagnostics.cs" />
     <Compile Include="CloneVisualProxy.cs" />
@@ -67,6 +69,7 @@
     <Compile Include="RinkStripVoteCastVotePatch.cs" />
     <Compile Include="RinkMotdShared.cs" />
     <Compile Include="RinkMotdService.cs" />
+    <Compile Include="PremiumMembersAnnouncer.cs" />
     <Compile Include="RinkMotdUI.cs" />
     <Compile Include="RinkPanelBuilder.cs" />
     <Compile Include="RinkPanelCollapsible.cs" />
@@ -120,6 +123,7 @@
     <Compile Include="$(FlamieDir)\FlamiePracRinkInterest.cs" Link="Flamie\FlamiePracRinkInterest.cs" />
     <Compile Include="$(FlamieDir)\FlamieLog.cs" Link="Flamie\FlamieLog.cs" />
     <Compile Include="$(FlamieDir)\FollowSpinningObject.cs" Link="Flamie\FollowSpinningObject.cs" />
+    <Compile Include="$(FlamieDir)\RoundedBoxMeshBuilder.cs" Link="Flamie\RoundedBoxMeshBuilder.cs" />
     <Compile Include="$(FlamieDir)\PasserTriangleMeshBuilder.cs" Link="Flamie\PasserTriangleMeshBuilder.cs" />
     <Compile Include="$(FlamieDir)\PassBackBoardLock.cs" Link="Flamie\PassBackBoardLock.cs" />
     <Compile Include="$(FlamieDir)\PassBumperHitRelay.cs" Link="Flamie\PassBumperHitRelay.cs" />

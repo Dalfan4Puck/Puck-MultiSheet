@@ -172,8 +172,54 @@ namespace PHLPracticeModPack
             rememberedLocalRinkIndex = -1;
         }
 
+        /// <summary>True when the local player picked a rink or the server assigned one — not the bodiless default.</summary>
+        internal static bool HasExplicitLocalRinkPick()
+        {
+            if (rememberedLocalRinkIndex >= 0)
+                return true;
+
+            try
+            {
+                NetworkManager nm = NetworkManager.Singleton;
+                if (nm != null && nm.IsConnectedClient)
+                    return MultiRinkService.GetActiveRinkIndex(nm.LocalClientId) >= 0;
+            }
+            catch { }
+
+            return false;
+        }
+
+        /// <summary>Nearest sheet from the local body (authoritative once spawned).</summary>
+        internal static bool TryGetBodyRinkIndex(out int rinkIndex)
+        {
+            rinkIndex = -1;
+            Vector3? pos = RinkLocator.LocalPlayerBodyPosition();
+            if (!pos.HasValue) return false;
+
+            if (RinkMotdUI.TryGetLastPayload(out RinkMotdPayload payload)
+                && payload?.Rinks != null
+                && payload.Rinks.Count > 0)
+            {
+                rinkIndex = RinkLocator.NearestRink(payload, pos.Value);
+                return true;
+            }
+
+            MultiRinkConfig cfg = MultiRinkConfig.Current;
+            if (cfg?.Rinks != null && cfg.Rinks.Count > 0)
+            {
+                rinkIndex = RinkLocator.NearestRink(cfg, pos.Value);
+                return true;
+            }
+
+            return false;
+        }
+
         internal static int ResolveLocalRinkIndex()
         {
+            // Body position matches the Rinks tab highlight and server occupancy.
+            if (TryGetBodyRinkIndex(out int bodyRink))
+                return bodyRink;
+
             if (rememberedLocalRinkIndex >= 0)
                 return rememberedLocalRinkIndex;
 
@@ -189,17 +235,9 @@ namespace PHLPracticeModPack
             }
             catch { }
 
-            if (RinkMotdUI.TryGetLastPayload(out RinkMotdPayload payload) && payload != null && payload.Rinks.Count > 0)
-            {
-                Vector3? pos = RinkLocator.LocalPlayerBodyPosition();
-                if (pos.HasValue)
-                    return RinkLocator.NearestRink(payload, pos.Value);
-            }
-
             MultiRinkConfig cfg = MultiRinkConfig.Current;
-            Vector3? bodyPos = RinkLocator.LocalPlayerBodyPosition();
-            if (cfg?.Rinks != null && cfg.Rinks.Count > 0 && bodyPos.HasValue)
-                return RinkLocator.NearestRink(cfg, bodyPos.Value);
+            if (cfg?.Rinks != null && cfg.Rinks.Count > 0)
+                return 0;
 
             return 0;
         }

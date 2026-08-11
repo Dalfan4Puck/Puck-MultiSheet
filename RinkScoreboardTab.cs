@@ -28,6 +28,8 @@ namespace PHLPracticeModPack
 
         private static bool autoShownThisConnection;
         private static bool pendingAutoOpen;
+        /// <summary>Last tab the player picked this connection (Tab reopen restores it).</summary>
+        private static bool sessionPreferRinksTab = true;
 
         private static readonly Color TabBarBg = new Color(0.06f, 0.06f, 0.07f, 1f);
         private static readonly Color TabIdleBg = new Color(0.10f, 0.10f, 0.11f, 1f);
@@ -75,6 +77,7 @@ namespace PHLPracticeModPack
 
             autoShownThisConnection = true;
             pendingAutoOpen = false;
+            sessionPreferRinksTab = true;
 
             if (!scoreboard.IsVisible)
                 scoreboard.Show();
@@ -104,6 +107,7 @@ namespace PHLPracticeModPack
         {
             if (MultiSheetClientSettings.SkipScoreboardUi) return;
 
+            sessionPreferRinksTab = true;
             UIManager ui = MonoBehaviourSingleton<UIManager>.Instance;
             UIScoreboard scoreboard = ui != null ? ui.Scoreboard : null;
             if (scoreboard == null) return;
@@ -472,7 +476,7 @@ namespace PHLPracticeModPack
         /// Called when Tab opens the scoreboard. Bumps the whole board up once based on
         /// roster size — tab switches must not touch vertical position again.
         /// </summary>
-        /// <summary>Tab toggle: open on Rinks, press Tab again to close.</summary>
+        /// <summary>Tab toggle: reopen on the last selected tab; press Tab again to close.</summary>
         internal static void HandleTabPressed(UIManager ui)
         {
             if (!enabled || MultiSheetClientSettings.SkipScoreboardUi ||
@@ -488,7 +492,7 @@ namespace PHLPracticeModPack
             }
 
             scoreboard.Show();
-            ShowMenuTab();
+            RestoreSessionTab();
         }
 
         internal static void OnScoreboardShown()
@@ -496,8 +500,7 @@ namespace PHLPracticeModPack
             if (!enabled || MultiSheetClientSettings.SkipScoreboardUi ||
                 !PracticeFlowClient.IsOnPracticeServer) return;
             ApplyBoardVerticalPosition();
-            if (!menuPaneActive)
-                ShowMenuTab();
+            RestoreSessionTab();
         }
 
         internal static void OnDisconnected()
@@ -505,6 +508,7 @@ namespace PHLPracticeModPack
             RinkPanelBuilder.CloseStripPracticeMenu();
             InvalidateCardCache();
             menuPaneActive = false;
+            sessionPreferRinksTab = true;
             autoShownThisConnection = false;
             pendingAutoOpen = false;
             RemoveAllInjected();
@@ -518,6 +522,7 @@ namespace PHLPracticeModPack
         {
             enabled = false;
             menuPaneActive = false;
+            sessionPreferRinksTab = true;
             allowHideOnce = false;
             boardPositionApplied = false;
             appliedMarginTop = -1f;
@@ -620,13 +625,23 @@ namespace PHLPracticeModPack
         private static void SelectScoreboardTab()
         {
             if (!enabled) return;
+            sessionPreferRinksTab = false;
             ShowScoreboardTab();
         }
 
         private static void SelectMenuTab()
         {
             if (!enabled) return;
+            sessionPreferRinksTab = true;
             ShowMenuTab();
+        }
+
+        private static void RestoreSessionTab()
+        {
+            if (sessionPreferRinksTab)
+                ShowMenuTab();
+            else
+                ShowScoreboardTab();
         }
 
         private static void ShowScoreboardTab()

@@ -14,6 +14,7 @@ namespace PHLPracticeModPack
     {
         private const float ClaimRadius = 6f;
         private const float ClaimWindowSeconds = 3f;
+        private const float CullIntervalSeconds = 0.12f;
 
         private static StockPuckHider instance;
 
@@ -23,7 +24,12 @@ namespace PHLPracticeModPack
         private float claimDeadline;
 
         private readonly Dictionary<int, bool[]> hiddenRendererState = new Dictionary<int, bool[]>();
+        private readonly Dictionary<int, Renderer[]> rendererCache = new Dictionary<int, Renderer[]>();
         private bool wasCulling;
+        private float nextCullTime;
+        private int lastFocusRink = int.MinValue;
+        private bool lastHideStock;
+        private bool lastJustMyRink;
 
         internal static void NotifyLocalSpawnRequest(Vector3 playerPos, Vector3 forward)
         {
@@ -89,13 +95,28 @@ namespace PHLPracticeModPack
                 if (cfg?.Rinks == null || cfg.Rinks.Count == 0) return;
                 if (!RinkRenderFocus.TryGetGameplayFocus(out float fx, out float fz))
                 {
-                    // No body/focus yet — hide all offset-sheet pucks (nearest to non-primary).
+                    if (lastFocusRink == -2 && Time.unscaledTime < nextCullTime)
+                        return;
+                    lastFocusRink = -2;
+                    nextCullTime = Time.unscaledTime + CullIntervalSeconds;
                     ApplyVisibility(hideStock, justMyRink, focusRink: -2);
                     return;
                 }
                 focusRink = RinkLocator.NearestRink(cfg, new Vector3(fx, 0f, fz));
             }
 
+            if (focusRink == lastFocusRink
+                && hideStock == lastHideStock
+                && justMyRink == lastJustMyRink
+                && Time.unscaledTime < nextCullTime)
+            {
+                return;
+            }
+
+            lastFocusRink = focusRink;
+            lastHideStock = hideStock;
+            lastJustMyRink = justMyRink;
+            nextCullTime = Time.unscaledTime + CullIntervalSeconds;
             ApplyVisibility(hideStock, justMyRink, focusRink);
         }
 
@@ -181,7 +202,11 @@ namespace PHLPracticeModPack
         private void SetShown(Puck puck, bool show)
         {
             int id = puck.GetInstanceID();
-            Renderer[] renderers = puck.GetComponentsInChildren<Renderer>(true);
+            if (!rendererCache.TryGetValue(id, out Renderer[] renderers) || renderers == null)
+            {
+                renderers = puck.GetComponentsInChildren<Renderer>(true);
+                rendererCache[id] = renderers;
+            }
             if (renderers == null || renderers.Length == 0) return;
 
             if (!show)
@@ -220,8 +245,10 @@ namespace PHLPracticeModPack
 
         private void Forget(Puck puck)
         {
-            if (puck != null)
-                hiddenRendererState.Remove(puck.GetInstanceID());
+            if (puck == null) return;
+            int id = puck.GetInstanceID();
+            hiddenRendererState.Remove(id);
+            rendererCache.Remove(id);
         }
 
         private void RestoreAll()
@@ -248,6 +275,8 @@ namespace PHLPracticeModPack
             }
 
             hiddenRendererState.Clear();
+            rendererCache.Clear();
+            lastFocusRink = int.MinValue;
         }
     }
 }

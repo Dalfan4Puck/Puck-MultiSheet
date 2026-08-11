@@ -15,6 +15,30 @@ namespace PHLPracticeModPack
         /// <summary>Cosine threshold: below this vs body forward counts as "behind".</summary>
         private const float BehindDotThreshold = 0.05f;
 
+        /// <summary>
+        /// Fast gate for <see cref="GoalieTrackPuckPatch"/> — PHL Tools skaters use vanilla
+        /// track-puck without rink/mode resolution on every GetPlayerPuck call.
+        /// </summary>
+        internal static bool ShouldOverrideGetPlayerPuck(Player player)
+        {
+            if (player == null)
+                return false;
+
+            if (TryGetStripModeForPlayer(player, out RinkStripMode mode))
+            {
+                if (mode == RinkStripMode.StretchPassing
+                    || mode == RinkStripMode.PointPassing
+                    || mode == RinkStripMode.LowCyclePassing
+                    || mode == RinkStripMode.TipPractice)
+                    return true;
+
+                if (mode == RinkStripMode.GoaliePractice && player.Role == PlayerRole.Goalie)
+                    return true;
+            }
+
+            return player.Role == PlayerRole.Goalie;
+        }
+
         internal static Puck SelectForPlayer(Player player)
         {
             if (player == null || player.PlayerBody == null)
@@ -227,6 +251,37 @@ namespace PHLPracticeModPack
                 return false;
 
             return Vector3.Dot(toPuck.normalized, forward) < BehindDotThreshold;
+        }
+
+        private static bool TryGetStripModeForPlayer(Player player, out RinkStripMode mode)
+        {
+            mode = RinkStripMode.Empty;
+            if (player == null)
+                return false;
+
+            try
+            {
+                NetworkManager nm = NetworkManager.Singleton;
+                if (nm != null && player.OwnerClientId == nm.LocalClientId)
+                {
+                    int rink = ActiveRinkResolver.ResolveLocalRinkIndex();
+                    if (RinkMotdUI.TryGetLastPayload(out RinkMotdPayload payload)
+                        && payload?.StripModes != null
+                        && rink >= 0
+                        && rink < payload.StripModes.Count)
+                    {
+                        mode = payload.StripModes[rink];
+                        return true;
+                    }
+                }
+            }
+            catch { }
+
+            if (!TryResolvePlayerRink(player, out int rinkIndex))
+                return false;
+
+            mode = ResolveRinkMode(rinkIndex);
+            return true;
         }
 
         private static bool TryResolvePlayerRink(Player player, out int rinkIndex)

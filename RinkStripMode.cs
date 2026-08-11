@@ -20,9 +20,10 @@ namespace PHLPracticeModPack
         /// <summary>Rink 1 (index 0) always runs PHL Tools — not voteable.</summary>
         internal const int PhlToolsLockedRinkIndex = 0;
 
-        internal const string EmptyRinkDropdownLabel = "None";
-        /// <summary>Legacy label — still accepted when parsing saved UI state.</summary>
+        internal const string EmptyRinkDropdownLabel = "Add a Game Mode";
+        /// <summary>Legacy labels — still accepted when parsing saved UI state.</summary>
         internal const string EmptyRinkDropdownLabelLegacy = "Empty Rink";
+        internal const string EmptyRinkDropdownLabelLegacyNone = "None";
 
         internal static readonly RinkStripMode[] DropdownModes =
         {
@@ -45,9 +46,26 @@ namespace PHLPracticeModPack
             return rinkIndex == PhlToolsLockedRinkIndex;
         }
 
+        /// <summary>Rink 1 landing zone — slidable mode cannot be toggled (L key / settings).</summary>
+        internal static bool IsSlidablePhysicsLocked(int rinkIndex)
+        {
+            return rinkIndex == PhlToolsLockedRinkIndex;
+        }
+
+        internal static bool IsSlidableToggleBlocked(int rinkIndex)
+        {
+            return IsSlidablePhysicsLocked(rinkIndex);
+        }
+
         internal static string StripModeLockedMessage(int rinkIndex)
         {
             return "Rink " + (rinkIndex + 1) + " is permanently PHL Tools.";
+        }
+
+        internal static string SlidablePhysicsLockedMessage(int rinkIndex)
+        {
+            return "Slidable props cannot be toggled on Rink " + (rinkIndex + 1) +
+                   " — it's the newcomer landing zone.";
         }
 
         /// <summary>Max humans that may join a rink while this strip mode is active (0 = use server default).</summary>
@@ -134,7 +152,8 @@ namespace PHLPracticeModPack
             mode = RinkStripMode.Empty;
             if (string.IsNullOrEmpty(label)) return false;
             if (string.Equals(label, EmptyRinkDropdownLabel, System.StringComparison.Ordinal)
-                || string.Equals(label, EmptyRinkDropdownLabelLegacy, System.StringComparison.Ordinal))
+                || string.Equals(label, EmptyRinkDropdownLabelLegacy, System.StringComparison.Ordinal)
+                || string.Equals(label, EmptyRinkDropdownLabelLegacyNone, System.StringComparison.Ordinal))
                 return true;
             for (int i = 0; i < DropdownModes.Length; i++)
             {

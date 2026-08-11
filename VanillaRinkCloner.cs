@@ -54,6 +54,7 @@ namespace PHLPracticeModPack
             arenaLightSourcesCached = false;
             cachedUseSyntheticFill = false;
             LayoutReady = false;
+            CtuArenaMultiRinkCompat.ClearCloneRootCache();
         }
 
         internal static GameObject SpawnMultiRinkLayout(List<RinkSlot> rinks, MultiRinkConfig cfg, RinkCloneRole role)
@@ -251,6 +252,7 @@ namespace PHLPracticeModPack
             SlidableBoardCollision.ReassertSlidablePairs();
             SlidableBoardCollision.SyncStickIceLayerPolicy();
             SlidableGroundRaycastPatch.RefreshAllGroundRaycasts();
+
             LayoutReady = true;
             return state.Root;
         }

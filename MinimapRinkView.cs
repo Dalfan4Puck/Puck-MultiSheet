@@ -41,6 +41,19 @@ namespace PHLPracticeModPack
             PracticeLog.Info($"[PHLPractice] Minimap: captured vanilla rink bounds center={levelBounds.center} size={levelBounds.size}.");
         }
 
+        /// <summary>Pre-expansion single-rink bounds center (typically rink 1).</summary>
+        internal static bool TryGetVanillaCenter(out Vector3 center)
+        {
+            if (_hasVanillaBounds)
+            {
+                center = _vanillaBounds.center;
+                return true;
+            }
+
+            center = default;
+            return false;
+        }
+
         internal static void InstallPatch(Harmony harmony)
         {
             if (_installed || harmony == null) return;

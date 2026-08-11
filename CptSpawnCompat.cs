@@ -18,6 +18,9 @@ namespace PHLPracticeModPack
     {
         private const string PluginCoreTypeName = "CompetitivePuckTweaks.src.PluginCore";
         private const string FloatComponentTypeName = "CompetitivePuckTweaks.src.FloatComponent";
+        private const string LegPadHelperTypeName = "CompetitivePuckTweaks.src.LegPadHelper";
+
+        private static FieldInfo legPadLocalPositionField;
 
         private static List<PlayerPosition> cachedMarkers;
         private static bool cacheReady;
@@ -343,6 +346,116 @@ namespace PHLPracticeModPack
                 catch { }
             }
             return null;
+        }
+
+        /// <summary>
+        /// CPT ExtraLegPadTweening syncs pad local positions through LegPadHelper network
+        /// vars that start at Vector3.zero. Clients interpolate toward zero on spawn, which
+        /// pulls both pads inward toward the body center until the first server write.
+        /// </summary>
+        [HarmonyPatch(typeof(PlayerBody), "OnNetworkPostSpawn")]
+        private static class PlayerBodyPostSpawnCompatPatch
+        {
+            [HarmonyPostfix]
+            [HarmonyPriority(Priority.Last)]
+            private static void Postfix(PlayerBody __instance)
+            {
+                if (!IsPracticeContext()) return;
+                if (__instance?.Player == null || __instance.Player.IsReplay.Value) return;
+                if (__instance.Player.Role != PlayerRole.Goalie) return;
+                SeedLegPadHelperFromPads(__instance);
+            }
+        }
+
+        private static void SeedLegPadHelperFromPads(PlayerBody body)
+        {
+            object config = TryGetCptConfig();
+            if (config == null || !ReadBool(config, "ExtraLegPadTweening", false)) return;
+
+            Type helperType = FindType(LegPadHelperTypeName);
+            if (helperType == null) return;
+
+            Component helper = body.GetComponent(helperType);
+            if (helper == null) return;
+
+            try
+            {
+                FieldInfo leftPadField = helperType.GetField("legPadLeft", BindingFlags.Public | BindingFlags.Instance);
+                FieldInfo rightPadField = helperType.GetField("legPadRight", BindingFlags.Public | BindingFlags.Instance);
+                PlayerLegPad leftPad = leftPadField?.GetValue(helper) as PlayerLegPad;
+                PlayerLegPad rightPad = rightPadField?.GetValue(helper) as PlayerLegPad;
+                if (leftPad == null || rightPad == null) return;
+
+                Vector3 leftPos = ReadLegPadLocalPosition(leftPad);
+                Vector3 rightPos = ReadLegPadLocalPosition(rightPad);
+
+                NetworkManager nm = NetworkManager.Singleton;
+                if (nm != null && nm.IsServer)
+                    WriteLegPadNetworkPositions(helperType, helper, leftPos, rightPos);
+                else
+                    FillLegPadInterpLists(helperType, helper, leftPos, rightPos);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[PHLPractice] LegPadHelper seed failed: " + ex.Message);
+            }
+        }
+
+        private static Vector3 ReadLegPadLocalPosition(PlayerLegPad pad)
+        {
+            if (legPadLocalPositionField == null)
+            {
+                legPadLocalPositionField = typeof(PlayerLegPad).GetField(
+                    "localPosition",
+                    BindingFlags.NonPublic | BindingFlags.Instance);
+            }
+            if (legPadLocalPositionField != null)
+            {
+                object value = legPadLocalPositionField.GetValue(pad);
+                if (value is Vector3 v) return v;
+            }
+            return pad.transform.localPosition;
+        }
+
+        private static void WriteLegPadNetworkPositions(Type helperType, Component helper, Vector3 leftPos, Vector3 rightPos)
+        {
+            SetNetworkVector3(helperType, helper, "leftPosition", leftPos);
+            SetNetworkVector3(helperType, helper, "rightPosition", rightPos);
+        }
+
+        private static void SetNetworkVector3(Type helperType, Component helper, string fieldName, Vector3 value)
+        {
+            FieldInfo netField = helperType.GetField(fieldName, BindingFlags.Public | BindingFlags.Instance);
+            object netVar = netField?.GetValue(helper);
+            if (netVar == null) return;
+            PropertyInfo valueProp = netVar.GetType().GetProperty("Value", BindingFlags.Public | BindingFlags.Instance);
+            valueProp?.SetValue(netVar, value);
+        }
+
+        private static void FillLegPadInterpLists(Type helperType, Component helper, Vector3 leftPos, Vector3 rightPos)
+        {
+            FillInterpList(helperType, helper, "leftPositionList", leftPos);
+            FillInterpList(helperType, helper, "rightPositionList", rightPos);
+        }
+
+        private static void FillInterpList(Type helperType, Component helper, string fieldName, Vector3 value)
+        {
+            FieldInfo listField = helperType.GetField(fieldName, BindingFlags.Public | BindingFlags.Instance);
+            if (!(listField?.GetValue(helper) is Vector3[] list) || list.Length == 0) return;
+            for (int i = 0; i < list.Length; i++)
+                list[i] = value;
+        }
+
+        private static bool ReadBool(object config, string propertyName, bool fallback)
+        {
+            try
+            {
+                PropertyInfo prop = config.GetType().GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance);
+                if (prop != null && prop.PropertyType == typeof(bool))
+                    return (bool)prop.GetValue(config);
+            }
+            catch { }
+            return fallback;
         }
     }
 }

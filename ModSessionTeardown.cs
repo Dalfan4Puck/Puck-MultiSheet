@@ -67,6 +67,7 @@ namespace PHLPracticeModPack
             MultiRinkService.Reset();
             PracticeGoalieSpawn.Reset();
             CptSpawnCompat.Reset();
+            RSpawnPuckDebounce.Reset();
         }
 
         private static void StopFlamieSession()

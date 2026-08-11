@@ -28,6 +28,8 @@ namespace PHLPracticeModPack
         private const float GoalieSaveInterval = 2f;
         /// <summary>Pucks sit at the spawn point this long before the first release.</summary>
         private const float GoalieQueueVisibleLeadTime = 2.75f;
+        /// <summary>Keep eyes on the in-flight shot until travel completes — prevents early glance at the next holder.</summary>
+        private const float GoalieLookHoldGraceSeconds = 0.2f;
         /// <summary>Queued holders when room remains under the total puck cap.</summary>
         private const int GoalieHoldQueueDepth = 2;
         /// <summary>Hard cap: queued + in-flight practice pucks on a rink.</summary>
@@ -110,6 +112,9 @@ namespace PHLPracticeModPack
         private static readonly Dictionary<Puck, float> tipPuckArriveAt = new Dictionary<Puck, float>();
         private static readonly Dictionary<Puck, GoalieShotPhysics.TipFeedKind> tipPuckFeedKind =
             new Dictionary<Puck, GoalieShotPhysics.TipFeedKind>();
+        /// <summary>Per-rink look lock for goalie/tip practice — hold active puck until flight ends.</summary>
+        private static readonly Dictionary<int, float> goalieLookHoldUntil =
+            new Dictionary<int, float>();
 
         internal static void ApplyMode(int rinkIndex, RinkStripMode mode)
         {
@@ -258,6 +263,13 @@ namespace PHLPracticeModPack
                 || mode == RinkStripMode.LowCyclePassing)
                 return StretchPassPractice.ResolveLookPuck(rinkIndex);
 
+            if (IsGoalieLookHoldActive(rinkIndex))
+            {
+                Puck heldFlying = ResolveHeldFlyingPuck(rinkIndex);
+                if (heldFlying != null)
+                    return heldFlying;
+            }
+
             Puck flying = ResolveBestFlyingLookPuck(rinkIndex);
             if (flying != null)
                 return flying;
@@ -276,6 +288,27 @@ namespace PHLPracticeModPack
                 || mode == RinkStripMode.LowCyclePassing)
                 return StretchPassPractice.ResolveQueuedLookPuck(rinkIndex);
 
+            Puck flying = IsGoalieLookHoldActive(rinkIndex)
+                ? ResolveHeldFlyingPuck(rinkIndex)
+                : ResolveBestFlyingLookPuck(rinkIndex);
+
+            if (flying != null && IsGoalieLookHoldActive(rinkIndex))
+            {
+                if (goaliePendingShots.TryGetValue(rinkIndex, out List<PendingGoalieShot> heldQueue)
+                    && heldQueue != null
+                    && heldQueue.Count > 0
+                    && heldQueue[0].Puck != null
+                    && heldQueue[0].Puck.gameObject != null)
+                {
+                    return heldQueue[0].Puck;
+                }
+
+                return null;
+            }
+
+            if (flying != null)
+                return flying;
+
             if ((mode == RinkStripMode.GoaliePractice || mode == RinkStripMode.TipPractice)
                 && goaliePendingShots.TryGetValue(rinkIndex, out List<PendingGoalieShot> queue)
                 && queue != null
@@ -284,6 +317,28 @@ namespace PHLPracticeModPack
                 && queue[0].Puck.gameObject != null)
             {
                 return queue[0].Puck;
+            }
+
+            return null;
+        }
+
+        private static bool IsGoalieLookHoldActive(int rinkIndex)
+        {
+            return goalieLookHoldUntil.TryGetValue(rinkIndex, out float holdUntil)
+                && Time.time < holdUntil;
+        }
+
+        /// <summary>Current in-flight practice puck — no threat filter while look-hold is active.</summary>
+        private static Puck ResolveHeldFlyingPuck(int rinkIndex)
+        {
+            if (!rinkPucks.TryGetValue(rinkIndex, out List<Puck> list) || list == null)
+                return null;
+
+            for (int i = list.Count - 1; i >= 0; i--)
+            {
+                Puck p = list[i];
+                if (p != null && p.gameObject != null)
+                    return p;
             }
 
             return null;
@@ -442,6 +497,7 @@ namespace PHLPracticeModPack
             tipLoops.Remove(rinkIndex);
             goalieNextGoalArrival.Remove(rinkIndex);
             tipNextTipArrival.Remove(rinkIndex);
+            goalieLookHoldUntil.Remove(rinkIndex);
             CleanupPendingGoalieShots(rinkIndex);
             CleanupPendingTipShots(rinkIndex);
             CleanupRinkPucks(rinkIndex);
@@ -558,7 +614,9 @@ namespace PHLPracticeModPack
                     }
 
                     FireGoalieShot(shot);
-                    TrackGoaliePuck(rinkIndex, shot.Puck, shot.FireAt, shot.TravelTime);
+                    float firedAt = Time.time;
+                    TrackGoaliePuck(rinkIndex, shot.Puck, firedAt, shot.TravelTime);
+                    goalieLookHoldUntil[rinkIndex] = firedAt + shot.TravelTime + GoalieLookHoldGraceSeconds;
                     RefreshLookTarget(rinkIndex);
 
                     if (queue.Count < GoalieHoldQueueDepth
@@ -574,6 +632,7 @@ namespace PHLPracticeModPack
             {
                 saveLoops.Remove(rinkIndex);
                 goalieNextGoalArrival.Remove(rinkIndex);
+                goalieLookHoldUntil.Remove(rinkIndex);
                 CleanupPendingGoalieShots(rinkIndex);
                 CleanupRinkPucks(rinkIndex);
                 GoaliePracticeLookTarget.ClearRink(rinkIndex);
@@ -1629,13 +1688,13 @@ namespace PHLPracticeModPack
             list.Add(puck);
         }
 
-        private static void TrackGoaliePuck(int rinkIndex, Puck puck, float fireAt, float travelTime)
+        private static void TrackGoaliePuck(int rinkIndex, Puck puck, float firedAt, float travelTime)
         {
             TrackPuck(rinkIndex, puck);
             if (puck == null)
                 return;
 
-            float expectedArrival = fireAt + travelTime;
+            float expectedArrival = firedAt + travelTime;
             goaliePuckExpectedArrivalAt[puck] = expectedArrival;
             goaliePuckSafetyExpireAt[puck] = expectedArrival + GoalieMissedShotSafetySeconds;
             goaliePuckCrossedGoalAt.Remove(puck);

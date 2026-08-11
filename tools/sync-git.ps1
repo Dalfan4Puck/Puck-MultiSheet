@@ -9,7 +9,9 @@ param(
     [string]$GitRemote = "origin",
     [string]$GitBranch = "main",
     [string]$SshKey,
-    [switch]$SkipAudit
+    [string]$PushMethod,
+    [switch]$SkipAudit,
+    [switch]$PushOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,4 +27,4 @@ if (-not $Message) {
     $Message = "Sync " + (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
 }
 
-Push-MultiSheetGit -Root $ProjectRoot -Message $Message -Remote $GitRemote -Branch $GitBranch -SshKeyPath $SshKey -SkipAudit:$SkipAudit
+Push-MultiSheetGit -Root $ProjectRoot -Message $Message -Remote $GitRemote -Branch $GitBranch -SshKeyPath $SshKey -PushMethod $PushMethod -SkipAudit:$SkipAudit -PushOnly:$PushOnly

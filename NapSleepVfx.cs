@@ -9,7 +9,10 @@ namespace PHLPracticeModPack
     /// </summary>
     internal static class NapSleepVfx
     {
+        private const float RefreshSeconds = 0.2f;
+
         private static readonly Dictionary<ulong, NapSleepVfxAnchor> anchorsByClient = new Dictionary<ulong, NapSleepVfxAnchor>();
+        private static float nextRefreshTime;
 
         internal static void Tick()
         {
@@ -23,14 +26,24 @@ namespace PHLPracticeModPack
                 return;
             }
 
-            HashSet<ulong> active = new HashSet<ulong>();
-            Player[] players = Object.FindObjectsByType<Player>(FindObjectsSortMode.None);
-            if (players == null)
+            if (!NapSleepSync.AnyNapping)
+            {
+                if (anchorsByClient.Count > 0)
+                    Teardown();
+                return;
+            }
+
+            if (Time.unscaledTime < nextRefreshTime)
+                return;
+            nextRefreshTime = Time.unscaledTime + RefreshSeconds;
+
+            PlayerManager pm = MonoBehaviourSingleton<PlayerManager>.Instance;
+            if (pm == null)
                 return;
 
-            for (int i = 0; i < players.Length; i++)
+            HashSet<ulong> active = new HashSet<ulong>();
+            foreach (Player player in pm.GetPlayers())
             {
-                Player player = players[i];
                 if (player == null)
                     continue;
 
@@ -83,6 +96,7 @@ namespace PHLPracticeModPack
             foreach (KeyValuePair<ulong, NapSleepVfxAnchor> pair in anchorsByClient)
                 pair.Value?.DestroySelf();
             anchorsByClient.Clear();
+            nextRefreshTime = 0f;
         }
     }
 
@@ -382,19 +396,16 @@ namespace PHLPracticeModPack
         {
             try
             {
-                Player[] players = Object.FindObjectsByType<Player>(FindObjectsSortMode.None);
-                if (players != null)
+                NetworkManager nm = NetworkManager.Singleton;
+                PlayerManager pm = MonoBehaviourSingleton<PlayerManager>.Instance;
+                Player player = pm != null && nm != null
+                    ? pm.GetPlayerByClientId(nm.LocalClientId)
+                    : null;
+                if (player != null)
                 {
-                    for (int i = 0; i < players.Length; i++)
+                    PlayerCamera playerCamera = player.PlayerCamera;
+                    if (playerCamera != null)
                     {
-                        Player player = players[i];
-                        if (player == null || !player.IsLocalPlayer)
-                            continue;
-
-                        PlayerCamera playerCamera = player.PlayerCamera;
-                        if (playerCamera == null)
-                            continue;
-
                         Camera cam = playerCamera.GetComponent<Camera>();
                         if (cam == null)
                             cam = playerCamera.GetComponentInChildren<Camera>();

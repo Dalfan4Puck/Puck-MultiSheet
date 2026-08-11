@@ -20,6 +20,7 @@ namespace PHLPracticeModPack
         private const byte OpTeleport = 1;
         private const byte OpSetRole = 2;
         private const byte OpSetSlidable = 3;
+        private const byte OpSlidableBlockedNotice = 4;
         private const int MaxPayloadBytes = 4096;
         private const float OccupancyPollSeconds = 0.5f;
 
@@ -75,6 +76,7 @@ namespace PHLPracticeModPack
                 serverRoleActive = true;
                 autoSentClients.Clear();
                 lastCounts = null;
+                EnsureLandingZoneSlidableDefaults();
             }
             else if (!manager.IsServer && serverRoleActive)
             {
@@ -362,6 +364,14 @@ namespace PHLPracticeModPack
                     return;
                 }
 
+                if (op == OpSlidableBlockedNotice)
+                {
+                    reader.ReadValueSafe(out byte rinkIndexByte);
+                    QueuePrivateChat(senderClientId,
+                        RinkStripModeUtil.SlidablePhysicsLockedMessage(rinkIndexByte));
+                    return;
+                }
+
                 if (op != OpTeleport && op != OpSetRole && op != OpSetSlidable) return;
 
                 if (op == OpSetRole)
@@ -393,6 +403,12 @@ namespace PHLPracticeModPack
                     }
 
                     bool enabled = enabledByte != 0;
+                    if (enabled && RinkStripModeUtil.IsSlidableToggleBlocked(slidableRink))
+                    {
+                        QueuePrivateChat(senderClientId, RinkStripModeUtil.SlidablePhysicsLockedMessage(slidableRink));
+                        return;
+                    }
+
                     FlamiePracFeatures.SetSlidablePhysicsEnabled(slidableRink, enabled);
                     PracticeLog.Info("[PHLPractice] Slidable physics " + (enabled ? "enabled" : "disabled") +
                                      " on rink " + (slidableRink + 1) + " by client " + senderClientId);
@@ -473,8 +489,13 @@ namespace PHLPracticeModPack
         internal static void ClientRequestTeleport(int rinkIndex)
         {
             if (rinkIndex < 0 || rinkIndex > 255) return;
-            // Only skip when the local player is already spawned on that sheet.
-            if (RinkLocator.LocalPlayerBodyPosition().HasValue
+            // Match the Rinks tab: skip only when the body is already on that sheet.
+            if (ActiveRinkResolver.TryGetBodyRinkIndex(out int bodyRink) && rinkIndex == bodyRink)
+                return;
+            // Bodiless practice join — ignore repeat picks before first spawn, but only
+            // when the player already chose that rink (not the default fallback to 0).
+            if (!RinkLocator.LocalPlayerBodyPosition().HasValue
+                && ActiveRinkResolver.HasExplicitLocalRinkPick()
                 && rinkIndex == ActiveRinkResolver.ResolveLocalRinkIndex())
                 return;
 
@@ -506,6 +527,24 @@ namespace PHLPracticeModPack
                 writer.WriteValueSafe((byte)Mathf.Clamp(rinkIndex, 0, 255));
                 writer.WriteValueSafe(enabled ? (byte)1 : (byte)0);
             }, 3);
+        }
+
+        /// <summary>Host or client — show the landing-zone slidable block message in chat.</summary>
+        internal static void ClientRequestSlidableBlockedNotice(int rinkIndex)
+        {
+            string message = RinkStripModeUtil.SlidablePhysicsLockedMessage(rinkIndex);
+            NetworkManager nm = NetworkManager.Singleton;
+            if (nm != null && nm.IsServer)
+            {
+                QueuePrivateChat(nm.LocalClientId, message);
+                return;
+            }
+
+            SendRequest(writer =>
+            {
+                writer.WriteValueSafe(OpSlidableBlockedNotice);
+                writer.WriteValueSafe((byte)Mathf.Clamp(rinkIndex, 0, 255));
+            }, 2);
         }
 
         private static void SendRequest(Action<FastBufferWriter> fill, int size)
@@ -678,6 +717,8 @@ namespace PHLPracticeModPack
             {
                 PracticeFlowServer.OnClientDisconnected(clientId);
                 MultiRinkService.OnClientDisconnected(clientId);
+                TrainingObjectManager.Instance?.OnClientDisconnected(clientId);
+                RinkStripVote.OnServerEmptied();
             }
             if (manager != null && clientId == manager.LocalClientId) ResetLocalConnection();
         }
@@ -722,6 +763,23 @@ namespace PHLPracticeModPack
             byte[] bytes = new byte[length];
             reader.ReadBytesSafe(ref bytes, length);
             return Encoding.UTF8.GetString(bytes);
+        }
+
+        /// <summary>
+        /// Rink 1 landing zone: slidable stays off at startup. Toggling on is blocked separately (L key / /slidable).
+        /// </summary>
+        internal static void EnsureLandingZoneSlidableDefaults()
+        {
+            if (!RinkStripModeUtil.IsSlidableToggleBlocked(0))
+                return;
+
+            if (!FlamiePracFeatures.IsSlidablePhysicsEnabled(0))
+                return;
+
+            FlamiePracFeatures.SetSlidablePhysicsEnabled(0, false);
+            PracticeLog.Info("[PHLPractice] Rink 1 slidable forced off for landing zone (toggle blocked).");
+            if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsServer)
+                BroadcastStatus();
         }
 
         private static bool TryAuthorizeSlidable(ulong clientId, int rinkIndex, out string message)

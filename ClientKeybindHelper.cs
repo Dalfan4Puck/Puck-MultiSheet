@@ -3,9 +3,13 @@ using UnityEngine.InputSystem;
 
 namespace PHLPracticeModPack
 {
-    /// <summary>Maps multisheet_client.json key strings to the Input System.</summary>
+    /// <summary>Maps multisheet_client.json bind strings to the Input System (keyboard + mouse).</summary>
     internal static class ClientKeybindHelper
     {
+        internal const string MouseMiddleBind = "MouseMiddle";
+        internal const string MouseBackBind = "MouseBack";
+        internal const string MouseForwardBind = "MouseForward";
+
         /// <summary>
         /// False while chat, pause menu, or settings has focus — same signals as ToastersReskinLoader
         /// <c>IsBlockingUIOpen</c>, plus our UIChat StartInput/StopInput patch.
@@ -35,16 +39,26 @@ namespace PHLPracticeModPack
             return true;
         }
 
-        internal static bool WasKeyPressedThisFrame(string keyName)
+        internal static bool WasKeyPressedThisFrame(string bindName)
+        {
+            return WasBindPressedThisFrame(bindName);
+        }
+
+        internal static bool WasBindPressedThisFrame(string bindName)
         {
             if (!ShouldProcessKeybinds())
                 return false;
+
+            if (TryGetMouseButtonControl(bindName, out UnityEngine.InputSystem.Controls.ButtonControl mouseButton))
+            {
+                return mouseButton != null && mouseButton.wasPressedThisFrame;
+            }
 
             Keyboard keyboard = Keyboard.current;
             if (keyboard == null)
                 return false;
 
-            Key key = ParseKey(keyName);
+            Key key = ParseKey(bindName);
             if (key == Key.None)
                 return false;
 
@@ -52,12 +66,84 @@ namespace PHLPracticeModPack
             return control != null && control.wasPressedThisFrame;
         }
 
-        internal static string NormalizeDisplayKey(string keyName)
+        /// <summary>Poll while a rebind row is listening — captures side/extra mouse buttons.</summary>
+        internal static bool TryCaptureMouseBindPress(out string bindName)
         {
-            if (string.IsNullOrWhiteSpace(keyName))
+            bindName = null;
+            Mouse mouse = Mouse.current;
+            if (mouse == null)
+                return false;
+
+            if (mouse.middleButton.wasPressedThisFrame)
+            {
+                bindName = MouseMiddleBind;
+                return true;
+            }
+
+            if (mouse.backButton.wasPressedThisFrame)
+            {
+                bindName = MouseBackBind;
+                return true;
+            }
+
+            if (mouse.forwardButton.wasPressedThisFrame)
+            {
+                bindName = MouseForwardBind;
+                return true;
+            }
+
+            return false;
+        }
+
+        internal static bool IsIgnoredRebindKeyCode(KeyCode keyCode)
+        {
+            return keyCode == KeyCode.Tab
+                || keyCode == KeyCode.LeftShift
+                || keyCode == KeyCode.RightShift
+                || keyCode == KeyCode.LeftControl
+                || keyCode == KeyCode.RightControl
+                || keyCode == KeyCode.LeftAlt
+                || keyCode == KeyCode.RightAlt;
+        }
+
+        /// <summary>UITK KeyDownEvent → stored bind string, or null when ignored.</summary>
+        internal static string KeyCodeToBindName(KeyCode keyCode)
+        {
+            if (keyCode == KeyCode.Escape || IsIgnoredRebindKeyCode(keyCode))
+                return null;
+
+            switch (keyCode)
+            {
+                case KeyCode.Mouse2:
+                    return MouseMiddleBind;
+                case KeyCode.Mouse3:
+                    return MouseBackBind;
+                case KeyCode.Mouse4:
+                    return MouseForwardBind;
+            }
+
+            string pressed = keyCode.ToString();
+            if (pressed.Length == 1)
+                pressed = pressed.ToUpperInvariant();
+            return pressed;
+        }
+
+        internal static string NormalizeDisplayKey(string bindName)
+        {
+            if (string.IsNullOrWhiteSpace(bindName))
                 return "?";
 
-            string trimmed = keyName.Trim();
+            string trimmed = bindName.Trim();
+            switch (trimmed)
+            {
+                case MouseMiddleBind:
+                    return "MMB";
+                case MouseBackBind:
+                    return "Mouse4";
+                case MouseForwardBind:
+                    return "Mouse5";
+            }
+
             if (trimmed.Length == 1)
                 return trimmed.ToUpperInvariant();
 
@@ -70,6 +156,9 @@ namespace PHLPracticeModPack
         internal static Key ParseKey(string keyName)
         {
             if (string.IsNullOrWhiteSpace(keyName))
+                return Key.None;
+
+            if (IsMouseBind(keyName))
                 return Key.None;
 
             string name = keyName.Trim();
@@ -121,6 +210,54 @@ namespace PHLPracticeModPack
                 return parsed;
 
             return Key.None;
+        }
+
+        private static bool IsMouseBind(string bindName)
+        {
+            if (string.IsNullOrWhiteSpace(bindName))
+                return false;
+
+            string name = bindName.Trim();
+            return name == MouseMiddleBind
+                || name == MouseBackBind
+                || name == MouseForwardBind
+                || name == "Mouse4"
+                || name == "Mouse5"
+                || name == "MMB";
+        }
+
+        private static bool TryGetMouseButtonControl(
+            string bindName,
+            out UnityEngine.InputSystem.Controls.ButtonControl button)
+        {
+            button = null;
+            if (string.IsNullOrWhiteSpace(bindName))
+                return false;
+
+            Mouse mouse = Mouse.current;
+            if (mouse == null)
+                return false;
+
+            switch (bindName.Trim())
+            {
+                case MouseMiddleBind:
+                case "MMB":
+                case "MiddleMouse":
+                    button = mouse.middleButton;
+                    return true;
+                case MouseBackBind:
+                case "Mouse4":
+                case "MouseButton4":
+                    button = mouse.backButton;
+                    return true;
+                case MouseForwardBind:
+                case "Mouse5":
+                case "MouseButton5":
+                    button = mouse.forwardButton;
+                    return true;
+                default:
+                    return false;
+            }
         }
     }
 }

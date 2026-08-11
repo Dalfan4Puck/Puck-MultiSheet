@@ -197,8 +197,8 @@ namespace PHLPracticeModPack
             closeX.RegisterCallback<MouseLeaveEvent>(delegate { closeX.style.color = closeNormal; });
             header.Add(closeX);
 
-            // Scroll when Keybinds/Radio expand — never flex-shrink the rink grid (strip
-            // buttons would collide with Position / Lighting headings).
+            // Scroll when Keybinds/Settings/Radio expand — never flex-shrink the rink grid (strip
+            // buttons would collide with section headings below).
             ScrollView scroll = new ScrollView(ScrollViewMode.Vertical);
             scroll.style.flexGrow = 1;
             scroll.style.flexShrink = 1;
@@ -233,12 +233,28 @@ namespace PHLPracticeModPack
             body.Add(rinkSectionHost);
             FillRinkSection(rinkSectionHost, payload, callbacks, embedded);
 
-            // Position + Lighting inside a Settings collapsible (matches canvas).
+            VisualElement stripSectionHost = new VisualElement();
+            stripSectionHost.style.display = DisplayStyle.None;
+            stripSectionHost.style.flexShrink = 0;
+            body.Add(stripSectionHost);
+
+            VisualElement collapsibleHost = new VisualElement();
+            collapsibleHost.style.flexShrink = 0;
+            collapsibleHost.style.marginTop = embedded ? 10 : 16;
+            collapsibleHost.style.marginBottom = embedded ? 6 : 10;
+            body.Add(collapsibleHost);
+
+            VisualElement keybindsSectionHost = new VisualElement();
+            keybindsSectionHost.style.flexShrink = 0;
+            keybindsSectionHost.style.marginBottom = 0;
+            collapsibleHost.Add(keybindsSectionHost);
+            RinkPanelCollapsible.FillKeybindsSection(keybindsSectionHost, embedded);
+
             VisualElement settingsSectionHost = new VisualElement();
             settingsSectionHost.style.flexShrink = 0;
-            settingsSectionHost.style.marginTop = embedded ? 10 : 16;
+            settingsSectionHost.style.marginTop = 0;
             settingsSectionHost.style.marginBottom = 0;
-            body.Add(settingsSectionHost);
+            collapsibleHost.Add(settingsSectionHost);
 
             VisualElement roleSectionHost = null;
             VisualElement lightingSectionHost = null;
@@ -249,23 +265,6 @@ namespace PHLPracticeModPack
                 embedded,
                 out roleSectionHost,
                 out lightingSectionHost);
-
-            VisualElement stripSectionHost = new VisualElement();
-            stripSectionHost.style.display = DisplayStyle.None;
-            stripSectionHost.style.flexShrink = 0;
-            body.Add(stripSectionHost);
-
-            VisualElement collapsibleHost = new VisualElement();
-            collapsibleHost.style.flexShrink = 0;
-            collapsibleHost.style.marginTop = 0;
-            collapsibleHost.style.marginBottom = embedded ? 6 : 10;
-            body.Add(collapsibleHost);
-
-            VisualElement keybindsSectionHost = new VisualElement();
-            keybindsSectionHost.style.flexShrink = 0;
-            keybindsSectionHost.style.marginBottom = 0;
-            collapsibleHost.Add(keybindsSectionHost);
-            RinkPanelCollapsible.FillKeybindsSection(keybindsSectionHost, embedded);
 
             VisualElement radioInfoSectionHost = new VisualElement();
             radioInfoSectionHost.style.flexShrink = 0;
@@ -1257,7 +1256,7 @@ namespace PHLPracticeModPack
             trigger.pickingMode = PickingMode.Position;
             trigger.focusable = true;
             trigger.tooltip = selected == RinkStripMode.Empty
-                ? "No practice mode — pick one below, then press →"
+                ? "Pick a game mode below, then press \u2192"
                 : "Selected: " + RinkStripModeUtil.DisplayName(selected);
 
             Label caption = MakeStripBarCaption(
@@ -1276,7 +1275,7 @@ namespace PHLPracticeModPack
                     caption.text = RinkStripModeUtil.DropdownLabel(mode);
                     caption.style.color = StripDropdownTextColor(mode);
                     trigger.tooltip = mode == RinkStripMode.Empty
-                        ? "No practice mode — pick one below, then press →"
+                        ? "Pick a game mode below, then press \u2192"
                         : "Selected: " + RinkStripModeUtil.DisplayName(mode);
                 });
                 evt.StopPropagation();
@@ -1451,16 +1450,23 @@ namespace PHLPracticeModPack
             wrap.style.flexShrink = 0;
             wrap.style.height = barH;
 
-            Button bar = MakeStripBarButton(
-                RinkStripModeUtil.DisplayName(RinkStripMode.PhlTools),
-                barH,
-                fontSize,
-                TextColor,
-                ElevatedBg);
+            VisualElement bar = new VisualElement();
+            bar.style.width = new Length(100, LengthUnit.Percent);
+            bar.style.height = barH;
+            bar.style.minHeight = barH;
+            bar.style.backgroundColor = ElevatedBg;
+            bar.style.flexDirection = FlexDirection.Row;
+            bar.style.alignItems = Align.Center;
+            bar.style.justifyContent = Justify.Center;
             bar.pickingMode = PickingMode.Ignore;
-            bar.SetEnabled(false);
             bar.tooltip = RinkStripModeUtil.StripModeLockedMessage(RinkStripModeUtil.PhlToolsLockedRinkIndex);
             SetBorder(bar, 2, CtaBg);
+
+            Label caption = MakeStripBarCaption(
+                RinkStripModeUtil.DisplayName(RinkStripMode.PhlTools),
+                fontSize,
+                TextColor);
+            bar.Add(caption);
             wrap.Add(bar);
             return wrap;
         }
@@ -1509,6 +1515,7 @@ namespace PHLPracticeModPack
                 SetBorder(remove, 2, idleBorder);
                 remove.RegisterCallback<MouseEnterEvent>(delegate
                 {
+                    if (RinkStripModeUtil.IsStripModeLocked(rinkIndex)) return;
                     remove.text = removeLabel;
                     remove.style.color = FullRed;
                     remove.style.backgroundColor = new Color(FullRed.r, FullRed.g, FullRed.b, 0.28f);

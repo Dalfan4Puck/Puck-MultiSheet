@@ -9,8 +9,7 @@ namespace PHLPracticeModPack
 {
     /// <summary>
     /// Practice join flow. Server: every joiner is auto-assigned to Blue (no
-    /// team-select prompt), stays bodiless and positionless until they pick a rink,
-    /// then spawns at that rink's center ice; the match is frozen in Warmup forever.
+    /// team-select prompt), then spawns on rink 1 by default (or their rink pick).
     /// Client: the stock team/position select screens are suppressed, the pre-spawn
     /// camera becomes a wide overhead shot of all rinks, and the HUD clock counts UP
     /// from the moment the local player joined (each client sees their own timer).
@@ -76,6 +75,32 @@ namespace PHLPracticeModPack
                         player.Server_SetGameState(PlayerPhase.PositionSelect, PlayerTeam.Blue, PlayerRole.Attacker);
                         PracticeLog.Info("[PHLPractice] Auto-assigned client " + player.OwnerClientId +
                                   " to Blue (awaiting rink pick).");
+                    }
+                    else if (player.Phase == PlayerPhase.PositionSelect
+                        && !player.IsCharacterSpawned
+                        && MultiRinkService.GetActiveRinkId(player.OwnerClientId) == null
+                        && autoTeamed.Contains(player.OwnerClientId))
+                    {
+                        // First-time joiners: spawn on rink 1 if they never picked a sheet
+                        // (closing the tab without clicking still lands them on ice).
+                        MultiRinkConfig cfg = MultiRinkConfig.Current;
+                        if (cfg?.Rinks != null && cfg.Rinks.Count > 0 && VanillaRinkCloner.LayoutReady)
+                        {
+                            RinkSlot defaultSlot = cfg.Rinks[0];
+                            if (defaultSlot != null)
+                            {
+                                if (RinkMotdService.IsRinkFullFor(player.OwnerClientId, defaultSlot, out string fullMessage))
+                                {
+                                    if (!string.IsNullOrEmpty(fullMessage))
+                                        RinkMotdService.QueuePrivateChatForClient(player.OwnerClientId, fullMessage);
+                                }
+                                else if (MultiRinkService.TryAssignRink(player.OwnerClientId, defaultSlot, out _))
+                                {
+                                    PracticeLog.Info("[PHLPractice] Auto-spawned client " + player.OwnerClientId +
+                                              " on rink 1.");
+                                }
+                            }
+                        }
                     }
                     else if (player.Phase == PlayerPhase.PositionSelect
                         && !player.IsCharacterSpawned
@@ -588,6 +613,7 @@ namespace PHLPracticeModPack
 
         private static UnityEngine.UIElements.Label clockLabel;
         private static UIGameState clockOwner;
+        private static string lastClockText;
 
         /// <summary>True once this connection has received a MultiSheet rink payload.</summary>
         internal static bool IsOnPracticeServer
@@ -681,9 +707,17 @@ namespace PHLPracticeModPack
                     clockOwner = gameState;
                     clockLabel = AccessTools.Field(typeof(UIGameState), "timeLabel")
                         ?.GetValue(gameState) as UnityEngine.UIElements.Label;
+                    lastClockText = null;
                 }
                 if (clockLabel != null)
-                    clockLabel.text = FormatPracticeClock(seconds);
+                {
+                    string text = FormatPracticeClock(seconds);
+                    if (text != lastClockText)
+                    {
+                        clockLabel.text = text;
+                        lastClockText = text;
+                    }
+                }
             }
             catch { }
         }
@@ -715,6 +749,7 @@ namespace PHLPracticeModPack
             manualTeamSelect = false;
             clockLabel = null;
             clockOwner = null;
+            lastClockText = null;
             ReleaseCamera();
         }
 

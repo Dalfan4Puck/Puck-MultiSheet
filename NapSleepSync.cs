@@ -20,6 +20,8 @@ namespace PHLPracticeModPack
 
         internal static bool IsNapping(ulong clientId) => nappingClients.Contains(clientId);
 
+        internal static bool AnyNapping => nappingClients.Count > 0;
+
         internal static void Initialize()
         {
             try

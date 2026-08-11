@@ -137,7 +137,7 @@ namespace PHLPracticeModPack
                 v => MultiSheetClientSettings.ToggleRoleKey = v);
             AddSlidableKeybindRow(host, body, embedded);
             AddMinimapKeybindRow(host, body, embedded);
-            AddDualRow(body, embedded, "Spawn Objects: /passer, /pushbeam, /sheet", null);
+            AddDualRow(body, embedded, "Spawn Objects: /spawn passer, pushbeam, sheet, crate [size], sphere · /clear (max 100 per player)", null);
             AddDualRow(body, embedded, "Stretch Passing: /sp · /sp hard · soft · air · normal", null);
             AddDualRow(body, embedded, "Point Passing: /sp point · /sp rim · /sp normal", null);
             AddDualRow(body, embedded, "Low Cycle Passing: /sp indirect · /sp rim · /sp normal", null);
@@ -364,46 +364,7 @@ namespace PHLPracticeModPack
                 RinkPanelBuilder.ButtonHover,
                 () => { });
             StyleKeybindButton(rebind, embedded);
-            rebind.focusable = true;
-            rebind.RegisterCallback<ClickEvent>(evt =>
-            {
-                body.userData = listenId;
-                rebind.text = "…";
-                rebind.Focus();
-                evt.StopPropagation();
-            });
-            rebind.RegisterCallback<KeyDownEvent>(evt =>
-            {
-                if (body.userData as string != listenId) return;
-                if (evt.keyCode == KeyCode.Escape)
-                {
-                    body.userData = null;
-                    FillKeybindsSection(sectionHost, embedded);
-                    evt.StopPropagation();
-                    return;
-                }
-                if (evt.keyCode == KeyCode.Tab || evt.keyCode == KeyCode.LeftShift ||
-                    evt.keyCode == KeyCode.RightShift || evt.keyCode == KeyCode.LeftControl ||
-                    evt.keyCode == KeyCode.RightControl || evt.keyCode == KeyCode.LeftAlt ||
-                    evt.keyCode == KeyCode.RightAlt)
-                    return;
-
-                string pressed = evt.keyCode.ToString();
-                if (pressed.Length == 1) pressed = pressed.ToUpperInvariant();
-                setKey(pressed);
-                MultiSheetClientSettings.Save();
-                body.userData = null;
-                FillKeybindsSection(sectionHost, embedded);
-                evt.StopPropagation();
-            });
-            rebind.RegisterCallback<BlurEvent>(_ =>
-            {
-                if (body.userData as string == listenId)
-                {
-                    body.userData = null;
-                    FillKeybindsSection(sectionHost, embedded);
-                }
-            });
+            RegisterRebindButton(sectionHost, body, rebind, listenId, embedded, setKey);
             if (listening)
             {
                 RinkPanelBuilder.SetBorder(rebind, 2, CyanAccent);
@@ -461,46 +422,8 @@ namespace PHLPracticeModPack
                 () => { });
             StyleKeybindButton(rebind, embedded);
             rebind.tooltip = "Rebind slidable toggle key (default L)";
-            rebind.focusable = true;
-            rebind.RegisterCallback<ClickEvent>(evt =>
-            {
-                body.userData = "slidable";
-                rebind.text = "…";
-                rebind.Focus();
-                evt.StopPropagation();
-            });
-            rebind.RegisterCallback<KeyDownEvent>(evt =>
-            {
-                if (body.userData as string != "slidable") return;
-                if (evt.keyCode == KeyCode.Escape)
-                {
-                    body.userData = null;
-                    FillKeybindsSection(sectionHost, embedded);
-                    evt.StopPropagation();
-                    return;
-                }
-                if (evt.keyCode == KeyCode.Tab || evt.keyCode == KeyCode.LeftShift ||
-                    evt.keyCode == KeyCode.RightShift || evt.keyCode == KeyCode.LeftControl ||
-                    evt.keyCode == KeyCode.RightControl || evt.keyCode == KeyCode.LeftAlt ||
-                    evt.keyCode == KeyCode.RightAlt)
-                    return;
-
-                string pressed = evt.keyCode.ToString();
-                if (pressed.Length == 1) pressed = pressed.ToUpperInvariant();
-                MultiSheetClientSettings.SlidableToggleKey = pressed;
-                MultiSheetClientSettings.Save();
-                body.userData = null;
-                FillKeybindsSection(sectionHost, embedded);
-                evt.StopPropagation();
-            });
-            rebind.RegisterCallback<BlurEvent>(_ =>
-            {
-                if (body.userData as string == "slidable")
-                {
-                    body.userData = null;
-                    FillKeybindsSection(sectionHost, embedded);
-                }
-            });
+            RegisterRebindButton(sectionHost, body, rebind, "slidable", embedded,
+                v => MultiSheetClientSettings.SlidableToggleKey = v);
             if (listening)
             {
                 RinkPanelBuilder.SetBorder(rebind, 2, CyanAccent);
@@ -531,17 +454,37 @@ namespace PHLPracticeModPack
                 () => { });
             StyleKeybindButton(rebind, embedded);
             rebind.tooltip = "Rebind minimap toggle key (default M)";
+            RegisterRebindButton(sectionHost, body, rebind, "minimap", embedded,
+                v => MultiSheetClientSettings.MinimapToggleKey = v);
+            if (listening)
+            {
+                RinkPanelBuilder.SetBorder(rebind, 2, CyanAccent);
+                rebind.schedule.Execute(() => rebind.Focus()).ExecuteLater(1);
+            }
+            cols[1].Add(rebind);
+        }
+
+        private static void RegisterRebindButton(
+            VisualElement sectionHost,
+            VisualElement body,
+            Button rebind,
+            string listenId,
+            bool embedded,
+            Action<string> setKey)
+        {
             rebind.focusable = true;
             rebind.RegisterCallback<ClickEvent>(evt =>
             {
-                body.userData = "minimap";
+                body.userData = listenId;
                 rebind.text = "…";
                 rebind.Focus();
                 evt.StopPropagation();
             });
             rebind.RegisterCallback<KeyDownEvent>(evt =>
             {
-                if (body.userData as string != "minimap") return;
+                if (body.userData as string != listenId)
+                    return;
+
                 if (evt.keyCode == KeyCode.Escape)
                 {
                     body.userData = null;
@@ -549,34 +492,45 @@ namespace PHLPracticeModPack
                     evt.StopPropagation();
                     return;
                 }
-                if (evt.keyCode == KeyCode.Tab || evt.keyCode == KeyCode.LeftShift ||
-                    evt.keyCode == KeyCode.RightShift || evt.keyCode == KeyCode.LeftControl ||
-                    evt.keyCode == KeyCode.RightControl || evt.keyCode == KeyCode.LeftAlt ||
-                    evt.keyCode == KeyCode.RightAlt)
+
+                string pressed = ClientKeybindHelper.KeyCodeToBindName(evt.keyCode);
+                if (pressed == null)
                     return;
 
-                string pressed = evt.keyCode.ToString();
-                if (pressed.Length == 1) pressed = pressed.ToUpperInvariant();
-                MultiSheetClientSettings.MinimapToggleKey = pressed;
-                MultiSheetClientSettings.Save();
-                body.userData = null;
-                FillKeybindsSection(sectionHost, embedded);
+                CompleteRebind(sectionHost, body, embedded, setKey, pressed);
                 evt.StopPropagation();
             });
             rebind.RegisterCallback<BlurEvent>(_ =>
             {
-                if (body.userData as string == "minimap")
+                if (body.userData as string == listenId)
                 {
                     body.userData = null;
                     FillKeybindsSection(sectionHost, embedded);
                 }
             });
-            if (listening)
+            rebind.schedule.Execute(() =>
             {
-                RinkPanelBuilder.SetBorder(rebind, 2, CyanAccent);
-                rebind.schedule.Execute(() => rebind.Focus()).ExecuteLater(1);
-            }
-            cols[1].Add(rebind);
+                if (body.userData as string != listenId)
+                    return;
+
+                if (!ClientKeybindHelper.TryCaptureMouseBindPress(out string mouseBind))
+                    return;
+
+                CompleteRebind(sectionHost, body, embedded, setKey, mouseBind);
+            }).Every(16);
+        }
+
+        private static void CompleteRebind(
+            VisualElement sectionHost,
+            VisualElement body,
+            bool embedded,
+            Action<string> setKey,
+            string bindName)
+        {
+            setKey(bindName);
+            MultiSheetClientSettings.Save();
+            body.userData = null;
+            FillKeybindsSection(sectionHost, embedded);
         }
 
         private static void StyleKeybindButton(Button button, bool embedded)

@@ -73,7 +73,14 @@ namespace PHLPracticeModPack
             lastSlidableToggleTime = Time.unscaledTime;
 
             int rinkIndex = ActiveRinkResolver.ResolveLocalRinkIndex();
+            if (RinkStripModeUtil.IsSlidableToggleBlocked(rinkIndex))
+            {
+                RinkMotdService.ClientRequestSlidableBlockedNotice(rinkIndex);
+                return;
+            }
+
             bool next = !ActiveRinkResolver.IsSlidableEnabledForLocalRink();
+
             NetworkManager nm = NetworkManager.Singleton;
             if (nm == null || !nm.IsConnectedClient)
                 return;
